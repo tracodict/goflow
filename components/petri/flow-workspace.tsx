@@ -24,28 +24,28 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
-  Coins,
-  Hand,
-  Bot,
-  MessageSquare,
-  Timer,
-  Brain,
-  Play,
   Activity,
-  RotateCcw,
-  Circle,
-  Square,
-  Trash2,
+  Bot,
+  Brain,
   Check,
+  CirclePlus,
+  Coins,
+  Eye,
+  File,
+  Hand,
+  Maximize2,
+  MessageSquare,
+  MousePointer2,
+  Play,
+  RotateCcw,
   SlidersHorizontal,
   Sparkles,
-  Eye,
+  SquarePlus,
+  Timer,
+  Trash2,
+  X,
   ZoomIn,
   ZoomOut,
-  Maximize,
-  X,
-  FileIcon,
-  MousePointer2,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -88,10 +88,16 @@ function CanvasInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState<PetriNodeData>(initialSampleNet.nodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<PetriEdgeData>(initialSampleNet.edges)
   const [selectedRef, setSelectedRef] = useState<SelectedRef>(null)
-  const [panelMode, setPanelMode] = useState<PanelMode>("normal")
+  // 1) Hide Properties by default
+  const [panelMode, setPanelMode] = useState<PanelMode>("mini")
   const [panelWidth, setPanelWidth] = useState<number>(360)
   const [resizing, setResizing] = useState(false)
-  const [contextMenu, setContextMenu] = useState<{ open: boolean; x: number; y: number; nodeId: string | null }>({
+  const [contextMenu, setContextMenu] = useState<{
+    open: boolean
+    x: number
+    y: number
+    nodeId: string | null
+  }>({
     open: false,
     x: 0,
     y: 0,
@@ -155,7 +161,9 @@ function CanvasInner() {
     (connection: Connection) => {
       const newEdge: Edge<PetriEdgeData> = {
         ...connection,
-        id: `e-${connection.source ?? ""}-${connection.sourceHandle ?? ""}-${connection.target ?? ""}-${connection.targetHandle ?? ""}-${Math.random().toString(36).slice(2, 7)}`,
+        id: `e-${connection.source ?? ""}-${connection.sourceHandle ?? ""}-${connection.target ?? ""}-${
+          connection.targetHandle ?? ""
+        }-${Math.random().toString(36).slice(2, 7)}`,
         type: "labeled",
         data: { label: "arc" },
       }
@@ -218,7 +226,12 @@ function CanvasInner() {
         id,
         type: "transition",
         position: pos,
-        data: { kind: "transition", name: "Transition", tType: "manual", manual: { assignee: "", formSchemaId: "" } },
+        data: {
+          kind: "transition",
+          name: "Transition",
+          tType: "manual",
+          manual: { assignee: "", formSchemaId: "" },
+        },
       },
     ])
     setSelectedRef({ type: "node", id })
@@ -325,10 +338,10 @@ function CanvasInner() {
   }
 
   return (
-    <div ref={containerRef} className="flex w-full gap-4" style={{ height: "80vh" }}>
+    <div ref={containerRef} className="flex h-full w-full gap-4">
       {/* Left Monitor Panel - toggled by Preview */}
       {showMonitor && (
-        <div className="flex w-72 flex-col rounded-lg border bg-white p-3">
+        <div className="flex h-full w-72 flex-col rounded-lg border bg-white p-3">
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-emerald-600" aria-hidden />
@@ -400,7 +413,7 @@ function CanvasInner() {
       )}
 
       {/* Canvas area */}
-      <div className="relative flex-1 overflow-hidden rounded-lg border bg-white">
+      <div className="relative h-full flex-1 overflow-hidden rounded-lg border bg-white">
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -428,13 +441,13 @@ function CanvasInner() {
           <Background gap={16} color="#e5e5e5" />
           <MiniMap zoomable pannable />
 
-          {/* Custom controls: full set with ordering */}
+          {/* Custom controls: order + outline icons */}
           <Controls position="bottom-right" showZoom={false} showFitView={false} showInteractive={false}>
-            {/* File (above interactive toggle) */}
+            {/* File menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <ControlButton title="File">
-                  <FileIcon className="h-4 w-4" aria-hidden />
+                  <File className="h-4 w-4" aria-hidden />
                 </ControlButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent side="left" align="center" sideOffset={8} className="w-40">
@@ -454,7 +467,7 @@ function CanvasInner() {
               <MousePointer2 className={`h-4 w-4 ${interactive ? "" : "opacity-50"}`} aria-hidden />
             </ControlButton>
 
-            {/* Preview above zoom in (existing behavior) */}
+            {/* Preview */}
             <ControlButton
               onClick={() => setShowMonitor((v) => !v)}
               title={showMonitor ? "Hide monitor" : "Show monitor"}
@@ -462,15 +475,15 @@ function CanvasInner() {
               <Eye className="h-4 w-4" aria-hidden />
             </ControlButton>
 
-            {/* Zoom In/Out and Fit View controls with outline icons */}
-            <ControlButton onClick={() => zoomIn?.({ duration: 200 })} title="Zoom in">
-              <ZoomIn className="h-4 w-4" aria-hidden />
+            {/* Zoom In/Out and Fit View (larger icons for clarity) */}
+            <ControlButton onClick={() => zoomIn?.({ duration: 200 })} title="Zoom in" aria-label="Zoom in">
+              <ZoomIn className="h-5 w-5" aria-hidden />
             </ControlButton>
-            <ControlButton onClick={() => zoomOut?.({ duration: 200 })} title="Zoom out">
-              <ZoomOut className="h-4 w-4" aria-hidden />
+            <ControlButton onClick={() => zoomOut?.({ duration: 200 })} title="Zoom out" aria-label="Zoom out">
+              <ZoomOut className="h-5 w-5" aria-hidden />
             </ControlButton>
             <ControlButton onClick={() => fitView?.({ padding: 0.2, duration: 300 })} title="Fit view">
-              <Maximize className="h-4 w-4" aria-hidden />
+              <Maximize2 className="h-4 w-4" aria-hidden />
             </ControlButton>
 
             {/* Properties toggle (when mini) */}
@@ -480,12 +493,12 @@ function CanvasInner() {
               </ControlButton>
             )}
 
-            {/* Add nodes */}
+            {/* Add nodes (outline plus variants) */}
             <ControlButton onClick={addPlace} title="Add Place">
-              <Circle className="h-4 w-4" aria-hidden />
+              <CirclePlus className="h-4 w-4" aria-hidden />
             </ControlButton>
             <ControlButton onClick={addTransition} title="Add Transition">
-              <Square className="h-4 w-4" aria-hidden />
+              <SquarePlus className="h-4 w-4" aria-hidden />
             </ControlButton>
           </Controls>
         </ReactFlow>
