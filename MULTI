@@ -1,0 +1,81 @@
+// components/petri/side-panel.tsx
+import React, { useState } from "react"
+import { Node } from "react-flow-renderer"
+import { PetriNodeData } from "../lib/petri-sim"
+import Cron from "react-js-cron"
+import "react-js-cron/dist/styles.css"
+import { Label, Input } from "@ant-design/react-native"
+
+function TimerEditor({
+node,
+onUpdate,
+}: {
+node: Node<PetriNodeData>
+onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
+}) {
+const timer = ((node.data as any).timer || {}) as { delayMs?: number; cron?: string }
+const delayMs = timer.delayMs ?? 0
+const cron = timer.cron || ""
+const [cronError, setCronError] = useState<string | null>(null)
+
+return (
+  <div className="space-y-4">
+    <div className="space-y-2">
+      <Label htmlFor="timer-delay">Delay (ms)</Label>
+      <Input
+        id="timer-delay"
+        type="number"
+        min={0}
+        value={delayMs}
+        onChange={(e) =>
+          onUpdate(node.id, {
+            timer: { ...timer, delayMs: Math.max(0, Number(e.target.value || 0)) } as any,
+          })
+        }
+        placeholder="e.g., 1000"
+      />
+      <p className="text-xs text-neutral-500">Optional one-shot delay after enablement.</p>
+    </div>
+
+    <div className="space-y-2">
+      <Label>Crontab Schedule</Label>
+      <div className="rounded-md border p-2">
+        <Cron
+          value={cron}
+          setValue={(v) => onUpdate(node.id, { timer: { ...timer, cron: v } as any })}
+          onError={(e) => setCronError(e ? e.description : null)}
+          humanizeLabels
+          humanizeValue
+          leadingZero
+          clearButton
+        />
+      </div>
+      {cronError ? <p className="text-xs text-red-600">{cronError}</p> : null}
+      <p className="text-xs text-neutral-500">
+        Define a recurring schedule with a standard cron expression. Leave blank if not required.
+      </p>
+    </div>
+  </div>
+)
+}
+
+// lib/petri-sim.ts
+export type TransitionData = {
+kind: "transition"
+name: string
+tType: TransitionType
+manual?: { assignee?: string; formSchemaId?: string }
+auto?: { script?: string }
+message?: { channel?: string }
+timer?: { delayMs?: number; cron?: string }
+dmnDefinition?: any
+}
+
+// package.json
+{
+"dependencies": {
+  // other dependencies here
+  "react-js-cron": "4.1.0",
+  "@ant-design/colors": "6.0.0"
+}
+}
