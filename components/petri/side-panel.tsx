@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -10,11 +10,13 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import type { Edge, Node } from "@xyflow/react"
-import type { PetriEdgeData, PetriNodeData, TransitionType } from "@/lib/petri-sim"
+import type { PetriEdgeData, PetriNodeData, TransitionType, Token, PlaceData } from "@/lib/petri-sim"
 import { GripVertical, Minimize2, Maximize2, PanelRightOpen, ChevronsUpDown, Check, Plus, Trash2 } from "lucide-react"
 import { DmnDecisionTable, type DecisionTable } from "./dmn-decision-table"
 import { FORM_SCHEMAS } from "@/lib/form-schemas"
 import { CronLite as Cron } from "@/components/petri/cron-lite"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { FloatingCodeMirror } from "./floating-codemirror"
 
 type SelectedResolved = { type: "node"; node: Node<PetriNodeData> } | { type: "edge"; edge: Edge<PetriEdgeData> } | null
 type PanelMode = "mini" | "normal" | "full"
@@ -28,6 +30,8 @@ export function SidePanel({
   onUpdateNode,
   onUpdateEdge,
   onModeChange,
+  tokensOpenForPlaceId,
+  inscriptionOpenForTransitionId,
 }: {
   open: boolean
   mode: PanelMode
@@ -37,13 +41,16 @@ export function SidePanel({
   onUpdateNode: (id: string, patch: Partial<PetriNodeData>) => void
   onUpdateEdge: (id: string, patch: Partial<PetriEdgeData>) => void
   onModeChange: (m: PanelMode) => void
+  tokensOpenForPlaceId?: string
+  inscriptionOpenForTransitionId?: string
 }) {
+  const contentRef = useRef<HTMLDivElement | null>(null)
+
   if (!open || mode === "mini") {
     return null
   }
 
   const title = "Properties"
-
   const baseStyle: React.CSSProperties =
     mode === "full"
       ? { position: "fixed", inset: 0, zIndex: 50 }
@@ -51,7 +58,7 @@ export function SidePanel({
 
   return (
     <aside
-      className="flex flex-col border-l bg-white shadow-lg"
+      className="flex flex-col border-l bg-white shadow-lg transform-none overflow-x-visible"
       style={baseStyle}
       role="dialog"
       aria-modal="true"
@@ -86,14 +93,24 @@ export function SidePanel({
         </div>
       )}
 
-      <div className="flex-1 overflow-auto p-3">
+      <div ref={contentRef} className="flex-1 overflow-y-auto overflow-x-visible p-3">
         {!selected ? (
           <div className="text-xs text-neutral-500">Select a node or edge to edit its properties.</div>
         ) : selected.type === "node" ? (
           selected.node.type === "place" ? (
-            <PlaceEditor node={selected.node} onUpdate={onUpdateNode} />
+            <PlaceEditor
+              node={selected.node}
+              onUpdate={onUpdateNode}
+              forceOpenTokens={tokensOpenForPlaceId === selected.node.id}
+              scrollContainerRef={contentRef}
+            />
           ) : (
-            <TransitionEditor node={selected.node} onUpdate={onUpdateNode} />
+            <TransitionEditor
+              node={selected.node}
+              onUpdate={onUpdateNode}
+              focusInscription={inscriptionOpenForTransitionId === selected.node.id}
+              scrollContainerRef={contentRef}
+            />
           )
         ) : (
           <EdgeEditor edge={selected.edge} onUpdate={onUpdateEdge} />
@@ -106,31 +123,200 @@ export function SidePanel({
 function PlaceEditor({
   node,
   onUpdate,
+  forceOpenTokens,
+  scrollContainerRef,
 }: {
   node: Node<PetriNodeData>
   onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
+  forceOpenTokens?: boolean
+  scrollContainerRef: React.RefObject<HTMLElement | null>
 }) {
+  const place = node.data as PlaceData
+  const [section, setSection] = useState<"tokens" | "details">(forceOpenTokens ? "tokens" : "details")
+
+  useEffect(() => {
+    if (forceOpenTokens) setSection("tokens")
+  }, [forceOpenTokens])
+
+  const tokenList = useMemo<Token[]>(() => place.tokenList || [], [place.tokenList])
+
+  const syncCount = () => onUpdate(node.id, { tokens: tokenList.length })
+
+  const addToken = () => {
+    const list = [
+      ...tokenList,
+      { id: `tok-${Math.random().toString(36).slice(2, 8)}`, data: {}, createdAt: Date.now() },
+    ]
+    onUpdate(node.id, { tokenList: list as any, tokens: list.length } as any)
+  }
+
+  const removeToken = (tokId: string) => {
+    const list = tokenList.filter((t) => t.id !== tokId)
+    onUpdate(node.id, { tokenList: list as any, tokens: list.length } as any)
+  }
+
+  const updateTokenData = (tokId: string, nextData: any) => {
+    const list = tokenList.map((t) => (t.id === tokId ? { ...t, data: nextData, updatedAt: Date.now() } : t))
+    onUpdate(node.id, { tokenList: list as any } as any)
+  }
+
   return (
-    <div className="mt-2 space-y-4">
-      <div className="grid gap-2">
-        <Label htmlFor="p-name">Name</Label>
-        <Input
-          id="p-name"
-          value={(node.data as any).name || ""}
-          onChange={(e) => onUpdate(node.id, { name: e.target.value })}
-          placeholder="Place name"
-        />
+    <div className="mt-2 space-y-6">
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant={section === "details" ? "default" : "outline"} onClick={() => setSection("details")}>
+          Details
+        </Button>
+        <Button size="sm" variant={section === "tokens" ? "default" : "outline"} onClick={() => setSection("tokens")}>
+          Tokens ({place.tokens ?? 0})
+        </Button>
       </div>
-      <div className="grid gap-2">
-        <Label htmlFor="p-tokens">Tokens</Label>
-        <Input
-          id="p-tokens"
-          type="number"
-          min={0}
-          value={(node.data as any).tokens ?? 0}
-          onChange={(e) => onUpdate(node.id, { tokens: Math.max(0, Number(e.target.value || 0)) })}
-          placeholder="0"
-        />
+
+      {section === "details" ? (
+        <div className="space-y-4">
+          <div className="grid gap-2">
+            <Label htmlFor="p-name">Name</Label>
+            <Input
+              id="p-name"
+              value={place.name || ""}
+              onChange={(e) => onUpdate(node.id, { name: e.target.value })}
+              placeholder="Place name"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="p-tokens">Tokens (count)</Label>
+            <Input
+              id="p-tokens"
+              type="number"
+              min={0}
+              value={place.tokens ?? 0}
+              onChange={(e) => onUpdate(node.id, { tokens: Math.max(0, Number(e.target.value || 0)) })}
+              onBlur={syncCount}
+              placeholder="0"
+            />
+            <p className="text-xs text-neutral-500">
+              Count is kept in sync with the token list. Blur this field to auto-sync.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium">Tokens</div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={syncCount} title="Sync count with list">
+                Sync Count
+              </Button>
+              <Button size="sm" onClick={addToken}>
+                <Plus className="mr-1 h-4 w-4" /> Add
+              </Button>
+            </div>
+          </div>
+
+          {tokenList.length === 0 ? (
+            <div className="rounded border bg-neutral-50 p-3 text-xs text-neutral-500">No tokens in this place.</div>
+          ) : (
+            <Accordion type="multiple" className="w-full">
+              {tokenList.map((tok, idx) => (
+                <AccordionItem key={tok.id} value={tok.id} className="border rounded mb-2">
+                  <AccordionTrigger className="px-3 py-2 text-sm no-underline hover:no-underline">
+                    <div className="flex w-full items-center justify-between gap-2">
+                      <span className="truncate">
+                        #{idx + 1} — {tok.id}
+                      </span>
+                      <span className="text-xs text-neutral-500">{new Date(tok.createdAt).toLocaleString()}</span>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="px-3 pb-3">
+                    <TokenEditor
+                      token={tok}
+                      onChange={(data) => updateTokenData(tok.id, data)}
+                      onRemove={() => removeToken(tok.id)}
+                      scrollContainerRef={scrollContainerRef}
+                    />
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TokenEditor({
+  token,
+  onChange,
+  onRemove,
+  scrollContainerRef,
+}: {
+  token: Token
+  onChange: (data: any) => void
+  onRemove: () => void
+  scrollContainerRef: React.RefObject<HTMLElement | null>
+}) {
+  const [text, setText] = useState<string>(() => {
+    try {
+      return JSON.stringify(token.data ?? {}, null, 2)
+    } catch {
+      return "{}"
+    }
+  })
+  const [error, setError] = useState<string | null>(null)
+  const anchorRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    try {
+      const newText = JSON.stringify(token.data ?? {}, null, 2)
+      setText((prev) => (prev !== newText ? newText : prev))
+      setError(null)
+    } catch {
+      // ignore
+    }
+  }, [token])
+
+  const tryApply = () => {
+    try {
+      const parsed = text.trim() === "" ? {} : JSON.parse(text)
+      onChange(parsed)
+      setError(null)
+    } catch (e: any) {
+      setError(e?.message || "Invalid JSON")
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-xs">Data (JSON)</Label>
+      {/* Anchor placeholder in the panel; real editor renders in a fixed portal */}
+      <div ref={anchorRef} className="rounded border transform-none" style={{ height: 180 }}>
+        <div className="sr-only">Floating editor anchor</div>
+      </div>
+      <FloatingCodeMirror
+        anchorRef={anchorRef}
+        scrollParents={[window, ...(scrollContainerRef.current ? [scrollContainerRef.current] : [])]}
+        height={180}
+        language="json"
+        value={text}
+        onChange={(val) => setText(val)}
+        placeholder="{ ... }"
+      />
+      {error ? <div className="text-xs text-red-600">{error}</div> : null}
+      <div className="flex items-center justify-between">
+        <Button size="sm" variant="secondary" onClick={tryApply}>
+          Apply
+        </Button>
+        <Button size="sm" variant="outline" onClick={onRemove}>
+          <Trash2 className="mr-1 h-4 w-4" /> Remove
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 gap-1">
+        {token.updatedAt ? (
+          <div className="grid gap-1">
+            <Label className="text-xs">Updated</Label>
+            <Input value={new Date(token.updatedAt).toLocaleString()} readOnly />
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -139,11 +325,35 @@ function PlaceEditor({
 function TransitionEditor({
   node,
   onUpdate,
+  focusInscription,
+  scrollContainerRef,
 }: {
   node: Node<PetriNodeData>
   onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
+  focusInscription?: boolean
+  scrollContainerRef: React.RefObject<HTMLElement | null>
 }) {
   const tType = ((node.data as any).tType || "manual") as TransitionType
+  const inscRef = useRef<HTMLDivElement | null>(null)
+  const anchorRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (focusInscription && inscRef.current) {
+      inscRef.current.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
+  }, [focusInscription])
+
+  const [inscriptionText, setInscriptionText] = useState<string>(() => (node.data as any).inscription || "")
+  useEffect(() => {
+    const incoming = (node.data as any).inscription || ""
+    setInscriptionText((prev) => (prev !== incoming ? incoming : prev))
+  }, [node.id, (node.data as any).inscription])
+
+  useEffect(() => {
+    const h = window.setTimeout(() => onUpdate(node.id, { inscription: inscriptionText } as any), 150)
+    return () => window.clearTimeout(h)
+  }, [inscriptionText, node.id, onUpdate])
+
   return (
     <div className="mt-2 space-y-4">
       <div className="grid gap-2">
@@ -155,9 +365,32 @@ function TransitionEditor({
           placeholder="Transition name"
         />
       </div>
+
+      <div ref={inscRef} className="space-y-2">
+        <Label className="text-sm">Inscription (FEEL)</Label>
+        {/* Anchor placeholder; actual editor is floated in a portal */}
+        <div ref={anchorRef} className="rounded border transform-none" style={{ height: 160 }}>
+          <div className="sr-only">Floating editor anchor</div>
+        </div>
+        <FloatingCodeMirror
+          anchorRef={anchorRef}
+          scrollParents={[window, ...(scrollContainerRef.current ? [scrollContainerRef.current] : [])]}
+          height={160}
+          language="javascript"
+          value={inscriptionText}
+          onChange={(val) => setInscriptionText(val)}
+          placeholder='if amount > 1000 then "review" else "auto"'
+        />
+        <p className="text-xs text-neutral-500">
+          FEEL-like expression. Using Shell syntax highlight for readability. Example:{" "}
+          {'if amount > 1000 then "review" else "auto"'}.
+        </p>
+      </div>
+
       <div className="rounded border bg-neutral-50 px-2 py-1 text-xs text-neutral-600">
         Type: <span className="font-medium capitalize">{tType}</span> (right-click the node to change)
       </div>
+
       <TypeSpecificEditor node={node} tType={tType} onUpdate={onUpdate} />
     </div>
   )
@@ -304,9 +537,7 @@ function TimerEditor({
           min={0}
           value={delayMs}
           onChange={(e) =>
-            onUpdate(node.id, {
-              timer: { ...timer, delayMs: Math.max(0, Number(e.target.value || 0)) } as any,
-            })
+            onUpdate(node.id, { timer: { ...timer, delayMs: Math.max(0, Number(e.target.value || 0)) } as any })
           }
           placeholder="e.g., 1000"
         />
@@ -413,9 +644,7 @@ function LLMEditor({
     retryIntervalSec?: number
   }
 
-  const update = (patch: Partial<typeof llm>) => {
-    onUpdate(node.id, { llm: { ...llm, ...patch } as any })
-  }
+  const update = (patch: Partial<typeof llm>) => onUpdate(node.id, { llm: { ...llm, ...patch } as any })
 
   const addExtra = () => update({ extras: [...(llm.extras || []), ""] })
   const removeExtra = (i: number) => update({ extras: (llm.extras || []).filter((_, idx) => idx !== i) })
@@ -434,7 +663,6 @@ function LLMEditor({
           placeholder="You are a helpful assistant..."
         />
       </div>
-
       <div className="grid gap-2">
         <Label htmlFor="llm-user">User prompt (optional)</Label>
         <Textarea
@@ -445,7 +673,6 @@ function LLMEditor({
           placeholder="Provide details for the task..."
         />
       </div>
-
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <Label>Other prompts (optional)</Label>
@@ -474,7 +701,6 @@ function LLMEditor({
           </div>
         )}
       </div>
-
       <div className="space-y-2 rounded border p-2">
         <div className="flex items-center gap-2">
           <Checkbox id="llm-json" checked={!!llm.jsonOutput} onCheckedChange={(v) => update({ jsonOutput: !!v })} />
@@ -493,7 +719,6 @@ function LLMEditor({
           </div>
         ) : null}
       </div>
-
       <div className="space-y-2 rounded border p-2">
         <div className="flex items-center gap-2">
           <Checkbox
@@ -501,8 +726,8 @@ function LLMEditor({
             checked={!!llm.retryOnError}
             onCheckedChange={(v) => update({ retryOnError: !!v })}
           />
+          <Label htmlFor="llm-retry">Retry on error</Label>
         </div>
-        <Label htmlFor="llm-retry">Retry on error</Label>
         {llm.retryOnError ? (
           <div className="mt-2 grid grid-cols-2 gap-3">
             <div className="grid gap-2">

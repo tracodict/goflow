@@ -5,6 +5,7 @@ import { PetriNodeData } from "../lib/petri-sim"
 import Cron from "react-js-cron"
 import "react-js-cron/dist/styles.css"
 import { Label, Input } from "@ant-design/react-native"
+import Editor from "@monaco-editor/react"
 
 function TimerEditor({
 node,
@@ -59,6 +60,112 @@ return (
 )
 }
 
+function TokenEditor({
+node,
+onUpdate,
+}: {
+node: Node<PetriNodeData>
+onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
+}) {
+const [text, setText] = useState<string>(node.data.text || "")
+
+return (
+  <div className="space-y-4">
+    <div className="space-y-2">
+      <Label htmlFor="token-text">Token Text</Label>
+      <Editor
+        height="180px"
+        defaultLanguage="json"
+        value={text}
+        onChange={(val) => setText(val ?? "")}
+        onMount={(ed: any, monaco: any) => {
+          try {
+            if (document?.fonts?.ready) {
+              document.fonts.ready.then(() => {
+                try {
+                  monaco.editor.remeasureFonts?.()
+                } catch {}
+                setTimeout(() => ed.layout(), 0)
+              })
+            } else {
+              monaco.editor.remeasureFonts?.()
+              setTimeout(() => ed.layout(), 0)
+            }
+          } catch {}
+          ed.updateOptions({ automaticLayout: true })
+        }}
+        options={{
+          fontFamily:
+            'Inconsolata, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+          fontSize: 14,
+          lineHeight: 22,
+          fontLigatures: false,
+          minimap: { enabled: false },
+          scrollBeyondLastLine: false,
+          tabSize: 2,
+          wordWrap: "on",
+        }}
+      />
+      <p className="text-xs text-neutral-500">Edit the token text using JSON format.</p>
+    </div>
+  </div>
+)
+}
+
+function TransitionEditor({
+node,
+onUpdate,
+}: {
+node: Node<PetriNodeData>
+onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
+}) {
+const [text, setText] = useState<string>(node.data.text || "")
+
+const handleBeforeMount = (monaco: any) => {
+  monaco.editor.defineTheme("custom", {
+    base: "vs-dark",
+    inherit: true,
+    rules: [],
+    colors: {
+      "editor.background": "#1e1e1e",
+    },
+  })
+}
+
+const onMount = (ed: any, monaco: any) => {
+  ed.updateOptions({ theme: "custom" })
+}
+
+return (
+  <div className="space-y-4">
+    <div className="space-y-2">
+      <Label htmlFor="transition-text">Transition Text</Label>
+      <Editor
+        height="180px"
+        defaultLanguage="json"
+        value={text}
+        onChange={(val) => setText(val ?? "")}
+        beforeMount={handleBeforeMount}
+        onMount={onMount}
+        options={{
+          fontFamily:
+            'Inconsolata, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+          fontSize: 14,
+          lineHeight: 22,
+          fontLigatures: false,
+          minimap: { enabled: false },
+          scrollBeyondLastLine: false,
+          tabSize: 2,
+          wordWrap: "on",
+          automaticLayout: true,
+        }}
+      />
+      <p className="text-xs text-neutral-500">Edit the transition text using JSON format.</p>
+    </div>
+  </div>
+)
+}
+
 // lib/petri-sim.ts
 export type TransitionData = {
 kind: "transition"
@@ -76,6 +183,7 @@ dmnDefinition?: any
 "dependencies": {
   // other dependencies here
   "react-js-cron": "4.1.0",
-  "@ant-design/colors": "6.0.0"
+  "@ant-design/colors": "6.0.0",
+  "@monaco-editor/react": "^4.0.0"
 }
 }

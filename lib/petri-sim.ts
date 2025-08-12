@@ -1,9 +1,18 @@
 export type TransitionType = "manual" | "auto" | "message" | "timer" | "dmn" | "llm"
 
+export type Token = {
+  id: string
+  data: any
+  createdAt: number
+  updatedAt?: number
+}
+
 export type TransitionData = {
   kind: "transition"
   name: string
   tType: TransitionType
+  // FEEL-like inscription for the transition
+  inscription?: string
   manual?: { assignee?: string; formSchemaId?: string }
   auto?: { script?: string }
   message?: { channel?: string }
@@ -21,7 +30,12 @@ export type TransitionData = {
   }
 }
 
-export type PlaceData = { kind: "place"; name: string; tokens: number }
+export type PlaceData = {
+  kind: "place"
+  name: string
+  tokens: number
+  tokenList?: Token[]
+}
 
 export type PetriNodeData = PlaceData | TransitionData
 
@@ -70,6 +84,29 @@ export function anyEnabledTransitions(nodes: Node<PetriNodeData>[], edges: Edge<
   return getEnabledTransitions(nodes, edges)
 }
 
+function rid(prefix = "tok") {
+  return `${prefix}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function removeOneToken(place: Node<PetriNodeData>): { place: Node<PetriNodeData>; tokenData: any } {
+  if (!isPlace(place)) return { place, tokenData: {} }
+  const pd = place.data as PlaceData
+  const list = [...(pd.tokenList || [])]
+  const removed = list.length > 0 ? list.shift() : undefined
+  const tokens = Math.max(0, (pd.tokens ?? 0) - 1)
+  const next: Node<PetriNodeData> = { ...place, data: { ...pd, tokens, tokenList: list } }
+  return { place: next, tokenData: removed?.data ?? {} }
+}
+
+function addOneToken(place: Node<PetriNodeData>, data: any): Node<PetriNodeData> {
+  if (!isPlace(place)) return place
+  const pd = place.data as PlaceData
+  const list = [...(pd.tokenList || [])]
+  list.push({ id: rid(), data, createdAt: Date.now() })
+  const tokens = (pd.tokens ?? 0) + 1
+  return { ...place, data: { ...pd, tokens, tokenList: list } }
+}
+
 export function fireTransition(
   transitionId: string,
   nodes: Node<PetriNodeData>[],
@@ -79,18 +116,28 @@ export function fireTransition(
   const inputs = getIncomingPlaces(transitionId, nodes, edges)
   const outputs = getOutgoingPlaces(transitionId, nodes, edges)
 
-  const newNodes = nodes.map((n) => {
-    if (isPlace(n)) {
-      const isInput = inputs.some((p) => p.id === n.id)
-      const isOutput = outputs.some((p) => p.id === n.id)
-      let tokens = (n.data as any).tokens as number
-      if (isInput) tokens = Math.max(0, tokens - 1)
-      if (isOutput) tokens = tokens + 1
-      return { ...n, data: { ...(n.data as any), tokens } }
+  // Consume one token from each input; take data from the first input (if any)
+  let tokenPayload: any = {}
+  let workingNodes = nodes.map((n) => {
+    if (isPlace(n) && inputs.some((p) => p.id === n.id)) {
+      const { place: nextPlace, tokenData } = removeOneToken(n)
+      if (tokenPayload == null || Object.keys(tokenPayload).length === 0) {
+        tokenPayload = tokenData || {}
+      }
+      return nextPlace
     }
     return n
   })
-  return { nodes: newNodes }
+
+  // Produce one token in each output place, carrying forward the payload
+  workingNodes = workingNodes.map((n) => {
+    if (isPlace(n) && outputs.some((p) => p.id === n.id)) {
+      return addOneToken(n, tokenPayload || {})
+    }
+    return n
+  })
+
+  return { nodes: workingNodes }
 }
 
 export const initialSampleNet: {
@@ -102,37 +149,48 @@ export const initialSampleNet: {
       id: "p-start",
       type: "place",
       position: { x: 80, y: 160 },
-      data: { kind: "place", name: "Start", tokens: 1 },
+      data: {
+        kind: "place",
+        name: "Start",
+        tokens: 1,
+        tokenList: [{ id: "tok-aaaaaa", data: { docId: "INV-1001", amount: 250 }, createdAt: Date.now() }],
+      },
     },
     {
       id: "t-approve",
       type: "transition",
       position: { x: 300, y: 148 },
-      data: { kind: "transition", name: "Approve", tType: "manual", manual: { assignee: "", formSchemaId: "" } },
+      data: {
+        kind: "transition",
+        name: "Approve",
+        tType: "manual",
+        manual: { assignee: "", formSchemaId: "" },
+        inscription: "",
+      },
     },
     {
       id: "p-review",
       type: "place",
       position: { x: 540, y: 90 },
-      data: { kind: "place", name: "Under Review", tokens: 0 },
+      data: { kind: "place", name: "Under Review", tokens: 0, tokenList: [] },
     },
     {
       id: "p-done",
       type: "place",
       position: { x: 540, y: 210 },
-      data: { kind: "place", name: "Done", tokens: 0 },
+      data: { kind: "place", name: "Done", tokens: 0, tokenList: [] },
     },
     {
       id: "t-auto-archive",
       type: "transition",
       position: { x: 760, y: 90 },
-      data: { kind: "transition", name: "Auto Archive", tType: "auto", auto: { script: "" } },
+      data: { kind: "transition", name: "Auto Archive", tType: "auto", auto: { script: "" }, inscription: "" },
     },
     {
       id: "p-archived",
       type: "place",
       position: { x: 980, y: 90 },
-      data: { kind: "place", name: "Archived", tokens: 0 },
+      data: { kind: "place", name: "Archived", tokens: 0, tokenList: [] },
     },
   ],
   edges: [

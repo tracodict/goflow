@@ -39,7 +39,7 @@ import {
   Play,
   RotateCcw,
   SlidersHorizontal,
-  Sparkles,
+  TableProperties,
   SquarePlus,
   Timer,
   Trash2,
@@ -88,7 +88,6 @@ function CanvasInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState<PetriNodeData>(initialSampleNet.nodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<PetriEdgeData>(initialSampleNet.edges)
   const [selectedRef, setSelectedRef] = useState<SelectedRef>(null)
-  // 1) Hide Properties by default
   const [panelMode, setPanelMode] = useState<PanelMode>("mini")
   const [panelWidth, setPanelWidth] = useState<number>(360)
   const [resizing, setResizing] = useState(false)
@@ -105,6 +104,21 @@ function CanvasInner() {
   })
   const [showMonitor, setShowMonitor] = useState<boolean>(false)
   const [interactive, setInteractive] = useState<boolean>(true)
+  const [tokensOpenForPlaceId, setTokensOpenForPlaceId] = useState<string | null>(null)
+  const [inscriptionOpenForTransitionId, setInscriptionOpenForTransitionId] = useState<string | null>(null)
+
+  // Use a ref for connect state so it's available synchronously on first drag
+  const connectStateRef = useRef<{
+    start: { nodeId?: string; handleType?: "source" | "target" } | null
+    inProgress: boolean
+    completed: boolean
+    cancel: boolean
+  }>({
+    start: null,
+    inProgress: false,
+    completed: false,
+    cancel: false,
+  })
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -121,23 +135,51 @@ function CanvasInner() {
     }
   }, [selectedRef, nodes, edges])
 
+  const controlsRight = useMemo(() => (panelMode === "normal" ? panelWidth + 12 : 12), [panelMode, panelWidth])
+
   useEffect(() => {
     function onDocClick() {
       setContextMenu((c) => ({ ...c, open: false }))
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        // cancel current connect attempt (no node/edge should be created)
+        connectStateRef.current.cancel = true
+        connectStateRef.current.inProgress = false
+        connectStateRef.current.start = null
         setContextMenu((c) => ({ ...c, open: false }))
         setShowMonitor(false)
       }
     }
+    function onOpenTokens(ev: Event) {
+      const ce = ev as CustomEvent<{ placeId: string }>
+      const pid = ce.detail?.placeId
+      if (!pid) return
+      setSelectedRef({ type: "node", id: pid })
+      setTokensOpenForPlaceId(pid)
+      setInscriptionOpenForTransitionId(null)
+      if (panelMode === "mini") setPanelMode("normal")
+    }
+    function onOpenInscription(ev: Event) {
+      const ce = ev as CustomEvent<{ transitionId: string }>
+      const tid = ce.detail?.transitionId
+      if (!tid) return
+      setSelectedRef({ type: "node", id: tid })
+      setInscriptionOpenForTransitionId(tid)
+      setTokensOpenForPlaceId(null)
+      if (panelMode === "mini") setPanelMode("normal")
+    }
     document.addEventListener("click", onDocClick)
     document.addEventListener("keydown", onKey)
+    window.addEventListener("openPlaceTokens", onOpenTokens as EventListener)
+    window.addEventListener("openTransitionInscription", onOpenInscription as EventListener)
     return () => {
       document.removeEventListener("click", onDocClick)
       document.removeEventListener("keydown", onKey)
+      window.removeEventListener("openPlaceTokens", onOpenTokens as EventListener)
+      window.removeEventListener("openTransitionInscription", onOpenInscription as EventListener)
     }
-  }, [])
+  }, [panelMode])
 
   useEffect(() => {
     function onMove(e: MouseEvent) {
@@ -159,6 +201,12 @@ function CanvasInner() {
 
   const onConnect = useCallback(
     (connection: Connection) => {
+      // A valid connection to an existing handle was made -> mark completed
+      connectStateRef.current.completed = true
+      connectStateRef.current.inProgress = false
+      connectStateRef.current.cancel = false
+      connectStateRef.current.start = null
+
       const newEdge: Edge<PetriEdgeData> = {
         ...connection,
         id: `e-${connection.source ?? ""}-${connection.sourceHandle ?? ""}-${connection.target ?? ""}-${
@@ -186,12 +234,21 @@ function CanvasInner() {
   const onSelectionChange = useCallback((params: { nodes?: Node[]; edges?: Edge[] }) => {
     const n = params.nodes?.[0]
     const e = params.edges?.[0]
-    if (n) setSelectedRef({ type: "node", id: n.id })
-    else if (e) setSelectedRef({ type: "edge", id: e.id })
-    else setSelectedRef(null)
+    if (n) {
+      setSelectedRef({ type: "node", id: n.id })
+      setTokensOpenForPlaceId((prev) => (prev === n.id ? prev : null))
+      setInscriptionOpenForTransitionId((prev) => (prev === n.id ? prev : null))
+    } else if (e) {
+      setSelectedRef({ type: "edge", id: e.id })
+      setTokensOpenForPlaceId(null)
+      setInscriptionOpenForTransitionId(null)
+    } else {
+      setSelectedRef(null)
+      setTokensOpenForPlaceId(null)
+      setInscriptionOpenForTransitionId(null)
+    }
   }, [])
 
-  // Context menu only for transitions; places have no context menu
   const onNodeContextMenu = useCallback(
     (event: React.MouseEvent, node: Node) => {
       if (node.type !== "transition") return
@@ -200,6 +257,105 @@ function CanvasInner() {
       setContextMenu({ open: true, x: clientX, y: clientY, nodeId: node.id })
     },
     [setContextMenu],
+  )
+
+  // Record start of connecting in a ref for instant availability
+  const onConnectStart = useCallback(
+    (_: React.MouseEvent, params: { nodeId?: string; handleType?: "source" | "target" }) => {
+      connectStateRef.current.start = { nodeId: params.nodeId, handleType: params.handleType }
+      connectStateRef.current.inProgress = true
+      connectStateRef.current.completed = false
+      connectStateRef.current.cancel = false
+    },
+    [],
+  )
+
+  const onConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent) => {
+      const state = connectStateRef.current
+
+      // If nothing was started or it was already handled or canceled, exit
+      if (!state.inProgress || state.completed || state.cancel || !state.start) {
+        connectStateRef.current.inProgress = false
+        connectStateRef.current.completed = false
+        connectStateRef.current.cancel = false
+        connectStateRef.current.start = null
+        return
+      }
+
+      // If dropped on the pane (not on a handle), create opposite node and connect
+      const pt =
+        "clientX" in event
+          ? { x: (event as MouseEvent).clientX, y: (event as MouseEvent).clientY }
+          : { x: (event as TouchEvent).changedTouches[0].clientX, y: (event as TouchEvent).changedTouches[0].clientY }
+
+      const elem = document.elementFromPoint(pt.x, pt.y)
+      const droppedOnPane = !!elem && !!(elem as Element).closest(".react-flow__pane")
+
+      if (!droppedOnPane) {
+        // Let React Flow handle other drop targets (like existing handles)
+        connectStateRef.current.inProgress = false
+        connectStateRef.current.completed = false
+        connectStateRef.current.cancel = false
+        connectStateRef.current.start = null
+        return
+      }
+
+      const flowPos = screenToFlowPosition ? screenToFlowPosition(pt) : { x: pt.x, y: pt.y }
+
+      const startNode = nodes.find((n) => n.id === state.start?.nodeId)
+      if (!startNode) {
+        connectStateRef.current.inProgress = false
+        connectStateRef.current.completed = false
+        connectStateRef.current.cancel = false
+        connectStateRef.current.start = null
+        return
+      }
+
+      const startIsPlace = startNode.type === "place"
+      const newId = startIsPlace
+        ? `t-${Math.random().toString(36).slice(2, 7)}`
+        : `p-${Math.random().toString(36).slice(2, 7)}`
+
+      const newNode = startIsPlace
+        ? {
+            id: newId,
+            type: "transition" as const,
+            position: flowPos,
+            data: {
+              kind: "transition",
+              name: "Transition",
+              tType: "manual",
+              manual: { assignee: "", formSchemaId: "" },
+              inscription: "",
+            },
+          }
+        : {
+            id: newId,
+            type: "place" as const,
+            position: flowPos,
+            data: { kind: "place", name: "Place", tokens: 0, tokenList: [] },
+          }
+
+      setNodes((nds) => [...nds, newNode as any])
+
+      const newEdge: Edge<PetriEdgeData> = {
+        id: `e-${Math.random().toString(36).slice(2, 7)}`,
+        source: state.start.handleType === "source" ? (state.start.nodeId as string) : newId,
+        target: state.start.handleType === "source" ? newId : (state.start.nodeId as string),
+        type: "labeled",
+        data: { label: "arc" },
+      }
+      setEdges((eds) => [...eds, newEdge])
+      setSelectedRef({ type: "node", id: newId })
+
+      // cleanup
+      connectStateRef.current.inProgress = false
+      connectStateRef.current.completed = false
+      connectStateRef.current.cancel = false
+      connectStateRef.current.start = null
+    },
+    [nodes, screenToFlowPosition, setNodes, setEdges],
   )
 
   const addPlace = useCallback(() => {
@@ -211,7 +367,7 @@ function CanvasInner() {
         id,
         type: "place",
         position: pos,
-        data: { kind: "place", name: "Place", tokens: 0 },
+        data: { kind: "place", name: "Place", tokens: 0, tokenList: [] },
       },
     ])
     setSelectedRef({ type: "node", id })
@@ -231,6 +387,7 @@ function CanvasInner() {
           name: "Transition",
           tType: "manual",
           manual: { assignee: "", formSchemaId: "" },
+          inscription: "",
         },
       },
     ])
@@ -242,6 +399,8 @@ function CanvasInner() {
       setNodes((nds) => nds.filter((n) => n.id !== id))
       setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id))
       setSelectedRef(null)
+      setTokensOpenForPlaceId(null)
+      setInscriptionOpenForTransitionId(null)
     },
     [setNodes, setEdges],
   )
@@ -266,7 +425,9 @@ function CanvasInner() {
   }, [nodes, edges, setNodes])
 
   const resetTokens = useCallback(() => {
-    setNodes((nds) => nds.map((n) => (n.type === "place" ? { ...n, data: { ...n.data, tokens: 0 } } : n)))
+    setNodes((nds) =>
+      nds.map((n) => (n.type === "place" ? { ...n, data: { ...(n.data as any), tokens: 0, tokenList: [] } } : n)),
+    )
   }, [setNodes])
 
   const updateNode = useCallback(
@@ -290,6 +451,8 @@ function CanvasInner() {
     setNodes([])
     setEdges([])
     setSelectedRef(null)
+    setTokensOpenForPlaceId(null)
+    setInscriptionOpenForTransitionId(null)
   }
 
   const handleOpenClick = () => {
@@ -306,6 +469,8 @@ function CanvasInner() {
         setNodes(parsed.nodes)
         setEdges(parsed.edges)
         setSelectedRef(null)
+        setTokensOpenForPlaceId(null)
+        setInscriptionOpenForTransitionId(null)
       } else {
         console.error("Invalid file format. Expected { nodes: [], edges: [] }")
       }
@@ -339,7 +504,7 @@ function CanvasInner() {
 
   return (
     <div ref={containerRef} className="flex h-full w-full gap-4">
-      {/* Left Monitor Panel - toggled by Preview */}
+      {/* Left Monitor Panel */}
       {showMonitor && (
         <div className="flex h-full w-72 flex-col rounded-lg border bg-white p-3">
           <div className="mb-2 flex items-center justify-between">
@@ -420,6 +585,8 @@ function CanvasInner() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onConnectStart={onConnectStart}
+          onConnectEnd={onConnectEnd}
           isValidConnection={isValidConnection}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
@@ -441,69 +608,79 @@ function CanvasInner() {
           <Background gap={16} color="#e5e5e5" />
           <MiniMap zoomable pannable />
 
-          {/* Custom controls: order + outline icons */}
-          <Controls position="bottom-right" showZoom={false} showFitView={false} showInteractive={false}>
-            {/* File menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <ControlButton title="File">
-                  <File className="h-4 w-4" aria-hidden />
-                </ControlButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="left" align="center" sideOffset={8} className="w-40">
-                <DropdownMenuItem onClick={handleNew}>New</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleOpenClick}>Open...</DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleSave}>Save</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleSaveAs}>Save As...</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+          {/* Custom controls: order + outline icons, offset when panel is normal */}
+          <div
+            style={{
+              position: "absolute",
+              right: controlsRight,
+              bottom: 12,
+              zIndex: 10,
+              pointerEvents: "auto",
+            }}
+            aria-label="Canvas toolbar"
+          >
+            <Controls position="bottom-right" showZoom={false} showFitView={false} showInteractive={false}>
+              {/* File menu */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <ControlButton title="File">
+                    <File className="h-4 w-4" aria-hidden />
+                  </ControlButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="left" align="center" sideOffset={8} className="w-40">
+                  <DropdownMenuItem onClick={handleNew}>New</DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleOpenClick}>Open...</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleSave}>Save</DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleSaveAs}>Save As...</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
-            {/* Toggle interactivity */}
-            <ControlButton
-              onClick={() => setInteractive((v) => !v)}
-              title={interactive ? "Disable interactivity" : "Enable interactivity"}
-            >
-              <MousePointer2 className={`h-4 w-4 ${interactive ? "" : "opacity-50"}`} aria-hidden />
-            </ControlButton>
-
-            {/* Preview */}
-            <ControlButton
-              onClick={() => setShowMonitor((v) => !v)}
-              title={showMonitor ? "Hide monitor" : "Show monitor"}
-            >
-              <Eye className="h-4 w-4" aria-hidden />
-            </ControlButton>
-
-            {/* Zoom In/Out and Fit View (larger icons for clarity) */}
-            <ControlButton onClick={() => zoomIn?.({ duration: 200 })} title="Zoom in" aria-label="Zoom in">
-              <ZoomIn className="h-5 w-5" aria-hidden />
-            </ControlButton>
-            <ControlButton onClick={() => zoomOut?.({ duration: 200 })} title="Zoom out" aria-label="Zoom out">
-              <ZoomOut className="h-5 w-5" aria-hidden />
-            </ControlButton>
-            <ControlButton onClick={() => fitView?.({ padding: 0.2, duration: 300 })} title="Fit view">
-              <Maximize2 className="h-4 w-4" aria-hidden />
-            </ControlButton>
-
-            {/* Properties toggle (when mini) */}
-            {panelMode === "mini" && (
-              <ControlButton onClick={() => setPanelMode("normal")} title="Open Properties">
-                <SlidersHorizontal className="h-4 w-4" aria-hidden />
+              {/* Toggle interactivity */}
+              <ControlButton
+                onClick={() => setInteractive((v) => !v)}
+                title={interactive ? "Disable interactivity" : "Enable interactivity"}
+              >
+                <MousePointer2 className={`h-4 w-4 ${interactive ? "" : "opacity-50"}`} aria-hidden />
               </ControlButton>
-            )}
 
-            {/* Add nodes (outline plus variants) */}
-            <ControlButton onClick={addPlace} title="Add Place">
-              <CirclePlus className="h-4 w-4" aria-hidden />
-            </ControlButton>
-            <ControlButton onClick={addTransition} title="Add Transition">
-              <SquarePlus className="h-4 w-4" aria-hidden />
-            </ControlButton>
-          </Controls>
+              {/* Preview */}
+              <ControlButton
+                onClick={() => setShowMonitor((v) => !v)}
+                title={showMonitor ? "Hide monitor" : "Show monitor"}
+              >
+                <Eye className="h-4 w-4" aria-hidden />
+              </ControlButton>
+
+              {/* Zoom In/Out and Fit View */}
+              <ControlButton onClick={() => zoomIn?.({ duration: 200 })} title="Zoom in" aria-label="Zoom in">
+                <ZoomIn className="h-5 w-5" aria-hidden />
+              </ControlButton>
+              <ControlButton onClick={() => zoomOut?.({ duration: 200 })} title="Zoom out" aria-label="Zoom out">
+                <ZoomOut className="h-5 w-5" aria-hidden />
+              </ControlButton>
+              <ControlButton onClick={() => fitView?.({ padding: 0.2, duration: 300 })} title="Fit view">
+                <Maximize2 className="h-4 w-4" aria-hidden />
+              </ControlButton>
+
+              {/* Properties toggle (when mini) */}
+              {panelMode === "mini" && (
+                <ControlButton onClick={() => setPanelMode("normal")} title="Open Properties">
+                  <SlidersHorizontal className="h-4 w-4" aria-hidden />
+                </ControlButton>
+              )}
+
+              {/* Add nodes */}
+              <ControlButton onClick={addPlace} title="Add Place">
+                <CirclePlus className="h-4 w-4" aria-hidden />
+              </ControlButton>
+              <ControlButton onClick={addTransition} title="Add Transition">
+                <SquarePlus className="h-4 w-4" aria-hidden />
+              </ControlButton>
+            </Controls>
+          </div>
         </ReactFlow>
 
-        {/* Hidden file input for Open */}
         <input
           ref={fileInputRef}
           type="file"
@@ -514,7 +691,6 @@ function CanvasInner() {
           tabIndex={-1}
         />
 
-        {/* Custom context menu for transition nodes only */}
         {contextMenu.open && contextMenu.nodeId && (
           <div
             className="z-50 rounded-md border bg-white shadow-lg"
@@ -557,7 +733,6 @@ function CanvasInner() {
         )}
       </div>
 
-      {/* Right Side Panel */}
       <SidePanel
         open={panelMode !== "mini"}
         mode={panelMode}
@@ -567,6 +742,8 @@ function CanvasInner() {
         onUpdateNode={updateNode}
         onUpdateEdge={updateEdge}
         onModeChange={setPanelMode}
+        tokensOpenForPlaceId={tokensOpenForPlaceId || undefined}
+        inscriptionOpenForTransitionId={inscriptionOpenForTransitionId || undefined}
       />
     </div>
   )
@@ -589,9 +766,9 @@ function TransitionIcon({
     case "timer":
       return <Timer className={className} aria-label="timer" />
     case "dmn":
-      return <Brain className={className} aria-label="dmn" />
+      return <TableProperties className={className} aria-label="DMN" />
     case "llm":
-      return <Sparkles className={className} aria-label="llm" />
+      return <Brain className={className} aria-label="LLM" />
     default:
       return <Activity className={className} aria-label="transition" />
   }

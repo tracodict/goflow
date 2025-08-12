@@ -3,11 +3,17 @@ import { useState } from "react"
 import { Handle, Position, type NodeProps } from "@xyflow/react"
 import { Badge } from "@/components/ui/badge"
 import { Coins } from "lucide-react"
-import type { PetriNodeData } from "@/lib/petri-sim"
+import type { PetriNodeData, PlaceData } from "@/lib/petri-sim"
 
-export function PlaceNode({ data, selected }: NodeProps<PetriNodeData>) {
+export function PlaceNode({ id, data, selected }: NodeProps<PetriNodeData>) {
   const [hoverLeft, setHoverLeft] = useState(false)
   const [hoverRight, setHoverRight] = useState(false)
+  const place = data as PlaceData
+
+  const openTokens = () => {
+    const evt = new CustomEvent("openPlaceTokens", { detail: { placeId: id } })
+    window.dispatchEvent(evt)
+  }
 
   return (
     <div className="group flex select-none flex-col items-center">
@@ -17,16 +23,23 @@ export function PlaceNode({ data, selected }: NodeProps<PetriNodeData>) {
           selected ? "border-emerald-600 ring-2 ring-emerald-200" : "border-neutral-300",
         ].join(" ")}
         role="figure"
-        aria-label={`Place ${data.name}`}
+        aria-label={`Place ${place.name}`}
       >
-        <Badge
-          variant="outline"
-          className="absolute -top-2 -right-2 flex items-center gap-1 bg-white text-xs"
-          aria-live="polite"
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            openTokens()
+          }}
+          className="absolute -top-2 -right-2"
+          aria-label={`Open tokens for ${place.name}`}
+          title="View tokens"
         >
-          <Coins className="h-3 w-3 text-amber-600" aria-hidden />
-          {data.tokens ?? 0}
-        </Badge>
+          <Badge variant="outline" className="flex items-center gap-1 bg-white text-xs">
+            <Coins className="h-3 w-3 text-amber-600" aria-hidden />
+            {place.tokens ?? 0}
+          </Badge>
+        </button>
 
         <Handle
           type="target"
@@ -55,7 +68,7 @@ export function PlaceNode({ data, selected }: NodeProps<PetriNodeData>) {
           }}
         />
       </div>
-      <div className="mt-1 rounded px-1 text-xs text-neutral-700">{data.name || "Place"}</div>
+      <div className="mt-1 rounded px-1 text-xs text-neutral-700">{place.name || "Place"}</div>
     </div>
   )
 }

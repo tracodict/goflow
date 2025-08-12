@@ -1,5 +1,5 @@
-@import 'tailwindcss';
-@import 'tw-animate-css';
+@import "tailwindcss";
+@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -120,4 +120,16 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Keep Lucide icons as outlines inside React Flow Controls */
+.react-flow__controls .react-flow__controls-button svg {
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 2 !important;
+}
+
+/* Also unset any nested fills React Flow might apply */
+.react-flow__controls .react-flow__controls-button svg [fill] {
+  fill: none !important;
 }
