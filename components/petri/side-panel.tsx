@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useEffect, useMemo, useRef, useState } from "react"
+import ExplorerPanel from "./explorer-panel"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -32,6 +33,8 @@ export function SidePanel({
   onModeChange,
   tokensOpenForPlaceId,
   inscriptionOpenForTransitionId,
+  tab,
+  setTab
 }: {
   open: boolean
   mode: PanelMode
@@ -43,14 +46,16 @@ export function SidePanel({
   onModeChange: (m: PanelMode) => void
   tokensOpenForPlaceId?: string
   inscriptionOpenForTransitionId?: string
+  tab: 'property' | 'explorer'
+  setTab: (tab: 'property' | 'explorer') => void
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null)
+  
 
   if (!open || mode === "mini") {
     return null
   }
 
-  const title = "Properties"
   const baseStyle: React.CSSProperties =
     mode === "full"
       ? { position: "fixed", inset: 0, zIndex: 50 }
@@ -62,18 +67,29 @@ export function SidePanel({
       style={baseStyle}
       role="dialog"
       aria-modal="true"
-      aria-label={title}
+      aria-label="Side Panel"
     >
       <div className="flex items-center justify-between border-b px-3 py-2">
-        <h2 className="text-sm font-semibold">{title}</h2>
+        <div className="flex gap-2">
+          <button
+            className={`text-sm font-semibold px-2 py-1 rounded ${tab === 'property' ? 'bg-neutral-200' : ''}`}
+            onClick={() => setTab && setTab('property')}
+            disabled={tab === 'property'}
+          >Property</button>
+          <button
+            className={`text-sm font-semibold px-2 py-1 rounded ${tab === 'explorer' ? 'bg-neutral-200' : ''}`}
+            onClick={() => setTab && setTab('explorer')}
+            disabled={tab === 'explorer'}
+          >Explorer</button>
+        </div>
         <div className="flex items-center gap-1">
-          <Button size="icon" variant="ghost" aria-label="Mini mode" onClick={() => onModeChange("mini")}>
+          <Button size="icon" variant="ghost" aria-label="Mini mode" onClick={() => onModeChange("mini")}> 
             <Minimize2 className="h-4 w-4" />
           </Button>
-          <Button size="icon" variant="ghost" aria-label="Normal mode" onClick={() => onModeChange("normal")}>
+          <Button size="icon" variant="ghost" aria-label="Normal mode" onClick={() => onModeChange("normal")}> 
             <PanelRightOpen className="h-4 w-4" />
           </Button>
-          <Button size="icon" variant="ghost" aria-label="Full mode" onClick={() => onModeChange("full")}>
+          <Button size="icon" variant="ghost" aria-label="Full mode" onClick={() => onModeChange("full")}> 
             <Maximize2 className="h-4 w-4" />
           </Button>
         </div>
@@ -94,26 +110,30 @@ export function SidePanel({
       )}
 
       <div ref={contentRef} className="flex-1 overflow-y-auto overflow-x-visible p-3">
-        {!selected ? (
-          <div className="text-xs text-neutral-500">Select a node or edge to edit its properties.</div>
-        ) : selected.type === "node" ? (
-          selected.node.type === "place" ? (
-            <PlaceEditor
-              node={selected.node}
-              onUpdate={onUpdateNode}
-              forceOpenTokens={tokensOpenForPlaceId === selected.node.id}
-              scrollContainerRef={contentRef}
-            />
+        {tab === 'property' ? (
+          !selected ? (
+            <div className="text-xs text-neutral-500">Select a node or edge to edit its properties.</div>
+          ) : selected.type === "node" ? (
+            selected.node.type === "place" ? (
+              <PlaceEditor
+                node={selected.node}
+                onUpdate={onUpdateNode}
+                forceOpenTokens={tokensOpenForPlaceId === selected.node.id}
+                scrollContainerRef={contentRef}
+              />
+            ) : (
+              <TransitionEditor
+                node={selected.node}
+                onUpdate={onUpdateNode}
+                focusInscription={inscriptionOpenForTransitionId === selected.node.id}
+                scrollContainerRef={contentRef}
+              />
+            )
           ) : (
-            <TransitionEditor
-              node={selected.node}
-              onUpdate={onUpdateNode}
-              focusInscription={inscriptionOpenForTransitionId === selected.node.id}
-              scrollContainerRef={contentRef}
-            />
+            <EdgeEditor edge={selected.edge} onUpdate={onUpdateEdge} />
           )
         ) : (
-          <EdgeEditor edge={selected.edge} onUpdate={onUpdateEdge} />
+          <ExplorerPanel />
         )}
       </div>
     </aside>
@@ -551,10 +571,6 @@ function TimerEditor({
             value={cron}
             setValue={(v) => onUpdate(node.id, { timer: { ...timer, cron: v } as any })}
             onError={(e) => setCronError(e ? e.description : null)}
-            humanizeLabels
-            humanizeValue
-            leadingZero
-            clearButton
           />
         </div>
         {cronError ? <p className="text-xs text-red-600">{cronError}</p> : null}

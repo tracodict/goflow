@@ -18,6 +18,9 @@ import {
   type Connection,
   type Edge,
   type Node,
+  type OnConnectStart,
+  type OnConnectEnd,
+  ConnectionLineType,
 } from "@xyflow/react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -32,6 +35,7 @@ import {
   Coins,
   Eye,
   File,
+  Folder,
   Hand,
   Maximize2,
   MessageSquare,
@@ -65,11 +69,11 @@ import {
   type PetriEdgeData,
   type PetriNodeData,
   type TransitionType,
-  initialSampleNet,
 } from "@/lib/petri-sim"
+import { getWorkflowGraph } from "./mock-workflow-store"
 
-const nodeTypes = { place: PlaceNode, transition: TransitionNode }
-const edgeTypes = { labeled: LabeledEdge }
+const nodeTypes = { place: PlaceNode, transition: TransitionNode } as any
+const edgeTypes = { labeled: LabeledEdge } as any
 
 type SelectedRef = { type: "node"; id: string } | { type: "edge"; id: string } | null
 type SelectedResolved = { type: "node"; node: Node<PetriNodeData> } | { type: "edge"; edge: Edge<PetriEdgeData> } | null
@@ -85,8 +89,8 @@ export function FlowWorkspace() {
 }
 
 function CanvasInner() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<PetriNodeData>(initialSampleNet.nodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState<PetriEdgeData>(initialSampleNet.edges)
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<PetriNodeData>>([])
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<PetriEdgeData>>([])
   const [selectedRef, setSelectedRef] = useState<SelectedRef>(null)
   const [panelMode, setPanelMode] = useState<PanelMode>("mini")
   const [panelWidth, setPanelWidth] = useState<number>(360)
@@ -102,14 +106,16 @@ function CanvasInner() {
     y: 0,
     nodeId: null,
   })
+
   const [showMonitor, setShowMonitor] = useState<boolean>(false)
+  const [leftTab, setLeftTab] = useState<'property' | 'explorer'>("property")
   const [interactive, setInteractive] = useState<boolean>(true)
   const [tokensOpenForPlaceId, setTokensOpenForPlaceId] = useState<string | null>(null)
   const [inscriptionOpenForTransitionId, setInscriptionOpenForTransitionId] = useState<string | null>(null)
 
   // Use a ref for connect state so it's available synchronously on first drag
   const connectStateRef = useRef<{
-    start: { nodeId?: string; handleType?: "source" | "target" } | null
+    start: { nodeId?: string | null; handleType?: "source" | "target" | null } | null
     inProgress: boolean
     completed: boolean
     cancel: boolean
@@ -118,7 +124,7 @@ function CanvasInner() {
     inProgress: false,
     completed: false,
     cancel: false,
-  })
+  });
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -180,6 +186,26 @@ function CanvasInner() {
       window.removeEventListener("openTransitionInscription", onOpenInscription as EventListener)
     }
   }, [panelMode])
+
+  // Listen to workflow selection from Explorer and load its graph
+  useEffect(() => {
+    function onLoadWorkflow(ev: Event) {
+      const ce = ev as CustomEvent<{ workflowId: string }>
+      const id = ce.detail?.workflowId
+      if (!id) return
+      const graph = getWorkflowGraph(id)
+      if (graph) {
+        setNodes(graph.nodes)
+        setEdges(graph.edges)
+        setSelectedRef(null)
+        setTokensOpenForPlaceId(null)
+        setInscriptionOpenForTransitionId(null)
+        if (panelMode === 'mini') setPanelMode('normal')
+      }
+    }
+    window.addEventListener('loadWorkflow', onLoadWorkflow as EventListener)
+    return () => window.removeEventListener('loadWorkflow', onLoadWorkflow as EventListener)
+  }, [panelMode, setNodes, setEdges])
 
   useEffect(() => {
     function onMove(e: MouseEvent) {
@@ -260,8 +286,8 @@ function CanvasInner() {
   )
 
   // Record start of connecting in a ref for instant availability
-  const onConnectStart = useCallback(
-    (_: React.MouseEvent, params: { nodeId?: string; handleType?: "source" | "target" }) => {
+  const onConnectStart: OnConnectStart = useCallback(
+    (_event, params) => {
       connectStateRef.current.start = { nodeId: params.nodeId, handleType: params.handleType }
       connectStateRef.current.inProgress = true
       connectStateRef.current.completed = false
@@ -270,8 +296,8 @@ function CanvasInner() {
     [],
   )
 
-  const onConnectEnd = useCallback(
-    (event: MouseEvent | TouchEvent) => {
+  const onConnectEnd: OnConnectEnd = useCallback(
+    (event) => {
       const state = connectStateRef.current
 
       // If nothing was started or it was already handled or canceled, exit
@@ -446,41 +472,6 @@ function CanvasInner() {
     [setEdges],
   )
 
-  // File actions
-  const handleNew = () => {
-    setNodes([])
-    setEdges([])
-    setSelectedRef(null)
-    setTokensOpenForPlaceId(null)
-    setInscriptionOpenForTransitionId(null)
-  }
-
-  const handleOpenClick = () => {
-    fileInputRef.current?.click()
-  }
-
-  const handleFileChosen: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    try {
-      const text = await file.text()
-      const parsed = JSON.parse(text)
-      if (Array.isArray(parsed.nodes) && Array.isArray(parsed.edges)) {
-        setNodes(parsed.nodes)
-        setEdges(parsed.edges)
-        setSelectedRef(null)
-        setTokensOpenForPlaceId(null)
-        setInscriptionOpenForTransitionId(null)
-      } else {
-        console.error("Invalid file format. Expected { nodes: [], edges: [] }")
-      }
-    } catch (err) {
-      console.error("Failed to open file:", err)
-    } finally {
-      e.target.value = ""
-    }
-  }
-
   const download = (filename: string, data: string) => {
     const blob = new Blob([data], { type: "application/json" })
     const url = URL.createObjectURL(blob)
@@ -494,13 +485,6 @@ function CanvasInner() {
   }
 
   const serialize = () => JSON.stringify({ nodes, edges }, null, 2)
-
-  const handleSave = () => download("petri-net.json", serialize())
-
-  const handleSaveAs = () => {
-    const name = window.prompt("Save as", "petri-net.json")
-    if (name) download(name, serialize())
-  }
 
   return (
     <div ref={containerRef} className="flex h-full w-full gap-4">
@@ -526,11 +510,11 @@ function CanvasInner() {
                   {enabled.map((t) => (
                     <div key={t.id} className="flex items-center justify-between rounded-md border px-2 py-1.5">
                       <div className="flex items-center gap-2">
-                        <TransitionIcon tType={t.data.tType as TransitionType} className="h-3.5 w-3.5" />
+                        <TransitionIcon tType={(t.data as any).tType as TransitionType} className="h-3.5 w-3.5" />
                         <span className="text-xs">{t.data.name}</span>
                       </div>
                       <Button
-                        size="xs"
+                        size="sm"
                         variant="secondary"
                         className="h-6 px-2 text-xs"
                         onClick={() => {
@@ -555,10 +539,10 @@ function CanvasInner() {
                         key={p.id}
                         className="flex items-center justify-between rounded-md bg-neutral-50 px-2 py-1.5"
                       >
-                        <span className="text-xs">{p.data.name}</span>
+                        <span className="text-xs">{(p.data as any).name}</span>
                         <Badge variant="outline" className="gap-1 text-xs">
                           <Coins className="h-3 w-3 text-amber-600" aria-hidden />
-                          {p.data.tokens}
+                          {(p.data as any).tokens}
                         </Badge>
                       </div>
                     ))}
@@ -579,7 +563,7 @@ function CanvasInner() {
 
       {/* Canvas area */}
       <div className="relative h-full flex-1 overflow-hidden rounded-lg border bg-white">
-        <ReactFlow
+  <ReactFlow<Node<PetriNodeData>, Edge<PetriEdgeData>>
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
@@ -602,7 +586,7 @@ function CanvasInner() {
           zoomOnPinch={interactive}
           selectionOnDrag
           deleteKeyCode={["Delete", "Backspace"]}
-          connectionLineType="bezier"
+          connectionLineType={ConnectionLineType.Bezier}
           connectionLineStyle={{ stroke: "#059669", strokeWidth: 2 }}
         >
           <Background gap={16} color="#e5e5e5" />
@@ -620,21 +604,6 @@ function CanvasInner() {
             aria-label="Canvas toolbar"
           >
             <Controls position="bottom-right" showZoom={false} showFitView={false} showInteractive={false}>
-              {/* File menu */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <ControlButton title="File">
-                    <File className="h-4 w-4" aria-hidden />
-                  </ControlButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="left" align="center" sideOffset={8} className="w-40">
-                  <DropdownMenuItem onClick={handleNew}>New</DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleOpenClick}>Open...</DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleSave}>Save</DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleSaveAs}>Save As...</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
 
               {/* Toggle interactivity */}
               <ControlButton
@@ -650,6 +619,17 @@ function CanvasInner() {
                 title={showMonitor ? "Hide monitor" : "Show monitor"}
               >
                 <Eye className="h-4 w-4" aria-hidden />
+              </ControlButton>
+
+              {/* Explorer (Folder) */}
+              <ControlButton
+                onClick={() => {
+                  if (panelMode === 'mini') setPanelMode('normal')
+                  setLeftTab('explorer')
+                }}
+                title="Open Explorer"
+              >
+                <Folder className="h-4 w-4" aria-hidden />
               </ControlButton>
 
               {/* Zoom In/Out and Fit View */}
@@ -681,15 +661,7 @@ function CanvasInner() {
           </div>
         </ReactFlow>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="application/json"
-          className="hidden"
-          onChange={handleFileChosen}
-          aria-hidden
-          tabIndex={-1}
-        />
+
 
         {contextMenu.open && contextMenu.nodeId && (
           <div
@@ -724,7 +696,7 @@ function CanvasInner() {
                   <TransitionIcon tType={t} className="h-4 w-4" />
                   {t}
                 </span>
-                {(nodes.find((n) => n.id === contextMenu.nodeId)?.data as any)?.tType === t ? (
+                {(((nodes as any[]).find((n: any) => n.id === contextMenu.nodeId) as any)?.data as any)?.tType === t ? (
                   <Check className="h-4 w-4 text-emerald-600" aria-hidden />
                 ) : null}
               </button>
@@ -744,6 +716,8 @@ function CanvasInner() {
         onModeChange={setPanelMode}
         tokensOpenForPlaceId={tokensOpenForPlaceId || undefined}
         inscriptionOpenForTransitionId={inscriptionOpenForTransitionId || undefined}
+        tab={leftTab}
+        setTab={setLeftTab}
       />
     </div>
   )
