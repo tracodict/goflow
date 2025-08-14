@@ -1,4 +1,4 @@
-export type TransitionType = "manual" | "auto" | "message" | "timer" | "dmn" | "llm"
+export type TransitionType = "manual" | "auto" | "message" | "dmn" | "llm"
 
 export type Token = {
   id: string
@@ -11,12 +11,12 @@ export type TransitionData = {
   kind: "transition"
   name: string
   tType: TransitionType
-  // FEEL-like inscription for the transition
-  inscription?: string
+  guard?: string
+  // Optional time trigger: either cron expression or seconds delay (numeric string/number)
+  time?: { cron?: string; delaySec?: number }
   manual?: { assignee?: string; formSchemaId?: string }
   auto?: { script?: string }
   message?: { channel?: string }
-  timer?: { delayMs?: number; cron?: string }
   dmnDefinition?: any
   llm?: {
     system?: string
@@ -165,7 +165,7 @@ export const initialSampleNet: {
         name: "Approve",
         tType: "manual",
         manual: { assignee: "", formSchemaId: "" },
-        inscription: "",
+  guard: "",
       },
     },
     {
@@ -184,7 +184,7 @@ export const initialSampleNet: {
       id: "t-auto-archive",
       type: "transition",
       position: { x: 760, y: 90 },
-      data: { kind: "transition", name: "Auto Archive", tType: "auto", auto: { script: "" }, inscription: "" },
+  data: { kind: "transition", name: "Auto Archive", tType: "auto", auto: { script: "" }, guard: "" },
     },
     {
       id: "p-archived",

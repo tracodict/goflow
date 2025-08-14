@@ -32,9 +32,9 @@ export function SidePanel({
   onUpdateEdge,
   onModeChange,
   tokensOpenForPlaceId,
-  inscriptionOpenForTransitionId,
+  guardOpenForTransitionId,
   tab,
-  setTab
+  setTab,
 }: {
   open: boolean
   mode: PanelMode
@@ -45,11 +45,43 @@ export function SidePanel({
   onUpdateEdge: (id: string, patch: Partial<PetriEdgeData>) => void
   onModeChange: (m: PanelMode) => void
   tokensOpenForPlaceId?: string
-  inscriptionOpenForTransitionId?: string
+  guardOpenForTransitionId?: string
   tab: 'property' | 'explorer'
   setTab: (tab: 'property' | 'explorer') => void
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null)
+  // New: split state between explorer (top) and property (bottom)
+  const [explorerHeight, setExplorerHeight] = useState<number>(() => {
+    if (typeof window === 'undefined') return 240
+    const saved = window.localStorage.getItem('goflow.explorerHeight')
+    const num = saved ? parseInt(saved, 10) : 240
+    return isNaN(num) ? 240 : num
+  })
+  const splitterRef = useRef<HTMLDivElement | null>(null)
+  const dragState = useRef<{ startY: number; startHeight: number; dragging: boolean }>({ startY:0, startHeight:0, dragging:false })
+  const [, forceRerender] = useState(0)
+  const [externalSelection, setExternalSelection] = useState<{ kind: 'place'|'transition'|'arc'; id: string } | null>(null)
+
+  // Drag handlers for vertical splitter
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      if (!dragState.current.dragging) return
+      const dy = e.clientY - dragState.current.startY
+      const next = Math.min(Math.max(120, dragState.current.startHeight + dy), 600)
+  setExplorerHeight(next)
+    }
+    function onUp() { dragState.current.dragging = false }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+  }, [])
+
+  // Persist splitter height
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('goflow.explorerHeight', String(explorerHeight))
+    }
+  }, [explorerHeight])
   
 
   if (!open || mode === "mini") {
@@ -70,18 +102,7 @@ export function SidePanel({
       aria-label="Side Panel"
     >
       <div className="flex items-center justify-between border-b px-3 py-2">
-        <div className="flex gap-2">
-          <button
-            className={`text-sm font-semibold px-2 py-1 rounded ${tab === 'property' ? 'bg-neutral-200' : ''}`}
-            onClick={() => setTab && setTab('property')}
-            disabled={tab === 'property'}
-          >Property</button>
-          <button
-            className={`text-sm font-semibold px-2 py-1 rounded ${tab === 'explorer' ? 'bg-neutral-200' : ''}`}
-            onClick={() => setTab && setTab('explorer')}
-            disabled={tab === 'explorer'}
-          >Explorer</button>
-        </div>
+        <div className="text-sm font-semibold">Explorer / Properties</div>
         <div className="flex items-center gap-1">
           <Button size="icon" variant="ghost" aria-label="Mini mode" onClick={() => onModeChange("mini")}> 
             <Minimize2 className="h-4 w-4" />
@@ -109,32 +130,44 @@ export function SidePanel({
         </div>
       )}
 
-      <div ref={contentRef} className="flex-1 overflow-y-auto overflow-x-visible p-3">
-        {tab === 'property' ? (
-          !selected ? (
-            <div className="text-xs text-neutral-500">Select a node or edge to edit its properties.</div>
-          ) : selected.type === "node" ? (
-            selected.node.type === "place" ? (
-              <PlaceEditor
-                node={selected.node}
-                onUpdate={onUpdateNode}
-                forceOpenTokens={tokensOpenForPlaceId === selected.node.id}
-                scrollContainerRef={contentRef}
-              />
-            ) : (
-              <TransitionEditor
-                node={selected.node}
-                onUpdate={onUpdateNode}
-                focusInscription={inscriptionOpenForTransitionId === selected.node.id}
-                scrollContainerRef={contentRef}
-              />
-            )
-          ) : (
-            <EdgeEditor edge={selected.edge} onUpdate={onUpdateEdge} />
-          )
-        ) : (
-          <ExplorerPanel />
-        )}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Explorer section */}
+        <div style={{ height: explorerHeight }} className="overflow-auto border-b">
+          <ExplorerPanel
+            onEntitySelect={(sel) => {
+              if (!sel || sel.kind === 'workflow') return
+              setExternalSelection({ kind: sel.kind, id: sel.id })
+              // Attempt to programmatically select in canvas via events
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('explorerSelectEntity', { detail: sel }))
+              }
+            }}
+          />
+        </div>
+        {/* Splitter */}
+        <div
+          ref={splitterRef}
+          onMouseDown={(e) => { dragState.current = { startY: e.clientY, startHeight: explorerHeight, dragging: true } }}
+          className="h-2 cursor-row-resize flex items-center justify-center bg-neutral-50 hover:bg-neutral-100 select-none"
+        >
+          <div className="h-1 w-10 rounded-full bg-neutral-300" />
+        </div>
+        {/* Property section */}
+        <div ref={contentRef} className="flex-1 overflow-y-auto overflow-x-visible p-3">
+          {(() => {
+            // Prefer canvas selection; fallback to externalSelection if nothing selected
+            const effectiveSelected = selected || (externalSelection ? { type: externalSelection.kind === 'arc' ? 'edge' : 'node', ...(externalSelection.kind === 'arc' ? { edge: { id: externalSelection.id } as any } : { node: { id: externalSelection.id, type: externalSelection.kind === 'place' ? 'place':'transition', data: {} } as any }) } as SelectedResolved : null)
+            if (!effectiveSelected) return <div className="text-xs text-neutral-500">Select an element in the explorer or canvas.</div>
+            if (effectiveSelected.type === 'node') {
+              const node = effectiveSelected.node
+              if (node.type === 'place') {
+                return <PlaceEditor node={node} onUpdate={onUpdateNode} forceOpenTokens={tokensOpenForPlaceId === node.id} scrollContainerRef={contentRef} />
+              }
+              return <TransitionEditor node={node} onUpdate={onUpdateNode} focusGuard={guardOpenForTransitionId === node.id} scrollContainerRef={contentRef} />
+            }
+            return <EdgeEditor edge={effectiveSelected.edge} onUpdate={onUpdateEdge} />
+          })()}
+        </div>
       </div>
     </aside>
   )
@@ -345,12 +378,12 @@ function TokenEditor({
 function TransitionEditor({
   node,
   onUpdate,
-  focusInscription,
+  focusGuard,
   scrollContainerRef,
 }: {
   node: Node<PetriNodeData>
   onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
-  focusInscription?: boolean
+  focusGuard?: boolean
   scrollContainerRef: React.RefObject<HTMLElement | null>
 }) {
   const tType = ((node.data as any).tType || "manual") as TransitionType
@@ -358,21 +391,21 @@ function TransitionEditor({
   const anchorRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    if (focusInscription && inscRef.current) {
+    if (focusGuard && inscRef.current) {
       inscRef.current.scrollIntoView({ behavior: "smooth", block: "start" })
     }
-  }, [focusInscription])
+  }, [focusGuard])
 
-  const [inscriptionText, setInscriptionText] = useState<string>(() => (node.data as any).inscription || "")
+  const [guardText, setGuardText] = useState<string>(() => (node.data as any).guard || "")
   useEffect(() => {
-    const incoming = (node.data as any).inscription || ""
-    setInscriptionText((prev) => (prev !== incoming ? incoming : prev))
-  }, [node.id, (node.data as any).inscription])
+    const incoming = (node.data as any).guard || ""
+    setGuardText((prev) => (prev !== incoming ? incoming : prev))
+  }, [node.id, (node.data as any).guard])
 
   useEffect(() => {
-    const h = window.setTimeout(() => onUpdate(node.id, { inscription: inscriptionText } as any), 150)
+    const h = window.setTimeout(() => onUpdate(node.id, { guard: guardText } as any), 150)
     return () => window.clearTimeout(h)
-  }, [inscriptionText, node.id, onUpdate])
+  }, [guardText, node.id, onUpdate])
 
   return (
     <div className="mt-2 space-y-4">
@@ -387,7 +420,7 @@ function TransitionEditor({
       </div>
 
       <div ref={inscRef} className="space-y-2">
-        <Label className="text-sm">Inscription (FEEL)</Label>
+        <Label className="text-sm">Guard Expression</Label>
         {/* Anchor placeholder; actual editor is floated in a portal */}
         <div ref={anchorRef} className="rounded border transform-none" style={{ height: 160 }}>
           <div className="sr-only">Floating editor anchor</div>
@@ -397,12 +430,12 @@ function TransitionEditor({
           scrollParents={[window, ...(scrollContainerRef.current ? [scrollContainerRef.current] : [])]}
           height={160}
           language="javascript"
-          value={inscriptionText}
-          onChange={(val) => setInscriptionText(val)}
+          value={guardText}
+          onChange={(val) => setGuardText(val)}
           placeholder='if amount > 1000 then "review" else "auto"'
         />
         <p className="text-xs text-neutral-500">
-          FEEL-like expression. Using Shell syntax highlight for readability. Example:{" "}
+          FEEL-like guard expression. Using Shell syntax highlight for readability. Example:{" "}
           {'if amount > 1000 then "review" else "auto"'}.
         </p>
       </div>
@@ -412,6 +445,13 @@ function TransitionEditor({
       </div>
 
       <TypeSpecificEditor node={node} tType={tType} onUpdate={onUpdate} />
+      <div className="mt-6 space-y-2">
+        <div className="flex items-center justify-between">
+          <Label className="text-sm">Time Trigger</Label>
+        </div>
+        <TimeEditor node={node} onUpdate={onUpdate} />
+        <p className="text-xs text-neutral-500">If neither delay nor cron provided, transition fires immediately when enabled.</p>
+      </div>
     </div>
   )
 }
@@ -430,8 +470,6 @@ function TypeSpecificEditor({
       return <ManualEditor node={node} onUpdate={onUpdate} />
     case "auto":
       return <AutoEditor node={node} onUpdate={onUpdate} />
-    case "timer":
-      return <TimerEditor node={node} onUpdate={onUpdate} />
     case "message":
       return <MessageEditor node={node} onUpdate={onUpdate} />
     case "dmn":
@@ -535,48 +573,37 @@ function AutoEditor({
   )
 }
 
-function TimerEditor({
-  node,
-  onUpdate,
-}: {
-  node: Node<PetriNodeData>
-  onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
-}) {
-  const timer = ((node.data as any).timer || {}) as { delayMs?: number; cron?: string }
-  const delayMs = timer.delayMs ?? 0
-  const cron = timer.cron || ""
+// Inline time trigger editor (cron or delay seconds)
+function TimeEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
+  const time = ((node.data as any).time || {}) as { cron?: string; delaySec?: number }
+  const delaySec = time.delaySec ?? 0
+  const cron = time.cron || ""
   const [cronError, setCronError] = useState<string | null>(null)
-
   return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor="timer-delay">Delay (ms)</Label>
+    <div className="space-y-3">
+      <div className="grid gap-2">
+        <Label htmlFor="time-delay">Delay (seconds)</Label>
         <Input
-          id="timer-delay"
+          id="time-delay"
           type="number"
           min={0}
-          value={delayMs}
-          onChange={(e) =>
-            onUpdate(node.id, { timer: { ...timer, delayMs: Math.max(0, Number(e.target.value || 0)) } as any })
-          }
-          placeholder="e.g., 1000"
+            value={delaySec}
+            onChange={(e) => onUpdate(node.id, { time: { ...time, delaySec: Math.max(0, Number(e.target.value || 0)), cron } as any })}
+          placeholder="e.g., 30"
         />
-        <p className="text-xs text-neutral-500">Optional one-shot delay after enablement.</p>
+        <p className="text-xs text-neutral-500">Optional one-shot delay after all preconditions are satisfied.</p>
       </div>
-
-      <div className="space-y-2">
+      <div className="grid gap-2">
         <Label>Crontab Schedule</Label>
         <div className="rounded-md border p-2">
           <Cron
             value={cron}
-            setValue={(v) => onUpdate(node.id, { timer: { ...timer, cron: v } as any })}
+            setValue={(v) => onUpdate(node.id, { time: { ...time, cron: v || undefined, delaySec } as any })}
             onError={(e) => setCronError(e ? e.description : null)}
           />
         </div>
         {cronError ? <p className="text-xs text-red-600">{cronError}</p> : null}
-        <p className="text-xs text-neutral-500">
-          Define a recurring schedule with a standard cron expression. Leave blank if not required.
-        </p>
+        <p className="text-xs text-neutral-500">Provide either a cron schedule or a delay; both may be combined.</p>
       </div>
     </div>
   )
@@ -781,16 +808,14 @@ function EdgeEditor({
   onUpdate: (id: string, patch: Partial<PetriEdgeData>) => void
 }) {
   return (
-    <div className="mt-2 space-y-4">
-      <div className="grid gap-2">
-        <Label htmlFor="e-label">Arc Label</Label>
-        <Input
-          id="e-label"
-          value={(edge.data as any)?.label || ""}
-          onChange={(e) => onUpdate(edge.id, { label: e.target.value })}
-          placeholder="e.g., guard or weight"
-        />
-      </div>
+    <div className="grid gap-2">
+      <Label htmlFor="e-label">Arc Label</Label>
+      <Input
+        id="e-label"
+        value={(edge.data as any)?.label || ""}
+        onChange={(e) => onUpdate(edge.id, { label: e.target.value })}
+        placeholder="e.g., guard or weight"
+      />
     </div>
   )
 }

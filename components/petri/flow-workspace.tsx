@@ -26,31 +26,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import {
-  Activity,
-  Bot,
-  Brain,
-  Check,
-  CirclePlus,
-  Coins,
-  Eye,
-  File,
-  Folder,
-  Hand,
-  Maximize2,
-  MessageSquare,
-  MousePointer2,
-  Play,
-  RotateCcw,
-  SlidersHorizontal,
-  TableProperties,
-  SquarePlus,
-  Timer,
-  Trash2,
-  X,
-  ZoomIn,
-  ZoomOut,
-} from "lucide-react"
+import { Activity, Bot, Brain, Check, CirclePlus, Coins, Eye, File, Folder, Hand, Maximize2, MessageSquare, MousePointer2, Play, RotateCcw, SlidersHorizontal, TableProperties, SquarePlus, Trash2, X, ZoomIn, ZoomOut } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -70,7 +46,7 @@ import {
   type PetriNodeData,
   type TransitionType,
 } from "@/lib/petri-sim"
-import { getWorkflowGraph } from "./mock-workflow-store"
+import { getWorkflowGraph, updateWorkflowFromGraph } from "./mock-workflow-store"
 
 const nodeTypes = { place: PlaceNode, transition: TransitionNode } as any
 const edgeTypes = { labeled: LabeledEdge } as any
@@ -95,6 +71,7 @@ function CanvasInner() {
   const [panelMode, setPanelMode] = useState<PanelMode>("mini")
   const [panelWidth, setPanelWidth] = useState<number>(360)
   const [resizing, setResizing] = useState(false)
+  const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null)
   const [contextMenu, setContextMenu] = useState<{
     open: boolean
     x: number
@@ -111,7 +88,7 @@ function CanvasInner() {
   const [leftTab, setLeftTab] = useState<'property' | 'explorer'>("property")
   const [interactive, setInteractive] = useState<boolean>(true)
   const [tokensOpenForPlaceId, setTokensOpenForPlaceId] = useState<string | null>(null)
-  const [inscriptionOpenForTransitionId, setInscriptionOpenForTransitionId] = useState<string | null>(null)
+  const [guardOpenForTransitionId, setGuardOpenForTransitionId] = useState<string | null>(null)
 
   // Use a ref for connect state so it's available synchronously on first drag
   const connectStateRef = useRef<{
@@ -163,27 +140,27 @@ function CanvasInner() {
       if (!pid) return
       setSelectedRef({ type: "node", id: pid })
       setTokensOpenForPlaceId(pid)
-      setInscriptionOpenForTransitionId(null)
+  setGuardOpenForTransitionId(null)
       if (panelMode === "mini") setPanelMode("normal")
     }
-    function onOpenInscription(ev: Event) {
+    function onOpenGuard(ev: Event) {
       const ce = ev as CustomEvent<{ transitionId: string }>
       const tid = ce.detail?.transitionId
       if (!tid) return
       setSelectedRef({ type: "node", id: tid })
-      setInscriptionOpenForTransitionId(tid)
-      setTokensOpenForPlaceId(null)
+  setGuardOpenForTransitionId(tid)
       if (panelMode === "mini") setPanelMode("normal")
     }
     document.addEventListener("click", onDocClick)
     document.addEventListener("keydown", onKey)
     window.addEventListener("openPlaceTokens", onOpenTokens as EventListener)
-    window.addEventListener("openTransitionInscription", onOpenInscription as EventListener)
+    window.addEventListener("openTransitionGuard", onOpenGuard as EventListener)
     return () => {
       document.removeEventListener("click", onDocClick)
       document.removeEventListener("keydown", onKey)
       window.removeEventListener("openPlaceTokens", onOpenTokens as EventListener)
-      window.removeEventListener("openTransitionInscription", onOpenInscription as EventListener)
+      window.removeEventListener("openTransitionGuard", onOpenGuard as EventListener)
+      setGuardOpenForTransitionId(null)
     }
   }, [panelMode])
 
@@ -199,13 +176,69 @@ function CanvasInner() {
         setEdges(graph.edges)
         setSelectedRef(null)
         setTokensOpenForPlaceId(null)
-        setInscriptionOpenForTransitionId(null)
+          setGuardOpenForTransitionId(null)
+        setActiveWorkflowId(id)
         if (panelMode === 'mini') setPanelMode('normal')
       }
     }
     window.addEventListener('loadWorkflow', onLoadWorkflow as EventListener)
     return () => window.removeEventListener('loadWorkflow', onLoadWorkflow as EventListener)
   }, [panelMode, setNodes, setEdges])
+
+  // When canvas graph changes propagate back to store (debounced) if a workflow is active
+  useEffect(() => {
+    if (!activeWorkflowId) return
+    const h = setTimeout(() => {
+      updateWorkflowFromGraph(activeWorkflowId, nodes as any, edges as any)
+      // Emit event to let Explorer refresh if needed
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('workflowGraphUpdated', { detail: { workflowId: activeWorkflowId } }))
+      }
+    }, 200)
+    return () => clearTimeout(h)
+  }, [nodes, edges, activeWorkflowId])
+
+  // Listen to primitive store changes (Explorer mutations) and refresh canvas graph if same workflow mutated
+  useEffect(() => {
+    function onStoreChanged(ev: Event) {
+      const ce = ev as CustomEvent<{ workflowId: string }>
+      const id = ce.detail?.workflowId
+      if (!id || id !== activeWorkflowId) return
+      const graph = getWorkflowGraph(id)
+      if (graph) {
+        setNodes(graph.nodes)
+        setEdges(graph.edges)
+      }
+    }
+    window.addEventListener('workflowStoreChanged', onStoreChanged as EventListener)
+    return () => window.removeEventListener('workflowStoreChanged', onStoreChanged as EventListener)
+  }, [activeWorkflowId])
+
+  // Listen to explorer entity selection to visually select in canvas
+  useEffect(() => {
+    function onExplorerSelect(ev: Event) {
+      const ce = ev as CustomEvent<{ kind: 'place'|'transition'|'arc'; id: string; workflowId: string }>
+      const detail = ce.detail
+      if (!detail) return
+      // Only act if same workflow active
+      if (detail.workflowId !== activeWorkflowId) return
+      if (detail.kind === 'place' || detail.kind === 'transition') {
+        const id = detail.id
+        setSelectedRef({ type: 'node', id })
+        setNodes(nds => nds.map(n => ({ ...n, selected: n.id === id })))
+        setEdges(eds => eds.map(e => ({ ...e, selected: false })))
+        if (panelMode === 'mini') setPanelMode('normal')
+      } else if (detail.kind === 'arc') {
+        const id = detail.id
+        setSelectedRef({ type: 'edge', id })
+        setEdges(eds => eds.map(e => ({ ...e, selected: e.id === id })))
+        setNodes(nds => nds.map(n => ({ ...n, selected: false })))
+        if (panelMode === 'mini') setPanelMode('normal')
+      }
+    }
+    window.addEventListener('explorerSelectEntity', onExplorerSelect as EventListener)
+    return () => window.removeEventListener('explorerSelectEntity', onExplorerSelect as EventListener)
+  }, [activeWorkflowId, panelMode])
 
   useEffect(() => {
     function onMove(e: MouseEvent) {
@@ -263,15 +296,15 @@ function CanvasInner() {
     if (n) {
       setSelectedRef({ type: "node", id: n.id })
       setTokensOpenForPlaceId((prev) => (prev === n.id ? prev : null))
-      setInscriptionOpenForTransitionId((prev) => (prev === n.id ? prev : null))
+          setGuardOpenForTransitionId((prev) => (prev === n.id ? prev : null))
     } else if (e) {
       setSelectedRef({ type: "edge", id: e.id })
       setTokensOpenForPlaceId(null)
-      setInscriptionOpenForTransitionId(null)
+          setGuardOpenForTransitionId(null)
     } else {
       setSelectedRef(null)
       setTokensOpenForPlaceId(null)
-      setInscriptionOpenForTransitionId(null)
+          setGuardOpenForTransitionId(null)
     }
   }, [])
 
@@ -353,7 +386,7 @@ function CanvasInner() {
               name: "Transition",
               tType: "manual",
               manual: { assignee: "", formSchemaId: "" },
-              inscription: "",
+              guard: "",
             },
           }
         : {
@@ -413,7 +446,7 @@ function CanvasInner() {
           name: "Transition",
           tType: "manual",
           manual: { assignee: "", formSchemaId: "" },
-          inscription: "",
+          guard: "",
         },
       },
     ])
@@ -426,7 +459,7 @@ function CanvasInner() {
       setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id))
       setSelectedRef(null)
       setTokensOpenForPlaceId(null)
-      setInscriptionOpenForTransitionId(null)
+  setGuardOpenForTransitionId(null)
     },
     [setNodes, setEdges],
   )
@@ -682,7 +715,7 @@ function CanvasInner() {
               Delete transition
             </button>
             <Separator />
-            {(["manual", "auto", "timer", "dmn", "message", "llm"] as TransitionType[]).map((t) => (
+            {(["manual", "auto", "dmn", "message", "llm"] as TransitionType[]).map((t) => (
               <button
                 key={t}
                 className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-neutral-50"
@@ -714,8 +747,8 @@ function CanvasInner() {
         onUpdateNode={updateNode}
         onUpdateEdge={updateEdge}
         onModeChange={setPanelMode}
-        tokensOpenForPlaceId={tokensOpenForPlaceId || undefined}
-        inscriptionOpenForTransitionId={inscriptionOpenForTransitionId || undefined}
+  tokensOpenForPlaceId={tokensOpenForPlaceId || undefined}
+  guardOpenForTransitionId={guardOpenForTransitionId || undefined}
         tab={leftTab}
         setTab={setLeftTab}
       />
@@ -737,8 +770,6 @@ function TransitionIcon({
       return <Bot className={className} aria-label="auto" />
     case "message":
       return <MessageSquare className={className} aria-label="message" />
-    case "timer":
-      return <Timer className={className} aria-label="timer" />
     case "dmn":
       return <TableProperties className={className} aria-label="DMN" />
     case "llm":

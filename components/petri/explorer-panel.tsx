@@ -41,12 +41,24 @@ function RenameableText({ label, onRename, className, inputStyle, onAfterRename 
   )
 }
 
-function ExplorerNode({ workflowId, selectedId, onSelect }:{ workflowId: string; selectedId: string|null; onSelect:(id:string|null)=>void }) {
-  const [expanded, setExpanded] = useState<{[k:string]:boolean}>({});
+type ExplorerSelection = { kind: 'workflow'; workflowId: string } | { kind: 'place'|'transition'|'arc'; workflowId: string; id: string } | null
+
+function ExplorerNode({ workflowId, selectedId, onSelect, onEntitySelect, persistKey }:{ workflowId: string; selectedId: string|null; onSelect:(id:string|null)=>void; onEntitySelect:(sel:ExplorerSelection)=>void; persistKey: string }) {
+  const [expanded, setExpanded] = useState<{[k:string]:boolean}>(() => {
+    if (typeof window === 'undefined') return {}
+    try {
+      const raw = window.localStorage.getItem(persistKey + ':' + workflowId)
+      return raw ? JSON.parse(raw) : {}
+    } catch { return {} }
+  });
   const workflow = getWorkflow(workflowId);
   if (!workflow) return null;
 
-  const toggle = (key: string) => setExpanded(e => ({ ...e, [key]: !e[key] }));
+  const toggle = (key: string) => setExpanded(e => {
+    const next = { ...e, [key]: !e[key] }
+    try { if (typeof window !== 'undefined') window.localStorage.setItem(persistKey + ':' + workflowId, JSON.stringify(next)) } catch {}
+    return next
+  });
   const loadThisWorkflow = () => {
     const evt = new CustomEvent('loadWorkflow', { detail: { workflowId } });
     window.dispatchEvent(evt);
@@ -89,19 +101,24 @@ function ExplorerNode({ workflowId, selectedId, onSelect }:{ workflowId: string;
           </div>
           {expanded['places'] && (
             <ul style={{ marginLeft: 12 }}>
-              {workflow.places.map(p => (
-                <li key={p.id} className="group" style={{ display:'flex', alignItems:'center', gap:6 }}>
-                  <Circle className="h-3.5 w-3.5" />
-                  <RenameableText
-                    label={p.name}
-                    onRename={(next) => renamePlace(workflowId, p.id, next)}
-                    onAfterRename={() => setExpanded(ex => ({ ...ex }))}
-                  />
-                  <button title="Delete place" className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ marginLeft:'auto', fontSize: 12, display:'flex', alignItems:'center' }} onClick={(e)=>{ e.stopPropagation(); deletePlace(workflowId, p.id); }}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </li>
-              ))}
+              {workflow.places.map(p => {
+                const active = selectedId === p.id
+                return (
+                  <li key={p.id} className="group" style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer', background: active? '#f0f0f0':'transparent', borderRadius:4, padding:'2px 4px' }}
+                    onClick={(e) => { e.stopPropagation(); onEntitySelect({ kind:'place', workflowId, id:p.id }); }}
+                  >
+                    <Circle className="h-3.5 w-3.5" />
+                    <RenameableText
+                      label={p.name}
+                      onRename={(next) => renamePlace(workflowId, p.id, next)}
+                      onAfterRename={() => setExpanded(ex => ({ ...ex }))}
+                    />
+                    <button title="Delete place" className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ marginLeft:'auto', fontSize: 12, display:'flex', alignItems:'center' }} onClick={(e)=>{ e.stopPropagation(); deletePlace(workflowId, p.id); }}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           )}
           <div onClick={(e) => { e.stopPropagation(); toggle('transitions') }} style={{ cursor: 'pointer', display:'flex', alignItems:'center', gap:6 }}>
@@ -110,22 +127,27 @@ function ExplorerNode({ workflowId, selectedId, onSelect }:{ workflowId: string;
           </div>
           {expanded['transitions'] && (
             <ul style={{ marginLeft: 12 }}>
-              {workflow.transitions.map(t => (
-                <li key={t.id} className="group" style={{ display:'flex', alignItems:'center', gap:6 }}>
-                  <Square className="h-3.5 w-3.5" />
-                  <span style={{ display:'flex', alignItems:'center', gap:4 }}>
-                    <RenameableText
-                      label={t.name}
-                      onRename={(next) => renameTransition(workflowId, t.id, next)}
-                      onAfterRename={() => setExpanded(ex => ({ ...ex }))}
-                    />
-                    {t.type === 'workflow' && t.workflowRef ? <span style={{color:'#888'}}> (workflow: {getWorkflow(t.workflowRef)?.name || t.workflowRef})</span> : null}
-                  </span>
-                  <button title="Delete transition" className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ marginLeft:'auto', fontSize: 12, display:'flex', alignItems:'center' }} onClick={(e)=>{ e.stopPropagation(); deleteTransition(workflowId, t.id); }}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </li>
-              ))}
+              {workflow.transitions.map(t => {
+                const active = selectedId === t.id
+                return (
+                  <li key={t.id} className="group" style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer', background: active? '#f0f0f0':'transparent', borderRadius:4, padding:'2px 4px' }}
+                    onClick={(e) => { e.stopPropagation(); onEntitySelect({ kind:'transition', workflowId, id:t.id }); }}
+                  >
+                    <Square className="h-3.5 w-3.5" />
+                    <span style={{ display:'flex', alignItems:'center', gap:4 }}>
+                      <RenameableText
+                        label={t.name}
+                        onRename={(next) => renameTransition(workflowId, t.id, next)}
+                        onAfterRename={() => setExpanded(ex => ({ ...ex }))}
+                      />
+                      {t.type === 'workflow' && t.workflowRef ? <span style={{color:'#888'}}> (workflow: {getWorkflow(t.workflowRef)?.name || t.workflowRef})</span> : null}
+                    </span>
+                    <button title="Delete transition" className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ marginLeft:'auto', fontSize: 12, display:'flex', alignItems:'center' }} onClick={(e)=>{ e.stopPropagation(); deleteTransition(workflowId, t.id); }}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           )}
           <div onClick={(e) => { e.stopPropagation(); toggle('arcs') }} style={{ cursor: 'pointer', display:'flex', alignItems:'center', gap:6 }}>
@@ -134,15 +156,20 @@ function ExplorerNode({ workflowId, selectedId, onSelect }:{ workflowId: string;
           </div>
           {expanded['arcs'] && (
             <ul style={{ marginLeft: 12 }}>
-              {workflow.arcs.map(a => (
-                <li key={a.id} className="group" style={{ display:'flex', alignItems:'center', gap:6 }}>
-                  <ArrowRight className="h-3.5 w-3.5" />
-                  <span>{a.from} → {a.to}</span>
-                  <button title="Delete arc" className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ marginLeft:'auto', fontSize: 12, display:'flex', alignItems:'center' }} onClick={(e)=>{ e.stopPropagation(); deleteArc(workflowId, a.id); }}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </li>
-              ))}
+              {workflow.arcs.map(a => {
+                const active = selectedId === a.id
+                return (
+                  <li key={a.id} className="group" style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer', background: active? '#f0f0f0':'transparent', borderRadius:4, padding:'2px 4px' }}
+                    onClick={(e) => { e.stopPropagation(); onEntitySelect({ kind:'arc', workflowId, id:a.id }); }}
+                  >
+                    <ArrowRight className="h-3.5 w-3.5" />
+                    <span>{a.from} → {a.to}</span>
+                    <button title="Delete arc" className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ marginLeft:'auto', fontSize: 12, display:'flex', alignItems:'center' }} onClick={(e)=>{ e.stopPropagation(); deleteArc(workflowId, a.id); }}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </div>
@@ -152,7 +179,7 @@ function ExplorerNode({ workflowId, selectedId, onSelect }:{ workflowId: string;
             <ul>
               {workflow.subWorkflows.map(subId => (
                 <li key={subId}>
-                  <ExplorerNode workflowId={subId} selectedId={selectedId} onSelect={onSelect} />
+                  <ExplorerNode workflowId={subId} selectedId={selectedId} onSelect={onSelect} onEntitySelect={onEntitySelect} persistKey={persistKey} />
                 </li>
               ))}
             </ul>
@@ -164,11 +191,23 @@ function ExplorerNode({ workflowId, selectedId, onSelect }:{ workflowId: string;
   );
 }
 
-export default function ExplorerPanel() {
+export default function ExplorerPanel({ onEntitySelect, persistKey = 'goflow.explorer.expanded' }: { onEntitySelect?: (sel: ExplorerSelection) => void; persistKey?: string }) {
   // selected workflow ID in explorer
   const [selectedId, setSelectedId] = useState<string|null>(null)
   const [, setBump] = useState(0) // force re-render on mutations (simple mock store)
   const force = () => setBump(x => x+1)
+
+  // Listen to canvas-originated graph updates so list (names) stay in sync
+  useEffect(() => {
+    function onGraphUpdated(ev: Event) {
+      const ce = ev as CustomEvent<{ workflowId: string }>
+      if (!ce.detail?.workflowId) return
+      // Just bump; store already mutated
+      force()
+    }
+    window.addEventListener('workflowGraphUpdated', onGraphUpdated as EventListener)
+    return () => window.removeEventListener('workflowGraphUpdated', onGraphUpdated as EventListener)
+  }, [])
 
   const hasSelection = !!selectedId
   const addWf = () => { addWorkflow(selectedId || undefined); force() }
@@ -197,7 +236,19 @@ export default function ExplorerPanel() {
       <div style={{ marginBottom: 8, fontSize: 12, color: '#666' }} onClick={(e)=> e.stopPropagation()}>Workflows</div>
       <div onClick={(e)=> e.stopPropagation()}>
         {Object.keys(workflows).map(id => (
-          <ExplorerNode key={id} workflowId={id} selectedId={selectedId} onSelect={(id)=>{ setSelectedId(id); force(); }} />
+          <ExplorerNode
+            key={id}
+            workflowId={id}
+            selectedId={selectedId}
+            onSelect={(id)=>{ setSelectedId(id); force(); }}
+            onEntitySelect={(sel) => {
+              if (!sel) return;
+              if (sel.kind !== 'workflow') setSelectedId(sel.id);
+              force();
+              onEntitySelect?.(sel);
+            }}
+            persistKey={persistKey}
+          />
         ))}
       </div>
       <div style={{ flex: 1 }} />

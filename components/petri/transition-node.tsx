@@ -11,22 +11,23 @@ const typeIconMap: Record<TransitionType, React.ReactNode> = {
   manual: <Hand className="h-4 w-4 text-emerald-700" aria-label="manual" />,
   auto: <Bot className="h-4 w-4 text-emerald-700" aria-label="auto" />,
   message: <MessageSquare className="h-4 w-4 text-emerald-700" aria-label="message" />,
-  timer: <Timer className="h-4 w-4 text-emerald-700" aria-label="timer" />,
   dmn: <TableProperties className="h-4 w-4 text-emerald-700" aria-label="dmn" />,
   llm: <Brain className="h-4 w-4 text-emerald-700" aria-label="llm" />,
 }
 
-export function TransitionNode({ id, data, selected }: NodeProps<PetriNodeData>) {
+export function TransitionNode({ id, data, selected }: NodeProps<any>) {
   const [hoverLeft, setHoverLeft] = useState(false)
   const [hoverRight, setHoverRight] = useState(false)
   const tData = data as any
-  const inscription: string = tData.inscription ?? ""
+  const guard: string = tData.guard ?? ""
+  const time = (tData.time || {}) as { cron?: string; delaySec?: number }
+  const hasTime = (time.cron && time.cron.trim().length > 0) || (typeof time.delaySec === 'number' && time.delaySec > 0)
+  const trimmed = guard.trim()
+  const hasGuard = trimmed.length > 0
+  const displayGuard = trimmed.length > 20 ? `${trimmed.slice(0, 20)}...` : trimmed
 
-  const displayInscription =
-    inscription.length > 20 ? `${inscription.slice(0, 20)}...` : inscription.length > 0 ? inscription : ""
-
-  const openInscription = () => {
-    const evt = new CustomEvent("openTransitionInscription", { detail: { transitionId: id } })
+  const openGuard = () => {
+    const evt = new CustomEvent("openTransitionGuard", { detail: { transitionId: id } })
     window.dispatchEvent(evt)
   }
 
@@ -44,22 +45,30 @@ export function TransitionNode({ id, data, selected }: NodeProps<PetriNodeData>)
         {typeIconMap[(tData.tType as TransitionType) || "manual"]}
       </div>
 
-      {/* Inscription badge at upper-left, slightly above the rectangle */}
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation()
-          openInscription()
-        }}
-        className="absolute -top-6 -left-2"
-        aria-label={`Edit inscription for ${tData.name || "Transition"}`}
-        title="Edit inscription (FEEL)"
-      >
-        <Badge variant="outline" className="flex max-w-[180px] items-center gap-1 bg-white text-xs">
-          <Code className="h-3 w-3 text-emerald-700" aria-hidden />
-          <span className="truncate">{displayInscription || " "}</span>
-        </Badge>
-      </button>
+      {hasGuard && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            openGuard()
+          }}
+          className="absolute -top-6 -left-2"
+          aria-label={`Edit guard for ${tData.name || "Transition"}`}
+          title="Edit guard expression"
+        >
+          <Badge variant="outline" className="flex max-w-[180px] items-center gap-1 bg-white text-xs">
+            <Code className="h-3 w-3 text-emerald-700" aria-hidden />
+            <span className="truncate">{displayGuard}</span>
+          </Badge>
+        </button>
+      )}
+      {hasTime && (
+        <div className="pointer-events-none absolute -bottom-6 -left-2" aria-label="timer trigger" title="Time trigger active">
+          <Badge variant="outline" className="flex items-center gap-1 bg-white text-xs">
+            <Timer className="h-3 w-3 text-emerald-700" aria-hidden />
+          </Badge>
+        </div>
+      )}
 
       <div className="flex items-center justify-center">
         <div className="truncate text-neutral-800">{tData.name || "Transition"}</div>
@@ -96,5 +105,5 @@ export function TransitionNode({ id, data, selected }: NodeProps<PetriNodeData>)
 }
 
 TransitionNode.defaultProps = {
-  data: { kind: "transition", name: "Transition", tType: "manual", inscription: "" },
+  data: { kind: "transition", name: "Transition", tType: "manual", guard: "" },
 }
