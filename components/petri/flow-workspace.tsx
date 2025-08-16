@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Activity, Bot, Brain, Check, CirclePlus, Coins, Eye, File, Folder, Hand, Maximize2, MessageSquare, MousePointer2, Play, RotateCcw, SlidersHorizontal, TableProperties, SquarePlus, Trash2, X, ZoomIn, ZoomOut } from "lucide-react"
+import { Activity, Bot, Brain, Check, CirclePlus, Coins, Eye, File, Folder, Hand, Maximize2, MessageSquare, MousePointer2, Play, RotateCcw, Save, SlidersHorizontal, TableProperties, SquarePlus, Trash2, X, ZoomIn, ZoomOut } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,6 +49,7 @@ import {
   type TransitionType,
 } from "@/lib/petri-sim"
 import { getWorkflowGraph, updateWorkflowFromGraph } from "./mock-workflow-store"
+import { fetchWorkflow } from "./petriClient"
 
 const nodeTypes = { place: PlaceNode, transition: TransitionNode } as any
 const edgeTypes = { labeled: LabeledEdge } as any
@@ -69,6 +70,9 @@ export function FlowWorkspace() {
 }
 
 function CanvasInner() {
+  // (All these states/refs are now declared at the top of CanvasInner)
+  // All state/hooks used in onExplorerSelect must be declared before it
+  // All state/hooks used in onExplorerSelect and throughout CanvasInner
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<PetriNodeData>>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<PetriEdgeData>>([])
   const [selectedRef, setSelectedRef] = useState<SelectedRef>(null)
@@ -76,10 +80,11 @@ function CanvasInner() {
   const [panelWidth, setPanelWidth] = useState<number>(360)
   const [resizing, setResizing] = useState(false)
   const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null)
+  const [editedMap, setEditedMap] = useState<Record<string, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{
     open: boolean
     x: number
-    y: number
+    y: number 
     nodeId: string | null
   }>({
     open: false,
@@ -87,14 +92,12 @@ function CanvasInner() {
     y: 0,
     nodeId: null,
   })
-
   const [showSystem, setShowSystem] = useState<boolean>(false)
   const [systemTab, setSystemTab] = useState<'monitor' | 'settings'>('monitor')
   const [leftTab, setLeftTab] = useState<'property' | 'explorer'>("property")
   const [interactive, setInteractive] = useState<boolean>(true)
   const [tokensOpenForPlaceId, setTokensOpenForPlaceId] = useState<string | null>(null)
   const [guardOpenForTransitionId, setGuardOpenForTransitionId] = useState<string | null>(null)
-
   // Use a ref for connect state so it's available synchronously on first drag
   const connectStateRef = useRef<{
     start: { nodeId?: string | null; handleType?: "source" | "target" | null } | null
@@ -107,10 +110,72 @@ function CanvasInner() {
     completed: false,
     cancel: false,
   });
-
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const { screenToFlowPosition, zoomIn, zoomOut, fitView } = useReactFlow()
+  const { settings } = useSystemSettings();
+
+  // Server workflow state for server mode
+  const [serverWorkflows, setServerWorkflows] = useState<any[]>([]);
+  const [serverWorkflowsFetched, setServerWorkflowsFetched] = useState(false);
+  const [serverWorkflowCache, setServerWorkflowCache] = useState<Record<string, any>>({});
+
+  // Fetch workflow list from server
+  const fetchServerWorkflowList = useCallback(async () => {
+    if (!settings.flowServiceUrl) return;
+    try {
+      const list = await import("./petriClient").then(m => m.fetchWorkflowList(settings.flowServiceUrl));
+      setServerWorkflows(list.data.cpns);
+      setServerWorkflowsFetched(true);
+    } catch (err: any) {
+      alert('Failed to fetch workflow list: ' + (err?.message || err));
+    }
+  }, [settings.flowServiceUrl]);
+
+  // Handler for selecting a workflow in Explorer (server or mockup)
+  const onExplorerSelect = useCallback(async (workflowId: string) => {
+    if (settings.runMode === 'mockup') {
+      const graph = getWorkflowGraph(workflowId)
+      if (graph) {
+        setNodes(graph.nodes)
+        setEdges(graph.edges)
+        setSelectedRef(null)
+        setTokensOpenForPlaceId(null)
+        setGuardOpenForTransitionId(null)
+        setActiveWorkflowId(workflowId)
+        setEditedMap((prev) => ({ ...prev, [workflowId]: false }))
+        if (panelMode === 'mini') setPanelMode('normal')
+      }
+    } else {
+      // Only fetch if not already cached
+      if (!serverWorkflowCache[workflowId]) {
+        try {
+          const swf = (await fetchWorkflow(settings.flowServiceUrl, workflowId)).data;
+          // Convert server workflow to xyflow format
+          const { syncListsIntoGraph } = await import("./mock-workflow-store");
+          const wf = syncListsIntoGraph(swf);
+          setServerWorkflowCache((prev) => ({ ...prev, [workflowId]: wf }));
+          setNodes(wf.graph?.nodes || []);
+          setEdges(wf.graph?.edges || []);
+        } catch (err: any) {
+          alert('Failed to fetch workflow: ' + (err?.message || err));
+          return;
+        }
+      } else {
+        const wf = serverWorkflowCache[workflowId];
+        setNodes(wf.graph?.nodes || []);
+        setEdges(wf.graph?.edges || []);
+      }
+      setSelectedRef(null)
+      setTokensOpenForPlaceId(null)
+      setGuardOpenForTransitionId(null)
+      setActiveWorkflowId(workflowId)
+      setEditedMap((prev) => ({ ...prev, [workflowId]: false }))
+      if (panelMode === 'mini') setPanelMode('normal')
+    }
+  }, [settings, getWorkflowGraph, setNodes, setEdges, setSelectedRef, setTokensOpenForPlaceId, setGuardOpenForTransitionId, setActiveWorkflowId, setEditedMap, panelMode, setPanelMode, serverWorkflowCache]);
+
+  const edited = activeWorkflowId ? editedMap[activeWorkflowId] ?? false : false;
 
   const selected: SelectedResolved = useMemo(() => {
     if (!selectedRef) return null
@@ -181,8 +246,10 @@ function CanvasInner() {
         setEdges(graph.edges)
         setSelectedRef(null)
         setTokensOpenForPlaceId(null)
-          setGuardOpenForTransitionId(null)
+        setGuardOpenForTransitionId(null)
         setActiveWorkflowId(id)
+        // Reset edited status for this workflow
+        setEditedMap((prev) => ({ ...prev, [id]: false }))
         if (panelMode === 'mini') setPanelMode('normal')
       }
     }
@@ -191,8 +258,19 @@ function CanvasInner() {
   }, [panelMode, setNodes, setEdges])
 
   // When canvas graph changes propagate back to store (debounced) if a workflow is active
+  // Only set edited=true if nodes/edges change and not on load
+  const prevNodes = useRef<Node<PetriNodeData>[]>([]);
+  const prevEdges = useRef<Edge<PetriEdgeData>[]>([]);
   useEffect(() => {
-    if (!activeWorkflowId) return
+    if (!activeWorkflowId) return;
+    // Compare nodes/edges to previous, if different, set edited true
+    const nodesChanged = JSON.stringify(nodes) !== JSON.stringify(prevNodes.current);
+    const edgesChanged = JSON.stringify(edges) !== JSON.stringify(prevEdges.current);
+    if ((nodesChanged || edgesChanged) && prevNodes.current.length > 0) {
+      setEditedMap((prev) => ({ ...prev, [activeWorkflowId]: true }));
+    }
+    prevNodes.current = nodes;
+    prevEdges.current = edges;
     const h = setTimeout(() => {
       updateWorkflowFromGraph(activeWorkflowId, nodes as any, edges as any)
       // Emit event to let Explorer refresh if needed
@@ -526,6 +604,7 @@ function CanvasInner() {
 
   return (
     <div ref={containerRef} className="flex h-full w-full gap-4">
+  {/* ...existing code... */}
       {/* Left System Panel with tabs */}
       {showSystem && (
         <div className="flex h-full w-80 flex-col rounded-lg border bg-white">
@@ -654,6 +733,41 @@ function CanvasInner() {
             aria-label="Canvas toolbar"
           >
             <Controls position="bottom-right" showZoom={false} showFitView={false} showInteractive={false}>
+              {/* Save workflow button */}
+              <ControlButton
+                onClick={async () => {
+                  if (!activeWorkflowId) return;
+                  const url = settings.flowServiceUrl;
+                  if (!url) {
+                    alert('flowServiceUrl is not set in system settings.');
+                    return;
+                  }
+                  // Get the workflow data as updateWorkflowFromGraph would
+                  const workflowData = updateWorkflowFromGraph(activeWorkflowId, nodes as any, edges as any);
+                  console.log('Saving workflow data:', workflowData);
+                  try {
+                    const resp = await fetch(`${url}/api/cpn/load`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(workflowData),
+                    });
+                    if (!resp.ok) {
+                      const msg = await resp.text();
+                      alert(`Save failed: ${resp.status} ${msg}`);
+                      return;
+                    }
+                    setEditedMap((prev) => ({ ...prev, [activeWorkflowId]: false }));
+                  } catch (err: any) {
+                    alert('Save failed: ' + (err?.message || err));
+                  }
+                }}
+                title={edited ? 'Save workflow' : 'No changes to save'}
+                disabled={!edited}
+                style={{ opacity: edited ? 1 : 0.5 }}
+                aria-label="Save workflow"
+              >
+                <Save className="h-4 w-4" aria-hidden />
+              </ControlButton>
 
               {/* Toggle interactivity */}
               <ControlButton
@@ -676,9 +790,12 @@ function CanvasInner() {
 
               {/* Explorer (Folder) */}
               <ControlButton
-                onClick={() => {
-                  if (panelMode === 'mini') setPanelMode('normal')
-                  setLeftTab('explorer')
+                onClick={async () => {
+                  if (panelMode === 'mini') setPanelMode('normal');
+                  setLeftTab('explorer');
+                  if (settings.runMode !== 'mockup' && !serverWorkflowsFetched) {
+                    await fetchServerWorkflowList();
+                  }
                 }}
                 title="Open Explorer"
               >
@@ -767,10 +884,12 @@ function CanvasInner() {
         onUpdateNode={updateNode}
         onUpdateEdge={updateEdge}
         onModeChange={setPanelMode}
-  tokensOpenForPlaceId={tokensOpenForPlaceId || undefined}
-  guardOpenForTransitionId={guardOpenForTransitionId || undefined}
+        tokensOpenForPlaceId={tokensOpenForPlaceId || undefined}
+        guardOpenForTransitionId={guardOpenForTransitionId || undefined}
         tab={leftTab}
         setTab={setLeftTab}
+        explorerWorkflows={settings.runMode === 'mockup' ? undefined : serverWorkflows}
+        onExplorerSelect={onExplorerSelect}
       />
     </div>
   )

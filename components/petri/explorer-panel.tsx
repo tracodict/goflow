@@ -163,7 +163,7 @@ function ExplorerNode({ workflowId, selectedId, onSelect, onEntitySelect, persis
                     onClick={(e) => { e.stopPropagation(); onEntitySelect({ kind:'arc', workflowId, id:a.id }); }}
                   >
                     <ArrowRight className="h-3.5 w-3.5" />
-                    <span>{a.from} → {a.to}</span>
+                    <span>{a.sourceId} → {a.targetId}</span>
                     <button title="Delete arc" className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ marginLeft:'auto', fontSize: 12, display:'flex', alignItems:'center' }} onClick={(e)=>{ e.stopPropagation(); deleteArc(workflowId, a.id); }}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -191,7 +191,17 @@ function ExplorerNode({ workflowId, selectedId, onSelect, onEntitySelect, persis
   );
 }
 
-export default function ExplorerPanel({ onEntitySelect, persistKey = 'goflow.explorer.expanded' }: { onEntitySelect?: (sel: ExplorerSelection) => void; persistKey?: string }) {
+export default function ExplorerPanel({
+  workflows: propWorkflows,
+  onWorkflowSelect,
+  onEntitySelect,
+  persistKey = 'goflow.explorer.expanded',
+}: {
+  workflows?: any[];
+  onWorkflowSelect?: (workflowId: string) => void;
+  onEntitySelect?: (sel: ExplorerSelection) => void;
+  persistKey?: string;
+}) {
   // selected workflow ID in explorer
   const [selectedId, setSelectedId] = useState<string|null>(null)
   const [, setBump] = useState(0) // force re-render on mutations (simple mock store)
@@ -210,45 +220,55 @@ export default function ExplorerPanel({ onEntitySelect, persistKey = 'goflow.exp
   }, [])
 
   const hasSelection = !!selectedId
-  const addWf = () => { addWorkflow(selectedId || undefined); force() }
-  const onAddPlace = () => { if (!selectedId) return; addPlace(selectedId); force() }
-  const onAddTransition = () => { if (!selectedId) return; addTransition(selectedId); force() }
-  const onAddArc = () => { if (!selectedId) return; addArc(selectedId); force() }
+  const addWf = () => { if (!propWorkflows) { addWorkflow(selectedId || undefined); force(); } }
+  const onAddPlace = () => { if (!selectedId || propWorkflows) return; addPlace(selectedId); force() }
+  const onAddTransition = () => { if (!selectedId || propWorkflows) return; addTransition(selectedId); force() }
+  const onAddArc = () => { if (!selectedId || propWorkflows) return; addArc(selectedId); force() }
+
+  // Use propWorkflows if provided (server mode), else use mockup workflows
+  const workflowList = useMemo(() => {
+    if (propWorkflows) {
+      // Server: array of { id, name }
+      return propWorkflows.map((w: any) => ({ id: w.id, name: w.name }));
+    } else {
+      // Mockup: object keys
+      return Object.keys(workflows).map(id => ({ id, name: workflows[id].name }));
+    }
+  }, [propWorkflows]);
 
   return (
     <div style={{ padding: 8, height: '100%', display: 'flex', flexDirection: 'column' }} onClick={() => setSelectedId(null)}>
       {/* tiny toolbar styled with shadcn + lucide to match canvas controls */}
       <div style={{ display:'flex', gap:6, alignItems:'center', marginBottom: 8 }} onClick={(e)=> e.stopPropagation()}>
-        <Button size="icon" variant="ghost" onClick={addWf} title={selectedId ? 'Add sub-workflow' : 'Add workflow'}>
+        <Button size="icon" variant="ghost" onClick={addWf} title={selectedId ? 'Add sub-workflow' : 'Add workflow'} disabled={!!propWorkflows}>
           <FolderPlus className="h-4 w-4" />
         </Button>
-        <Button size="icon" variant="ghost" onClick={onAddPlace} title="Add place" disabled={!hasSelection}>
+        <Button size="icon" variant="ghost" onClick={onAddPlace} title="Add place" disabled={!hasSelection || !!propWorkflows}>
           <CirclePlus className="h-4 w-4" />
         </Button>
-        <Button size="icon" variant="ghost" onClick={onAddTransition} title="Add transition" disabled={!hasSelection}>
+        <Button size="icon" variant="ghost" onClick={onAddTransition} title="Add transition" disabled={!hasSelection || !!propWorkflows}>
           <SquarePlus className="h-4 w-4" />
         </Button>
-        <Button size="icon" variant="ghost" onClick={onAddArc} title="Add arc" disabled={!hasSelection}>
+        <Button size="icon" variant="ghost" onClick={onAddArc} title="Add arc" disabled={!hasSelection || !!propWorkflows}>
           <Link2 className="h-4 w-4" />
         </Button>
       </div>
 
       <div style={{ marginBottom: 8, fontSize: 12, color: '#666' }} onClick={(e)=> e.stopPropagation()}>Workflows</div>
       <div onClick={(e)=> e.stopPropagation()}>
-        {Object.keys(workflows).map(id => (
-          <ExplorerNode
-            key={id}
-            workflowId={id}
-            selectedId={selectedId}
-            onSelect={(id)=>{ setSelectedId(id); force(); }}
-            onEntitySelect={(sel) => {
-              if (!sel) return;
-              if (sel.kind !== 'workflow') setSelectedId(sel.id);
-              force();
-              onEntitySelect?.(sel);
+        {workflowList.map(wf => (
+          <div
+            key={wf.id}
+            style={{ fontWeight: selectedId === wf.id ? 'bold' : 'normal', cursor: 'pointer', display:'flex', alignItems:'center', gap:6, padding:'2px 4px', borderRadius:4, background: selectedId === wf.id ? '#f0f0f0' : 'transparent' }}
+            onClick={() => {
+              setSelectedId(wf.id);
+              if (propWorkflows && onWorkflowSelect) onWorkflowSelect(wf.id);
+              else force();
             }}
-            persistKey={persistKey}
-          />
+          >
+            <Folder className="h-4 w-4" />
+            <span>{wf.name}</span>
+          </div>
         ))}
       </div>
       <div style={{ flex: 1 }} />

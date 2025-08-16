@@ -39,6 +39,8 @@ export function SidePanel({
   guardOpenForTransitionId,
   tab,
   setTab,
+  explorerWorkflows,
+  onExplorerSelect,
 }: {
   open: boolean
   mode: PanelMode
@@ -52,6 +54,8 @@ export function SidePanel({
   guardOpenForTransitionId?: string
   tab: 'property' | 'explorer'
   setTab: (tab: 'property' | 'explorer') => void
+  explorerWorkflows?: any[]
+  onExplorerSelect?: (workflowId: string) => void
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null)
   // New: split state between explorer (top) and property (bottom)
@@ -138,6 +142,8 @@ export function SidePanel({
         {/* Explorer section */}
         <div style={{ height: explorerHeight }} className="overflow-auto border-b">
           <ExplorerPanel
+            workflows={explorerWorkflows}
+            onWorkflowSelect={onExplorerSelect}
             onEntitySelect={(sel) => {
               if (!sel || sel.kind === 'workflow') return
               setExternalSelection({ kind: sel.kind, id: sel.id })

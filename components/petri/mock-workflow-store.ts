@@ -1,11 +1,12 @@
 // Mock workflow store for Explorer side panel
 // Each workflow has: id, name, places, transitions, arcs, subWorkflows
 
-export type Place = { id: string; name: string, colorSet: string };
-export type Arc = { id: string; sourceId: string; targetId: string, expression: string, direction: 'IN' | 'OUT' };
+export type Position = { x: number; y: number };
+export type Place = { id: string; name: string, colorSet: string, position: Position };
+export type Arc = { id: string; sourceId: string; targetId: string, expression: string, direction: 'IN' | 'OUT'};
 export type Transition = { id: string; name: string; type?: 'normal' | 'workflow'; 
   workflowRef?: string, guardExpression?: string, variables?: string[],
-  transitionDelay?: number
+  transitionDelay?: number, position: Position
  };
 export type Marking = { value: object, timestamp: number }
 import type { Edge, Node } from "@xyflow/react";
@@ -38,7 +39,7 @@ function ensureGraph(w: Workflow) {
 }
 
 // Keep graph nodes/edges in sync with list-based primitives after Explorer mutations
-function syncListsIntoGraph(w: Workflow) {
+export function syncListsIntoGraph(w: Workflow) {
   ensureGraph(w);
   const nodeMap: Record<string, Node<PetriNodeData>> = {};
   // Existing nodes retained for position if still present
@@ -50,7 +51,7 @@ function syncListsIntoGraph(w: Workflow) {
     if (existing && existing.type === 'place') {
       nextNodes.push({ ...existing, data: { ...(existing.data as any), name: p.name } });
     } else {
-      nextNodes.push({ id: p.id, type: 'place', position: genPosition('place'), data: { kind: 'place', name: p.name, colorSet: p.colorSet, tokens: 0, tokenList: [] } });
+      nextNodes.push({ id: p.id, type: 'place', position: p.position || genPosition('place'), data: { kind: 'place', name: p.name, colorSet: p.colorSet, tokens: 0, tokenList: [] } });
     }
   });
   w.transitions.forEach(t => {
@@ -58,7 +59,7 @@ function syncListsIntoGraph(w: Workflow) {
     if (existing && existing.type === 'transition') {
       nextNodes.push({ ...existing, data: { ...(existing.data as any), name: t.name } });
     } else {
-      nextNodes.push({ id: t.id, type: 'transition', position: genPosition('transition'), data: { kind: 'transition', name: t.name, tType: 'manual', manual: { assignee: '', formSchemaId: '' }, guard: '' } });
+      nextNodes.push({ id: t.id, type: 'transition', position: t.position || genPosition('transition'), data: { kind: 'transition', name: t.name, tType: 'manual', manual: { assignee: '', formSchemaId: '' }, guard: '' } });
     }
   });
 
@@ -73,6 +74,7 @@ function syncListsIntoGraph(w: Workflow) {
   });
 
   w.graph = { nodes: nextNodes, edges: nextEdges };
+  return w
 }
 
 // Public API for Canvas -> Store sync (does NOT emit events to avoid feedback loops)
@@ -84,11 +86,13 @@ export function updateWorkflowFromGraph(id: string, nodes: Node<PetriNodeData>[]
   w.places = nodes.filter(n => n.type === 'place').map(n => ({
     id: n.id,
     name: (n.data as any)?.name || n.id,
-    colorSet: (n.data as any)?.colorSet || ''
+    colorSet: (n.data as any)?.colorSet || '',
+    position: n.position as Position
   }));
   w.transitions = nodes.filter(n => n.type === 'transition').map(n => ({
     id: n.id,
     name: (n.data as any)?.name || n.id,
+    position: n.position as Position,
     type: ((n.data as any)?.tType === 'workflow' ? 'workflow' : 'normal'),
     workflowRef: (n.data as any)?.workflowRef,
     guardExpression: (n.data as any)?.guard,
@@ -127,8 +131,7 @@ export function updateWorkflowFromGraph(id: string, nodes: Node<PetriNodeData>[]
     }
   });
   w.initialMarking = marking;
-
-  console.log(JSON.stringify(w, null, 2));
+  return w
 }
 
 function emitChanged(workflowId: string) {
