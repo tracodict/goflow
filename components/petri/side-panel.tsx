@@ -460,14 +460,16 @@ function TransitionEditor({
     }
   }, [focusGuard])
 
-  const [guardText, setGuardText] = useState<string>(() => (node.data as any).guard || "")
+  const [guardText, setGuardText] = useState<string>(() => (node as any).guardExpression || (node.data as any).guardExpression || "")
   useEffect(() => {
-    const incoming = (node.data as any).guard || ""
+    const incoming = (node as any).guardExpression || (node.data as any).guardExpression || ""
     setGuardText((prev) => (prev !== incoming ? incoming : prev))
-  }, [node.id, (node.data as any).guard])
+  }, [node.id, (node as any).guardExpression, (node.data as any).guardExpression])
 
   useEffect(() => {
-    const h = window.setTimeout(() => onUpdate(node.id, { guard: guardText } as any), 150)
+    const h = window.setTimeout(() => {
+      onUpdate(node.id, { guardExpression: guardText } as any)
+    }, 150)
     return () => window.clearTimeout(h)
   }, [guardText, node.id, onUpdate])
 

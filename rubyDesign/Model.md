@@ -135,7 +135,7 @@ The `data` field in the Workflow model typically contains the workflow definitio
       "id": "string",
       "name": "string",
       "type": "string",
-      "guard": "string"
+      "guardExpression": "string"
     }
   ],
   "arcs": [

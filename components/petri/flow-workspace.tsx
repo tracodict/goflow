@@ -49,7 +49,7 @@ import {
   type TransitionType,
 } from "@/lib/petri-sim"
 import { getWorkflowGraph, updateWorkflowFromGraph } from "./mock-workflow-store"
-import { fetchWorkflow } from "./petriClient"
+import { fetchWorkflow, fetchMarking, fetchTransitionsStatus, fireTransition as fireTransitionApi, simulationStep } from "./petriClient"
 
 const nodeTypes = { place: PlaceNode, transition: TransitionNode } as any
 const edgeTypes = { labeled: LabeledEdge } as any
@@ -464,12 +464,12 @@ function CanvasInner() {
             id: newId,
             type: "transition" as const,
             position: flowPos,
+            guardExpression: "true",
             data: {
               kind: "transition",
               name: "Transition",
               tType: "manual",
-              manual: { assignee: "", formSchemaId: "" },
-              guard: "",
+              manual: { assignee: "", formSchemaId: "" }              
             },
           }
         : {
@@ -524,12 +524,12 @@ function CanvasInner() {
         id,
         type: "transition",
         position: pos,
+        guardExpression: "true",
         data: {
           kind: "transition",
           name: "Transition",
           tType: "manual",
-          manual: { assignee: "", formSchemaId: "" },
-          guard: "",
+          manual: { assignee: "", formSchemaId: "" }
         },
       },
     ])
@@ -556,21 +556,67 @@ function CanvasInner() {
     [setNodes],
   )
 
-  const enabled = useMemo(() => getEnabledTransitions(nodes, edges), [nodes, edges])
+  // Monitor tab state for server mode
+  const [serverMarking, setServerMarking] = useState<any>(null);
+  const [serverTransitions, setServerTransitions] = useState<any[]>([]);
+  const [monitorLoading, setMonitorLoading] = useState(false);
 
-  const doAutoStep = useCallback(() => {
-    const enabledList = anyEnabledTransitions(nodes, edges)
-    if (enabledList.length === 0) return
-    const tid = enabledList[0].id
-    const { nodes: newNodes } = fireTransition(tid, nodes, edges)
-    setNodes(newNodes)
-  }, [nodes, edges, setNodes])
+  // Fetch server marking and transitions when Monitor tab is opened in server mode
+  useEffect(() => {
+    if (settings.runMode !== 'mockup' && showSystem && systemTab === 'monitor' && activeWorkflowId && settings.flowServiceUrl) {
+      setMonitorLoading(true);
+      Promise.all([
+        fetchMarking(settings.flowServiceUrl, activeWorkflowId),
+        fetchTransitionsStatus(settings.flowServiceUrl, activeWorkflowId)
+      ]).then(([marking, transitions]) => {
+        setServerMarking(marking.data.places);
+        setServerTransitions(transitions.data || []);
+        console.log(serverMarking);
+      }).catch((err) => {
+        setServerMarking(null);
+        setServerTransitions([]);
+      }).finally(() => setMonitorLoading(false));
+    }
+  }, [settings.runMode, showSystem, systemTab, activeWorkflowId, settings.flowServiceUrl]);
+
+  const enabled = useMemo(() => {
+    if (settings.runMode === 'mockup') return getEnabledTransitions(nodes, edges);
+    return serverTransitions.filter((t) => t.enabled);
+  }, [settings.runMode, nodes, edges, serverTransitions]);
+
+  const doAutoStep = useCallback(async () => {
+    if (settings.runMode === 'mockup') {
+      const enabledList = anyEnabledTransitions(nodes, edges)
+      if (enabledList.length === 0) return
+      const tid = enabledList[0].id
+      const { nodes: newNodes } = fireTransition(tid, nodes, edges)
+      setNodes(newNodes)
+    } else if (activeWorkflowId && settings.flowServiceUrl) {
+      setMonitorLoading(true);
+      try {
+        await simulationStep(settings.flowServiceUrl, activeWorkflowId);
+        // Refresh marking and transitions
+        const [marking, transitions] = await Promise.all([
+          fetchMarking(settings.flowServiceUrl, activeWorkflowId),
+          fetchTransitionsStatus(settings.flowServiceUrl, activeWorkflowId)
+        ]);
+        setServerMarking(marking);
+        setServerTransitions(transitions.data || []);
+      } finally {
+        setMonitorLoading(false);
+      }
+    }
+  }, [settings.runMode, nodes, edges, setNodes, activeWorkflowId, settings.flowServiceUrl]);
 
   const resetTokens = useCallback(() => {
-    setNodes((nds) =>
-      nds.map((n) => (n.type === "place" ? { ...n, data: { ...(n.data as any), tokens: 0, tokenList: [] } } : n)),
-    )
-  }, [setNodes])
+    if (settings.runMode === 'mockup') {
+      setNodes((nds) =>
+        nds.map((n) => (n.type === "place" ? { ...n, data: { ...(n.data as any), tokens: 0, tokenList: [] } } : n)),
+      )
+    } else {
+      // No-op or implement server reset if available
+    }
+  }, [settings.runMode, setNodes])
 
   const updateNode = useCallback(
     (id: string, patch: Partial<PetriNodeData>) => {
@@ -634,52 +680,105 @@ function CanvasInner() {
                   <div className="space-y-4 pr-2">
                     <section>
                       <div className="mb-2 text-xs font-semibold text-neutral-600">Enabled Transitions</div>
-                      {enabled.length === 0 && <div className="text-xs text-neutral-500">No transitions enabled</div>}
-                      <div className="grid gap-2">
-                        {enabled.map((t) => (
-                          <div key={t.id} className="flex items-center justify-between rounded-md border px-2 py-1.5">
-                            <div className="flex items-center gap-2">
-                              <TransitionIcon tType={(t.data as any).tType as TransitionType} className="h-3.5 w-3.5" />
-                              <span className="text-xs">{t.data.name}</span>
+                      {monitorLoading ? (
+                        <div className="text-xs text-neutral-500">Loading...</div>
+                      ) : enabled.length === 0 ? (
+                        <div className="text-xs text-neutral-500">No transitions enabled</div>
+                      ) : (
+                        <div className="grid gap-2">
+                          {enabled.map((t) => (
+                            <div key={t.id || t.transitionId} className="flex items-center justify-between rounded-md border px-2 py-1.5">
+                              <div className="flex items-center gap-2">
+                                <TransitionIcon tType={((t.data ? t.data.tType : t.tType) || 'manual') as TransitionType} className="h-3.5 w-3.5" />
+                                <span className="text-xs">{t.data ? t.data.name : t.name}</span>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                className="h-6 px-2 text-xs"
+                                onClick={async () => {
+                                  if (settings.runMode === 'mockup') {
+                                    const { nodes: newNodes } = fireTransition(t.id, nodes, edges)
+                                    setNodes(newNodes)
+                                  } else if (activeWorkflowId && settings.flowServiceUrl) {
+                                    setMonitorLoading(true);
+                                    try {
+                                      await fireTransitionApi(settings.flowServiceUrl, activeWorkflowId, t.transitionId || t.id, 0);
+                                      // Refresh marking and transitions
+                                      const [marking, transitions] = await Promise.all([
+                                        fetchMarking(settings.flowServiceUrl, activeWorkflowId),
+                                        fetchTransitionsStatus(settings.flowServiceUrl, activeWorkflowId)
+                                      ]);
+                                      setServerMarking(marking);
+                                      setServerTransitions(transitions.data || []);
+                                    } finally {
+                                      setMonitorLoading(false);
+                                    }
+                                  }
+                                }}
+                              >
+                                Fire
+                              </Button>
                             </div>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              className="h-6 px-2 text-xs"
-                              onClick={() => {
-                                const { nodes: newNodes } = fireTransition(t.id, nodes, edges)
-                                setNodes(newNodes)
-                              }}
-                            >
-                              Fire
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                     </section>
                     <section>
                       <div className="mb-2 text-xs font-semibold text-neutral-600">Tokens by Place</div>
                       <div className="grid gap-2">
-                        {nodes
-                          .filter((n) => n.type === 'place')
-                          .map((p) => (
-                            <div key={p.id} className="flex items-center justify-between rounded-md bg-neutral-50 px-2 py-1.5">
-                              <span className="text-xs">{(p.data as any).name}</span>
-                              <Badge variant="outline" className="gap-1 text-xs">
-                                <Coins className="h-3 w-3 text-amber-600" aria-hidden />
-                                {(p.data as any).tokens}
-                              </Badge>
-                            </div>
-                          ))}
+                        {settings.runMode === 'mockup'
+                          ? nodes.filter((n) => n.type === 'place').map((p) => (
+                              <div key={p.id} className="flex items-center justify-between rounded-md bg-neutral-50 px-2 py-1.5">
+                                <span className="text-xs">{(p.data as any).name}</span>
+                                <Badge variant="outline" className="gap-1 text-xs">
+                                  <Coins className="h-3 w-3 text-amber-600" aria-hidden />
+                                  {(p.data as any).tokens}
+                                </Badge>
+                              </div>
+                            ))
+                          : serverMarking && typeof serverMarking === 'object'
+                          ? Object.entries(serverMarking).map(([place, tokens]: [string, unknown]) => {
+                              const tokenArr = Array.isArray(tokens) ? (tokens as any[]) : [];
+                              return (
+                                <div key={place} className="rounded-md bg-neutral-50 px-2 py-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-medium">{place}</span>
+                                    <Badge variant="outline" className="gap-1 text-xs">
+                                      <Coins className="h-3 w-3 text-amber-600" aria-hidden />
+                                      {tokenArr.length}
+                                    </Badge>
+                                  </div>
+                                  {tokenArr.length > 0 && (
+                                    <ul className="ml-2 mt-1 space-y-0.5">
+                                      {tokenArr.map((tok, idx) => (
+                                        <li key={idx} className="flex items-center gap-2 text-xs text-neutral-700">
+                                          <span className="font-mono">{JSON.stringify(tok.value)}</span>
+                                          <span className="text-[10px] text-neutral-400">{
+                                            (() => {
+                                              const d = new Date(tok.timestamp);
+                                              const pad = (n: number) => n.toString().padStart(2, '0');
+                                              return `${d.getFullYear().toString().slice(2)}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+                                            })()
+                                          }</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                              );
+                            })
+                          : <div className="text-xs text-neutral-500">No marking data</div>
+                        }
                       </div>
                     </section>
                   </div>
                 </ScrollArea>
                 <div className="mt-3 grid grid-cols-2 gap-2">
-                  <Button size="sm" variant="secondary" onClick={doAutoStep}>
+                  <Button size="sm" variant="secondary" onClick={doAutoStep} disabled={monitorLoading}>
                     <Play className="mr-1.5 h-4 w-4" aria-hidden /> Step
                   </Button>
-                  <Button size="sm" variant="outline" onClick={resetTokens}>
+                  <Button size="sm" variant="outline" onClick={resetTokens} disabled={settings.runMode !== 'mockup'}>
                     <RotateCcw className="mr-1.5 h-4 w-4" aria-hidden /> Reset
                   </Button>
                 </div>

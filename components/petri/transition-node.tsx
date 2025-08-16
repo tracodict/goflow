@@ -19,10 +19,10 @@ export function TransitionNode({ id, data, selected }: NodeProps<any>) {
   const [hoverLeft, setHoverLeft] = useState(false)
   const [hoverRight, setHoverRight] = useState(false)
   const tData = data as any
-  const guard: string = tData.guard ?? ""
+  const guardExpression: string = tData.guardExpression ?? ""
   const time = (tData.time || {}) as { cron?: string; delaySec?: number }
   const hasTime = (time.cron && time.cron.trim().length > 0) || (typeof time.delaySec === 'number' && time.delaySec > 0)
-  const trimmed = guard.trim()
+  const trimmed = guardExpression.trim()
   const hasGuard = trimmed.length > 0
   const displayGuard = trimmed.length > 20 ? `${trimmed.slice(0, 20)}...` : trimmed
 
@@ -105,5 +105,5 @@ export function TransitionNode({ id, data, selected }: NodeProps<any>) {
 }
 
 TransitionNode.defaultProps = {
-  data: { kind: "transition", name: "Transition", tType: "manual", guard: "" },
+  data: { kind: "transition", name: "Transition", tType: "manual"},
 }

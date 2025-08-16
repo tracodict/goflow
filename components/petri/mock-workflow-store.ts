@@ -57,9 +57,11 @@ export function syncListsIntoGraph(w: Workflow) {
   w.transitions.forEach(t => {
     const existing = nodeMap[t.id];
     if (existing && existing.type === 'transition') {
-      nextNodes.push({ ...existing, data: { ...(existing.data as any), name: t.name } });
+                nextNodes.push({ ...existing, data: { ...(existing.data as any), name: t.name, guardExpression: (existing.data as any).guardExpression } });
     } else {
-      nextNodes.push({ id: t.id, type: 'transition', position: t.position || genPosition('transition'), data: { kind: 'transition', name: t.name, tType: 'manual', manual: { assignee: '', formSchemaId: '' }, guard: '' } });
+                nextNodes.push({ id: t.id, type: 'transition', position: t.position || genPosition('transition'), 
+                  data: { kind: 'transition', name: t.name, tType: 'manual', manual: { assignee: '', formSchemaId: '' }, 
+                  guardExpression: t.guardExpression } });
     }
   });
 
@@ -72,7 +74,15 @@ export function syncListsIntoGraph(w: Workflow) {
       nextEdges.push(existing ? { ...existing } : { id: a.id, source: a.sourceId, target: a.targetId, type: 'labeled', data: { label: 'arc' } });
     }
   });
-
+  // Set tokenList and tokens for each place from initialMarking
+  Object.entries(w.initialMarking).forEach(([placeName, marking]) => {
+    const placeNode = nextNodes.find(n => n.data.kind === 'place' && n.data.name === placeName);
+    if (placeNode) {
+      const placeData = placeNode.data as any;
+      placeData.tokenList = marking.map(m => ({ id: `tok-${Math.random().toString(36).substr(2, 9)}`, data: m.value, createdAt: m.timestamp }));
+      placeData.tokens = placeData.tokenList.length;
+    }
+  });
   w.graph = { nodes: nextNodes, edges: nextEdges };
   return w
 }
@@ -95,7 +105,7 @@ export function updateWorkflowFromGraph(id: string, nodes: Node<PetriNodeData>[]
     position: n.position as Position,
     type: ((n.data as any)?.tType === 'workflow' ? 'workflow' : 'normal'),
     workflowRef: (n.data as any)?.workflowRef,
-    guardExpression: (n.data as any)?.guard,
+    guardExpression: (n.data as any)?.guardExpression,
     variables: (n.data as any)?.variables,
     transitionDelay: (n.data as any)?.time?.delaySec
   }));
@@ -176,8 +186,7 @@ export const workflows: Record<string, Workflow> = {
             kind: "transition",
             name: "Approve",
             tType: "manual",
-            manual: { assignee: "lee", formSchemaId: "" },
-            guard: "if a>3 then true",
+            guardExpression: "if a>3 then true",
             time: { delaySec: 4}
           },
         },
@@ -186,25 +195,25 @@ export const workflows: Record<string, Workflow> = {
           type: "place",
           position: { x: 540, y: 90 },
           data: { kind: "place", name: "Under Review", colorSet: 'INT', tokens: 0, tokenList: [] },
-        },
+  },
         {
           id: "p-done",
           type: "place",
           position: { x: 540, y: 210 },
           data: { kind: "place", name: "Done", tokens: 0, colorSet: 'INT',tokenList: [] },
-        },
+  },
         {
           id: "t-auto-archive",
           type: "transition",
           position: { x: 760, y: 90 },
-          data: { kind: "transition", name: "Auto Archive", tType: "auto", auto: { script: "val x" }, guard: "" },
+          data: { kind: "transition", name: "Auto Archive", tType: "auto", auto: { script: "val x" }, guardExpression: "" },
         },
         {
           id: "p-archived",
           type: "place",
           position: { x: 980, y: 90 },
           data: { kind: "place", name: "Archived",colorSet: 'INT', tokens: 0, tokenList: [] },
-        },
+  },
         // New sample DMN transition
         {
           id: "t-decision",
@@ -215,7 +224,7 @@ export const workflows: Record<string, Workflow> = {
             name: "Decision Eval",
             tType: "dmn",
             dmnDefinition: { name: "SampleDecision", inputs: [], rules: [] },
-            guard: "",
+                            guardExpression: "",
           },
         },
         {
@@ -223,7 +232,7 @@ export const workflows: Record<string, Workflow> = {
           type: "place",
           position: { x: 980, y: 210 },
           data: { kind: "place", name: "Decision Out", colorSet: 'INT', tokens: 0, tokenList: [] },
-        },
+  },
         // New sample Message transition
         {
           id: "t-notify",
@@ -234,7 +243,7 @@ export const workflows: Record<string, Workflow> = {
             name: "Notify",
             tType: "message",
             message: { channel: "email" },
-            guard: "",
+                            guardExpression: "",
           },
         },
         {
@@ -242,7 +251,7 @@ export const workflows: Record<string, Workflow> = {
           type: "place",
           position: { x: 1420, y: 210 },
           data: { kind: "place", name: "Msg Out", colorSet: 'INT', tokens: 0, tokenList: [] },
-        },
+  },
         // New sample LLM transition
         {
           id: "t-llm-sum",
@@ -253,7 +262,7 @@ export const workflows: Record<string, Workflow> = {
             name: "AI Summarize",
             tType: "llm",
             llm: { system: "You are a summarizer", user: "Summarize invoice data", jsonOutput: false },
-            guard: "",
+                            guardExpression: "",
           },
         },
         {
@@ -261,7 +270,7 @@ export const workflows: Record<string, Workflow> = {
           type: "place",
           position: { x: 1860, y: 210 },
           data: { kind: "place", name: "AI Out", colorSet: 'INT', isEnd:true, tokens: 0, tokenList: [] },
-        },
+  },
       ],
       edges: [
         { id: "e1", source: "p-start", target: "t-approve", type: "labeled", data: { label: "submit" } },
@@ -326,7 +335,7 @@ export function addPlace(wfId: string, name?: string, colorSet: string = ''): st
   const w = workflows[wfId]
   if (!w) return null
   const id = rid('p')
-  w.places.push({ id, name: name ?? `Place ${id.slice(-4)}`, colorSet })
+  w.places.push({ id, name: name ?? `Place ${id.slice(-4)}`, colorSet, position: genPosition('place') })
   syncListsIntoGraph(w)
   emitChanged(wfId)
   return id
@@ -336,7 +345,7 @@ export function addTransition(wfId: string, name?: string, type: 'normal' | 'wor
   const w = workflows[wfId]
   if (!w) return null
   const id = rid('t')
-  w.transitions.push({ id, name: name ?? `Transition ${id.slice(-4)}`, type, workflowRef, guardExpression, variables, transitionDelay })
+  w.transitions.push({ id, name: name ?? `Transition ${id.slice(-4)}`, type, workflowRef, guardExpression, variables, transitionDelay, position: genPosition('transition') })
   syncListsIntoGraph(w)
   emitChanged(wfId)
   return id

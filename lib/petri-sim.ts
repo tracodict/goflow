@@ -11,7 +11,7 @@ export type TransitionData = {
   kind: "transition"
   name: string
   tType: TransitionType
-  guard?: string
+  guardExpression?: string
   // Optional time trigger: either cron expression or seconds delay (numeric string/number)
   time?: { cron?: string; delaySec?: number }
   manual?: { assignee?: string; formSchemaId?: string }
@@ -155,6 +155,7 @@ export const initialSampleNet: {
       data: {
         kind: "place",
         name: "Start",
+        colorSet: 'INT',
         tokens: 1,
         tokenList: [{ id: "tok-aaaaaa", data: { docId: "INV-1001", amount: 250 }, createdAt: Date.now() }],
       },
@@ -168,32 +169,32 @@ export const initialSampleNet: {
         name: "Approve",
         tType: "manual",
         manual: { assignee: "", formSchemaId: "" },
-  guard: "",
+        guardExpression: "",
       },
     },
     {
       id: "p-review",
       type: "place",
       position: { x: 540, y: 90 },
-      data: { kind: "place", name: "Under Review", tokens: 0, tokenList: [] },
+      data: { kind: "place", name: "Under Review", tokens: 0, tokenList: [] , colorSet: 'INT' },
     },
     {
       id: "p-done",
       type: "place",
       position: { x: 540, y: 210 },
-      data: { kind: "place", name: "Done", tokens: 0, tokenList: [] },
+      data: { kind: "place", name: "Done", tokens: 0, tokenList: [] , colorSet: 'INT' },
     },
     {
       id: "t-auto-archive",
       type: "transition",
       position: { x: 760, y: 90 },
-  data: { kind: "transition", name: "Auto Archive", tType: "auto", auto: { script: "" }, guard: "" },
+  data: { kind: "transition", name: "Auto Archive", tType: "auto", auto: { script: "" }, guardExpression: "" },
     },
     {
       id: "p-archived",
       type: "place",
       position: { x: 980, y: 90 },
-      data: { kind: "place", name: "Archived", tokens: 0, tokenList: [] },
+      data: { kind: "place", name: "Archived", tokens: 0, tokenList: [], colorSet: 'INT' },
     },
   ],
   edges: [
