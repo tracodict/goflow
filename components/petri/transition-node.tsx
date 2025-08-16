@@ -8,11 +8,11 @@ import type { PetriNodeData, TransitionType } from "@/lib/petri-sim"
 import { Badge } from "@/components/ui/badge"
 
 const typeIconMap: Record<TransitionType, React.ReactNode> = {
-  manual: <Hand className="h-4 w-4 text-emerald-700" aria-label="manual" />,
-  auto: <Bot className="h-4 w-4 text-emerald-700" aria-label="auto" />,
-  message: <MessageSquare className="h-4 w-4 text-emerald-700" aria-label="message" />,
-  dmn: <TableProperties className="h-4 w-4 text-emerald-700" aria-label="dmn" />,
-  llm: <Brain className="h-4 w-4 text-emerald-700" aria-label="llm" />,
+  Manual: <Hand className="h-4 w-4 text-emerald-700" aria-label="manual" />,
+  Auto: <Bot className="h-4 w-4 text-emerald-700" aria-label="auto" />,
+  Message: <MessageSquare className="h-4 w-4 text-emerald-700" aria-label="message" />,
+  Dmn: <TableProperties className="h-4 w-4 text-emerald-700" aria-label="dmn" />,
+  Llm: <Brain className="h-4 w-4 text-emerald-700" aria-label="llm" />,
 }
 
 export function TransitionNode({ id, data, selected }: NodeProps<any>) {

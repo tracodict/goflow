@@ -1,4 +1,4 @@
-export type TransitionType = "manual" | "auto" | "message" | "dmn" | "llm"
+export type TransitionType = "Manual" | "Auto" | "Message" | "Dmn" | "Llm"
 
 export type Token = {
   id: string
@@ -42,7 +42,7 @@ export type PlaceData = {
 
 export type PetriNodeData = PlaceData | TransitionData
 
-export type PetriEdgeData = { label?: string }
+export type PetriEdgeData = { label?: string, expression?: string }
 
 import type { Edge, Node } from "@xyflow/react"
 

@@ -1,7 +1,6 @@
 "use client"
 
-import type React from "react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import ExplorerPanel from "./explorer-panel"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
@@ -18,7 +17,6 @@ import { FORM_SCHEMAS } from "@/lib/form-schemas"
 import { CronLite as Cron } from "@/components/petri/cron-lite"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import CodeMirror from '@uiw/react-codemirror'
-import { json } from '@codemirror/lang-json'
 import { StreamLanguage } from '@codemirror/language'
 import { lua } from '@codemirror/legacy-modes/mode/lua'
 import { EditorView } from '@codemirror/view'
@@ -541,15 +539,15 @@ function TypeSpecificEditor({
   onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
 }) {
   switch (tType) {
-    case "manual":
+    case "Manual":
       return <ManualEditor node={node} onUpdate={onUpdate} />
-    case "auto":
+    case "Auto":
       return <AutoEditor node={node} onUpdate={onUpdate} />
-    case "message":
+    case "Message":
       return <MessageEditor node={node} onUpdate={onUpdate} />
-    case "dmn":
+    case "Dmn":
       return <DmnEditor node={node} onUpdate={onUpdate} />
-    case "llm":
+    case "Llm":
       return <LLMEditor node={node} onUpdate={onUpdate} />
     default:
       return null
@@ -907,6 +905,10 @@ function EdgeEditor({
   edge: Edge<PetriEdgeData>
   onUpdate: (id: string, patch: Partial<PetriEdgeData>) => void
 }) {
+  const [expr, setExpr] = React.useState<string>(() => (edge.data as any)?.expression || "");
+  React.useEffect(() => {
+    setExpr((edge.data as any)?.expression || "");
+  }, [edge.id, (edge.data as any)?.expression]);
   return (
     <div className="grid gap-2">
       <Label htmlFor="e-label">Arc Label</Label>
@@ -916,6 +918,23 @@ function EdgeEditor({
         onChange={(e) => onUpdate(edge.id, { label: e.target.value })}
         placeholder="e.g., guard or weight"
       />
+      <Label className="text-sm mt-2">Arc Expression</Label>
+      <CodeMirror
+        value={expr}
+        height="80px"
+        extensions={[
+          StreamLanguage.define(lua),
+          EditorView.lineWrapping,
+        ]}
+        onChange={v => {
+          setExpr(v);
+          onUpdate(edge.id, { expression: v } as any);
+        }}
+        theme="light"
+        basicSetup={{ lineNumbers: true }}
+        placeholder="Lua expression for arc (e.g., amount > 0)"
+      />
+      <div className="text-xs text-neutral-500 mt-1">Lua-like arc expression. Example: <code>amount &gt; 0</code></div>
     </div>
   )
 }

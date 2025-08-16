@@ -272,7 +272,7 @@ function CanvasInner() {
     prevNodes.current = nodes;
     prevEdges.current = edges;
     const h = setTimeout(() => {
-      updateWorkflowFromGraph(activeWorkflowId, nodes as any, edges as any)
+      updateWorkflowFromGraph(serverWorkflowCache, activeWorkflowId, nodes as any, edges as any)
       // Emit event to let Explorer refresh if needed
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('workflowGraphUpdated', { detail: { workflowId: activeWorkflowId } }))
@@ -842,7 +842,7 @@ function CanvasInner() {
                     return;
                   }
                   // Get the workflow data as updateWorkflowFromGraph would
-                  const workflowData = updateWorkflowFromGraph(activeWorkflowId, nodes as any, edges as any);
+                  const workflowData = updateWorkflowFromGraph(serverWorkflowCache, activeWorkflowId, nodes as any, edges as any);
                   console.log('Saving workflow data:', workflowData);
                   try {
                     const resp = await fetch(`${url}/api/cpn/load`, {
@@ -951,7 +951,7 @@ function CanvasInner() {
               Delete transition
             </button>
             <Separator />
-            {(["manual", "auto", "dmn", "message", "llm"] as TransitionType[]).map((t) => (
+            {(["Manual", "Auto", "Dmn", "Message", "Llm"] as TransitionType[]).map((t) => (
               <button
                 key={t}
                 className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-neutral-50"
@@ -1054,15 +1054,15 @@ function TransitionIcon({
   className?: string
 }) {
   switch (tType) {
-    case "manual":
+    case "Manual":
       return <Hand className={className} aria-label="manual" />
-    case "auto":
+    case "Auto":
       return <Bot className={className} aria-label="auto" />
-    case "message":
+    case "Message":
       return <MessageSquare className={className} aria-label="message" />
-    case "dmn":
+    case "Dmn":
       return <TableProperties className={className} aria-label="DMN" />
-    case "llm":
+    case "Llm":
       return <Brain className={className} aria-label="LLM" />
     default:
       return <Activity className={className} aria-label="transition" />
