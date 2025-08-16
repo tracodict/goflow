@@ -21,7 +21,7 @@ Guard Evaluation is a crucial component of the Petri Flow Engine, responsible fo
 
 ## Sequence Diagram
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
     participant WE as Workflow Engine
     participant GE as Guard Evaluation
@@ -59,11 +59,11 @@ sequenceDiagram
     M-->>GE: transitions
     GE->>GE: evaluate_transitions(transitions, case_data, token_data)
     GE-->>WE: enabled_transitions
-\`\`\`
+```
 
 ## Entity Diagram
 
-\`\`\`mermaid
+```mermaid
 erDiagram
     WORKFLOW ||--|{ TRANSITION : "contains"
     WORKFLOW ||--|{ ARC : "contains"
@@ -132,7 +132,7 @@ erDiagram
         datetime created_at
         datetime updated_at
     }
-\`\`\`
+```
 
 This entity diagram represents the core data schema used by the Guard Evaluation component:
 

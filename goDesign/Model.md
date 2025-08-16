@@ -6,7 +6,7 @@ This design outlines the use of both MongoDB time series collections and go-memd
 
 ## Data Models
 
-\`\`\`go
+```go
 type Workflow struct {
     ID          string    `bson:"_id,omitempty" memdb:"id"`
     WorkflowID  string    `bson:"workflowId" memdb:"workflow_id"`
@@ -65,11 +65,11 @@ type Transition struct {
     CreatedAt            time.Time `bson:"createdAt" memdb:"created_at"`
     UpdatedAt            time.Time `bson:"updatedAt" memdb:"updated_at"`
 }
-\`\`\`
+```
 
 ## Storage Interface
 
-\`\`\`go
+```go
 type StorageEngine interface {
     StoreWorkflow(workflow Workflow) error
     GetWorkflow(workflowID string, version int) (Workflow, error)
@@ -80,11 +80,11 @@ type StorageEngine interface {
     StoreTransition(transition Transition) error
     GetTransition(transitionID string) (Transition, error)
 }
-\`\`\`
+```
 
 ## MongoDB Implementation
 
-\`\`\`go
+```go
 type MongoDBStorage struct {
     client             *mongo.Client
     db                 *mongo.Database
@@ -104,11 +104,11 @@ func NewMongoDBStorage(connectionString, dbName string) (*MongoDBStorage, error)
 
 // Implement StorageEngine interface methods
 // ...
-\`\`\`
+```
 
 ## go-memdb Implementation
 
-\`\`\`go
+```go
 type MemDBStorage struct {
     db *memdb.MemDB
 }
@@ -162,11 +162,11 @@ func NewMemDBStorage() (*MemDBStorage, error) {
 
 // Implement StorageEngine interface methods
 // ...
-\`\`\`
+```
 
 ## Storage Factory
 
-\`\`\`go
+```go
 type StorageFactory struct{}
 
 func (f *StorageFactory) GetStorage(storageType string) (StorageEngine, error) {
@@ -179,11 +179,11 @@ func (f *StorageFactory) GetStorage(storageType string) (StorageEngine, error) {
         return nil, fmt.Errorf("unsupported storage type: %s", storageType)
     }
 }
-\`\`\`
+```
 
 ## Usage Example
 
-\`\`\`go
+```go
 func main() {
     factory := &StorageFactory{}
 
@@ -238,7 +238,7 @@ func main() {
     }
     fmt.Printf("Latest state: %+v\n", latestState)
 }
-\`\`\`
+```
 
 This design provides a flexible and efficient solution for storing and querying Petri net workflow data using either MongoDB's time series collections or go-memdb as the backend storage. It supports the storage of workflow definitions, recording of CRUD operations, and efficient querying of the latest states. The ability to switch between storage backends allows for easy development, testing, and deployment in various environments.
 

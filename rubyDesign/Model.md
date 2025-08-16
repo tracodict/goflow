@@ -6,7 +6,7 @@ This document describes the Models defined in the Petri Flow system and their de
 
 Represents a workflow definition.
 
-\`\`\`ruby
+```ruby
 class Workflow < ApplicationRecord
   # Add actual schema here
   # Example:
@@ -15,13 +15,13 @@ class Workflow < ApplicationRecord
   # t.jsonb :definition
   # t.timestamps
 end
-\`\`\`
+```
 
 ## Case
 
 Represents an instance of a workflow.
 
-\`\`\`ruby
+```ruby
 class Case < ApplicationRecord
   # Add actual schema here
   # Example:
@@ -30,13 +30,13 @@ class Case < ApplicationRecord
   # t.jsonb :data
   # t.timestamps
 end
-\`\`\`
+```
 
 ## Token
 
 Represents a token in the Petri net structure.
 
-\`\`\`ruby
+```ruby
 class Token < ApplicationRecord
   # Add actual schema here
   # Example:
@@ -45,13 +45,13 @@ class Token < ApplicationRecord
   # t.jsonb :data
   # t.timestamps
 end
-\`\`\`
+```
 
 ## Transition
 
 Represents a transition in the Petri net structure.
 
-\`\`\`ruby
+```ruby
 class Transition < ApplicationRecord
   # Add actual schema here
   # Example:
@@ -60,13 +60,13 @@ class Transition < ApplicationRecord
   # t.text :guard_expression
   # t.timestamps
 end
-\`\`\`
+```
 
 ## Arc
 
 Represents an arc connecting places and transitions in the Petri net structure.
 
-\`\`\`ruby
+```ruby
 class Arc < ApplicationRecord
   # Add actual schema here
   # Example:
@@ -77,13 +77,13 @@ class Arc < ApplicationRecord
   # t.integer :target_id
   # t.timestamps
 end
-\`\`\`
+```
 
 ## User
 
 Represents a user in the system.
 
-\`\`\`ruby
+```ruby
 class User < ApplicationRecord
   # Add actual schema here
   # Example:
@@ -92,13 +92,13 @@ class User < ApplicationRecord
   # t.string :role
   # t.timestamps
 end
-\`\`\`
+```
 
 ## Organization
 
 Represents an organization in the system.
 
-\`\`\`ruby
+```ruby
 class Organization < ApplicationRecord
   # Add actual schema here
   # Example:
@@ -106,7 +106,7 @@ class Organization < ApplicationRecord
   # t.text :description
   # t.timestamps
 end
-\`\`\`
+```
 
 # JSON Data Schemas for Workflow, Case, and Token Models
 
@@ -116,7 +116,7 @@ This document describes the schema for the JSON data stored in the `data` field 
 
 The `data` field in the Workflow model typically contains the workflow definition and metadata.
 
-\`\`\`json
+```json
 {
   "id": "string",
   "name": "string",
@@ -161,13 +161,13 @@ The `data` field in the Workflow model typically contains the workflow definitio
     "updatedBy": "string"
   }
 }
-\`\`\`
+```
 
 ## Case Data Schema
 
 The `data` field in the Case model typically contains instance-specific data and the current state of the workflow.
 
-\`\`\`json
+```json
 {
   "id": "string",
   "workflowId": "string",
@@ -194,13 +194,13 @@ The `data` field in the Case model typically contains instance-specific data and
     "updatedBy": "string"
   }
 }
-\`\`\`
+```
 
 ## Token Data Schema
 
 The `data` field in the Token model typically contains token-specific data.
 
-\`\`\`json
+```json
 {
   "id": "string",
   "caseId": "string",
@@ -215,4 +215,4 @@ The `data` field in the Token model typically contains token-specific data.
     "updatedAt": "datetime"
   }
 }
-\`\`\`
+```

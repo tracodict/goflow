@@ -33,6 +33,7 @@ export type TransitionData = {
 export type PlaceData = {
   kind: "place"
   name: string
+  colorSet: string 
   tokens: number
   tokenList?: Token[]
   isStart?: boolean

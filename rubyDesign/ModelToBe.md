@@ -28,7 +28,7 @@ Implementation Approach:
 
 Example Go code structure:
 
-\`\`\`go
+```go
 package model
 
 import (
@@ -70,6 +70,6 @@ func (m *Model) ApplyChange(entityID string, changeType string, change interface
 func (m *Model) GetCurrentState(entityID string) (interface{}, error) {
     return m.reconstructor.ReconstructState(entityID)
 }
-\`\`\`
+```
 
 This approach allows for high-volume operations by focusing on appending changes rather than updating a traditional database, providing both performance and flexibility for the workflow engine.

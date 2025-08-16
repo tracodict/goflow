@@ -18,7 +18,7 @@ A PLACE can hold multiple TOKENs.
 7. WORKITEM: A task that needs to be performed, derived from an enabled transition.
 This ER diagram and description provide a high-level overview of the relationships between the main entities in a Petri net-based workflow system. It captures the essence of how workflows are structured and how individual cases progress through the defined process.
 
-\`\`\`mermaid
+```mermaid
 erDiagram
 WORKFLOW ||--o{ PLACE : contains
 WORKFLOW ||--o{ TRANSITION : contains
@@ -58,4 +58,4 @@ string status
 date start_date
 date end_date
 }
-\`\`\`
+```

@@ -431,7 +431,7 @@ function CanvasInner() {
         id,
         type: "place",
         position: pos,
-        data: { kind: "place", name: "Place", tokens: 0, tokenList: [] },
+        data: { kind: "place", name: "Place", tokens: 0, tokenList: [], colorSet: 'INT' },
       },
     ])
     setSelectedRef({ type: "node", id })

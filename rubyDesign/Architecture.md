@@ -103,7 +103,7 @@ The architecture is designed to be highly extensible, allowing for:
 
 Certainly! I'll create a Mermaid architecture diagram to depict the architecture of the Petri net-based workflow engine based on the information provided in the Architecture.md file. Here's the Mermaid diagram in a single code block:
 
-\`\`\`mermaid
+```mermaid
 graph LR
     subgraph Key Features
         AF[Dynamic Workflow Modeling]
@@ -123,9 +123,9 @@ graph LR
         AQ[New Workflow Patterns]
         AR[UI Customization]
     end
-\`\`\`
+```
 
-\`\`\`mermaid
+```mermaid
 graph LR
     A[User Interface] --> B[API Layer]
     B --> C[Core Engine]
@@ -173,7 +173,7 @@ graph LR
     B --> AE[External Systems]
     
 
-\`\`\`
+```
 
 This Mermaid diagram represents the architecture of the Petri net-based workflow engine, including:
 

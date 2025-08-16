@@ -105,11 +105,11 @@ This epic focuses on implementing the core engine of the Petri Net-Based Workflo
 - User Story 1.3: 6 story points
 
 Total: 18 story points
-\`\`\`
+```
 
 2. README.md content for the 'go-petri-flow' project:
 
-\`\`\`markdown
+```markdown
 # Go-Petri-Flow
 
 Go-Petri-Flow is a Petri Net-Based Workflow Engine implemented in Go. It provides a flexible and scalable solution for modeling and executing complex business processes using the mathematical foundations of Petri nets.
@@ -135,40 +135,40 @@ Go-Petri-Flow is a Petri Net-Based Workflow Engine implemented in Go. It provide
 ### Installation
 
 1. Clone the repository:
-   \`\`\`
+   ```
    git clone https://github.com/yourusername/go-petri-flow.git
-   \`\`\`
+   ```
 
 2. Change to the project directory:
-   \`\`\`
+   ```
    cd go-petri-flow
-   \`\`\`
+   ```
 
 3. Install dependencies:
-   \`\`\`
+   ```
    go mod tidy
-   \`\`\`
+   ```
 
 4. Build the project:
-   \`\`\`
+   ```
    go build ./...
-   \`\`\`
+   ```
 
 ### Configuration
 
 1. Copy the example configuration file:
-   \`\`\`
+   ```
    cp config.example.yaml config.yaml
-   \`\`\`
+   ```
 
 2. Edit `config.yaml` to set your desired configuration options, including the choice of storage backend (MongoDB or go-memdb).
 
 ### Running the Application
 
 1. Start the server:
-   \`\`\`
+   ```
    go run cmd/server/main.go
-   \`\`\`
+   ```
 
 2. The server will start on the configured port (default: 8080).
 
@@ -180,7 +180,7 @@ Refer to the [API Documentation](docs/api.md) for detailed information on how to
 
 ### Project Structure
 
-\`\`\`
+```
 go-petri-flow/
 ├── cmd/
 │   └── server/
@@ -193,15 +193,15 @@ go-petri-flow/
 ├── docs/
 ├── tests/
 └── config.yaml
-\`\`\`
+```
 
 ### Running Tests
 
 To run the test suite:
 
-\`\`\`
+```
 go test ./...
-\`\`\`
+```
 
 ## Contributing
 

@@ -1,18 +1,26 @@
 // Mock workflow store for Explorer side panel
 // Each workflow has: id, name, places, transitions, arcs, subWorkflows
 
-export type Place = { id: string; name: string };
-export type Arc = { id: string; from: string; to: string };
-export type Transition = { id: string; name: string; type?: 'normal' | 'workflow'; workflowRef?: string };
+export type Place = { id: string; name: string, colorSet: string };
+export type Arc = { id: string; sourceId: string; targetId: string, expression: string, direction: 'IN' | 'OUT' };
+export type Transition = { id: string; name: string; type?: 'normal' | 'workflow'; 
+  workflowRef?: string, guardExpression?: string, variables?: string[],
+  transitionDelay?: number
+ };
+export type Marking = { value: object, timestamp: number }
 import type { Edge, Node } from "@xyflow/react";
 import type { PetriEdgeData, PetriNodeData } from "@/lib/petri-sim";
 
 export type Workflow = {
   id: string;
   name: string;
+  description: string;
+  colorSets: string[];
   places: Place[];
   transitions: Transition[];
   arcs: Arc[];
+  endPlaces: string[];
+  initialMarking: Record<string, Marking[]>;
   subWorkflows: string[]; // references to other workflow ids
   graph?: { nodes: Node<PetriNodeData>[]; edges: Edge<PetriEdgeData>[] };
 };
@@ -42,7 +50,7 @@ function syncListsIntoGraph(w: Workflow) {
     if (existing && existing.type === 'place') {
       nextNodes.push({ ...existing, data: { ...(existing.data as any), name: p.name } });
     } else {
-      nextNodes.push({ id: p.id, type: 'place', position: genPosition('place'), data: { kind: 'place', name: p.name, tokens: 0, tokenList: [] } });
+      nextNodes.push({ id: p.id, type: 'place', position: genPosition('place'), data: { kind: 'place', name: p.name, colorSet: p.colorSet, tokens: 0, tokenList: [] } });
     }
   });
   w.transitions.forEach(t => {
@@ -57,10 +65,10 @@ function syncListsIntoGraph(w: Workflow) {
   // Rebuild edges from arcs referencing existing node ids
   const nextEdges: Edge<PetriEdgeData>[] = [];
   w.arcs.forEach(a => {
-    if (nextNodes.find(n => n.id === a.from) && nextNodes.find(n => n.id === a.to)) {
+    if (nextNodes.find(n => n.id === a.sourceId) && nextNodes.find(n => n.id === a.targetId)) {
       // Reuse existing edge if id matches
       const existing = w.graph!.edges.find(e => e.id === a.id);
-      nextEdges.push(existing ? { ...existing } : { id: a.id, source: a.from, target: a.to, type: 'labeled', data: { label: 'arc' } });
+      nextEdges.push(existing ? { ...existing } : { id: a.id, source: a.sourceId, target: a.targetId, type: 'labeled', data: { label: 'arc' } });
     }
   });
 
@@ -73,9 +81,54 @@ export function updateWorkflowFromGraph(id: string, nodes: Node<PetriNodeData>[]
   if (!w) return;
   w.graph = { nodes: [...nodes], edges: [...edges] };
   // Derive primitive lists from nodes/edges
-  w.places = nodes.filter(n => n.type === 'place').map(n => ({ id: n.id, name: (n.data as any)?.name || n.id }));
-  w.transitions = nodes.filter(n => n.type === 'transition').map(n => ({ id: n.id, name: (n.data as any)?.name || n.id, type: 'normal' }));
-  w.arcs = edges.map(e => ({ id: e.id, from: e.source, to: e.target }));
+  w.places = nodes.filter(n => n.type === 'place').map(n => ({
+    id: n.id,
+    name: (n.data as any)?.name || n.id,
+    colorSet: (n.data as any)?.colorSet || ''
+  }));
+  w.transitions = nodes.filter(n => n.type === 'transition').map(n => ({
+    id: n.id,
+    name: (n.data as any)?.name || n.id,
+    type: ((n.data as any)?.tType === 'workflow' ? 'workflow' : 'normal'),
+    workflowRef: (n.data as any)?.workflowRef,
+    guardExpression: (n.data as any)?.guard,
+    variables: (n.data as any)?.variables,
+    transitionDelay: (n.data as any)?.time?.delaySec
+  }));
+  w.arcs = edges.map(e => {
+    const sourceNode = nodes.find(n => n.id === e.source);
+    const targetNode = nodes.find(n => n.id === e.target);
+    let direction: 'IN' | 'OUT' = 'IN';
+    if (sourceNode && targetNode) {
+      if (sourceNode.type === 'place' && targetNode.type === 'transition') {
+        direction = 'IN';
+      } else if (sourceNode.type === 'transition' && targetNode.type === 'place') {
+        direction = 'OUT';
+      }
+    }
+    return {
+      id: e.id,
+      sourceId: e.source,
+      targetId: e.target,
+      expression: (e.data as any)?.expression || '',
+      direction
+    };
+  });
+  // Generate initialMarking from tokenList for places with tokens
+  const marking: Record<string, { value: any; timestamp: number }[]> = {};
+  nodes.filter(n => n.type === 'place').forEach(n => {
+    const name = (n.data as any)?.name || n.id;
+    const tokenList = (n.data as any)?.tokenList;
+    if (Array.isArray(tokenList) && tokenList.length > 0) {
+      marking[name] = tokenList.map((tok: any) => ({
+        value: tok.data,
+        timestamp: typeof tok.createdAt === 'number' ? tok.createdAt : 0
+      }));
+    }
+  });
+  w.initialMarking = marking;
+
+  console.log(JSON.stringify(w, null, 2));
 }
 
 function emitChanged(workflowId: string) {
@@ -89,22 +142,27 @@ export const workflows: Record<string, Workflow> = {
   'sample': {
     id: 'sample',
     name: 'Sample Petri Net',
+    description: 'A sample workflow',
+    colorSets: [],
     places: [],
     transitions: [],
     arcs: [],
+    endPlaces: [],
+  initialMarking: {},
     subWorkflows: [],
     graph: {
       nodes: [
         {
           id: "p-start",
           type: "place",
-          position: { x: 80, y: 160 },
+          position: { x: 80, y: 160 },          
           data: {
             kind: "place",
             name: "Start",
+            colorSet: 'INT',
             isStart: true,
             tokens: 1,
-            tokenList: [{ id: "tok-aaaaaa", data: { docId: "INV-1001", amount: 250 }, createdAt: Date.now() }],
+            tokenList: [{ id: "tok-aaaaaa", data: 1, createdAt: Date.now() }],
           },
         },
         {
@@ -124,13 +182,13 @@ export const workflows: Record<string, Workflow> = {
           id: "p-review",
           type: "place",
           position: { x: 540, y: 90 },
-          data: { kind: "place", name: "Under Review", tokens: 0, tokenList: [] },
+          data: { kind: "place", name: "Under Review", colorSet: 'INT', tokens: 0, tokenList: [] },
         },
         {
           id: "p-done",
           type: "place",
           position: { x: 540, y: 210 },
-          data: { kind: "place", name: "Done", tokens: 0, tokenList: [] },
+          data: { kind: "place", name: "Done", tokens: 0, colorSet: 'INT',tokenList: [] },
         },
         {
           id: "t-auto-archive",
@@ -142,7 +200,7 @@ export const workflows: Record<string, Workflow> = {
           id: "p-archived",
           type: "place",
           position: { x: 980, y: 90 },
-          data: { kind: "place", name: "Archived", tokens: 0, tokenList: [] },
+          data: { kind: "place", name: "Archived",colorSet: 'INT', tokens: 0, tokenList: [] },
         },
         // New sample DMN transition
         {
@@ -161,7 +219,7 @@ export const workflows: Record<string, Workflow> = {
           id: "p-decision-out",
           type: "place",
           position: { x: 980, y: 210 },
-          data: { kind: "place", name: "Decision Out", tokens: 0, tokenList: [] },
+          data: { kind: "place", name: "Decision Out", colorSet: 'INT', tokens: 0, tokenList: [] },
         },
         // New sample Message transition
         {
@@ -180,7 +238,7 @@ export const workflows: Record<string, Workflow> = {
           id: "p-msg-out",
           type: "place",
           position: { x: 1420, y: 210 },
-          data: { kind: "place", name: "Msg Out", tokens: 0, tokenList: [] },
+          data: { kind: "place", name: "Msg Out", colorSet: 'INT', tokens: 0, tokenList: [] },
         },
         // New sample LLM transition
         {
@@ -199,7 +257,7 @@ export const workflows: Record<string, Workflow> = {
           id: "p-ai-out",
           type: "place",
           position: { x: 1860, y: 210 },
-          data: { kind: "place", name: "AI Out", isEnd:true, tokens: 0, tokenList: [] },
+          data: { kind: "place", name: "AI Out", colorSet: 'INT', isEnd:true, tokens: 0, tokenList: [] },
         },
       ],
       edges: [
@@ -233,7 +291,18 @@ const rid = (p = "id") => `${p}-${Math.random().toString(36).slice(2, 8)}`
 
 export function addWorkflow(parentId?: string): string {
   const id = rid('wf')
-  workflows[id] = { id, name: `Workflow ${id.slice(-4)}`, places: [], transitions: [], arcs: [], subWorkflows: [] }
+  workflows[id] = {
+    id,
+    name: `Workflow ${id.slice(-4)}`,
+    description: '',
+    colorSets: [],
+    places: [],
+    transitions: [],
+    arcs: [],
+    endPlaces: [],
+  initialMarking: {},
+    subWorkflows: []
+  }
   if (parentId && workflows[parentId]) {
     workflows[parentId].subWorkflows.push(id)
   }
@@ -250,40 +319,40 @@ export function deleteWorkflow(id: string): void {
   emitChanged(id)
 }
 
-export function addPlace(wfId: string, name?: string): string | null {
+export function addPlace(wfId: string, name?: string, colorSet: string = ''): string | null {
   const w = workflows[wfId]
   if (!w) return null
   const id = rid('p')
-  w.places.push({ id, name: name ?? `Place ${id.slice(-4)}` })
+  w.places.push({ id, name: name ?? `Place ${id.slice(-4)}`, colorSet })
   syncListsIntoGraph(w)
   emitChanged(wfId)
   return id
 }
 
-export function addTransition(wfId: string, name?: string): string | null {
+export function addTransition(wfId: string, name?: string, type: 'normal' | 'workflow' = 'normal', workflowRef?: string, guardExpression?: string, variables?: string[], transitionDelay?: number): string | null {
   const w = workflows[wfId]
   if (!w) return null
   const id = rid('t')
-  w.transitions.push({ id, name: name ?? `Transition ${id.slice(-4)}`, type: 'normal' })
+  w.transitions.push({ id, name: name ?? `Transition ${id.slice(-4)}`, type, workflowRef, guardExpression, variables, transitionDelay })
   syncListsIntoGraph(w)
   emitChanged(wfId)
   return id
 }
 
-export function addArc(wfId: string, from = 'from', to = 'to'): string | null {
+export function addArc(wfId: string, sourceId = 'from', targetId = 'to', expression = '', direction: 'IN' | 'OUT' = 'IN'): string | null {
   const w = workflows[wfId]
   if (!w) return null
   // Attempt to auto-pick sensible endpoints if defaults passed
-  if (from === 'from' || to === 'to') {
+  if (sourceId === 'from' || targetId === 'to') {
     const place = w.places[0];
     const transition = w.transitions[0];
     if (place && transition) {
-      from = place.id;
-      to = transition.id;
+      sourceId = place.id;
+      targetId = transition.id;
     }
   }
   const id = rid('e') // reuse 'e' prefix to align with edge ids
-  w.arcs.push({ id, from, to })
+  w.arcs.push({ id, sourceId, targetId, expression, direction })
   syncListsIntoGraph(w)
   emitChanged(wfId)
   return id
@@ -294,7 +363,7 @@ export function deletePlace(wfId: string, placeId: string) {
   if (!w) return
   w.places = w.places.filter(p => p.id !== placeId)
   // Remove arcs referencing this place
-  w.arcs = w.arcs.filter(a => a.from !== placeId && a.to !== placeId)
+  w.arcs = w.arcs.filter(a => a.sourceId !== placeId && a.targetId !== placeId)
   syncListsIntoGraph(w)
   emitChanged(wfId)
 }
@@ -304,7 +373,7 @@ export function deleteTransition(wfId: string, tId: string) {
   if (!w) return
   w.transitions = w.transitions.filter(t => t.id !== tId)
   // Remove arcs referencing this transition
-  w.arcs = w.arcs.filter(a => a.from !== tId && a.to !== tId)
+  w.arcs = w.arcs.filter(a => a.sourceId !== tId && a.targetId !== tId)
   syncListsIntoGraph(w)
   emitChanged(wfId)
 }

@@ -24,7 +24,7 @@ Case Management is a crucial component of the Petri Flow Engine, responsible for
 
 ## Sequence Diagram
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
     participant C as Controller
     participant CM as Case Management
@@ -54,11 +54,11 @@ sequenceDiagram
     CM->>M: query_cases(workflow_id, filters)
     M-->>CM: matching_cases
     CM-->>C: case_list
-\`\`\`
+```
 
 ## Entity Diagram
 
-\`\`\`mermaid
+```mermaid
 erDiagram
     WORKFLOW ||--o{ CASE : "has many"
     CASE ||--|{ TOKEN : "contains"
@@ -108,7 +108,7 @@ erDiagram
         datetime created_at
         datetime updated_at
     }
-\`\`\`
+```
 
 This entity diagram represents the core data schema used by the Case Management component:
 

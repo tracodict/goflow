@@ -24,7 +24,7 @@ Token Management is a crucial component of the Petri Flow Engine, responsible fo
 
 ## Sequence Diagram
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
     participant WE as Workflow Engine
     participant TM as Token Management
@@ -59,11 +59,11 @@ sequenceDiagram
     TM->>M: update_token_place(token_id, to_place_id)
     M-->>TM: update_result
     TM-->>WE: moved_token
-\`\`\`
+```
 
 ## Entity Diagram
 
-\`\`\`mermaid
+```mermaid
 erDiagram
     CASE ||--|{ TOKEN : "contains"
     PLACE ||--o{ TOKEN : "holds"
@@ -113,7 +113,7 @@ erDiagram
         datetime created_at
         datetime updated_at
     }
-\`\`\`
+```
 
 This entity diagram represents the core data schema used by the Token Management component:
 

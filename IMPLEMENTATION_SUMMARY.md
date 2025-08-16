@@ -8,7 +8,7 @@ This document provides a comprehensive summary of the Go-Petri-Flow implementati
 
 The implementation follows a clean, modular architecture with clear separation of concerns:
 
-\`\`\`
+```
 gopetriflow/
 ├── cmd/server/                 # Application entry point
 ├── internal/
@@ -26,7 +26,7 @@ gopetriflow/
 ├── integration_test.go        # Comprehensive integration tests
 ├── test_api.sh               # API testing script
 └── README.md                 # Complete documentation
-\`\`\`
+```
 
 ## Implementation Status by Epic
 

@@ -34,7 +34,7 @@ Case Management, Token Management, and Guard Evaluation components interact with
 Jobs can interact with the Workflow Engine for background processing of workflow-related tasks.
 The system integrates with external User Systems and Organizational Structures for authentication and role management.
 This component diagram provides a high-level overview of the Petri Flow system's architecture, showing the main components and their interactions. It demonstrates how the Petri net concepts are implemented within a Ruby on Rails framework, and how the system integrates with external components for user and organizational management.
-\`\`\`mermaid
+```mermaid
 graph TB
     subgraph Rails Application
         Controller[Controllers]
@@ -71,4 +71,4 @@ graph TB
     Job --> Workflow
     UserSystem --> Controller
     OrgStructure --> Controller
-\`\`\`
+```

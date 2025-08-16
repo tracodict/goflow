@@ -26,7 +26,7 @@ The Workflow Engine is a core component of the Petri Flow system, responsible fo
 
 ### Creating and Starting a Workflow
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
     participant C as Controller
     participant WE as Workflow Engine
@@ -47,11 +47,11 @@ sequenceDiagram
     CM->>M: save_case()
     CM-->>WE: case_id
     WE-->>C: case_id
-\`\`\`
+```
 
 ### Executing a Transition
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
     participant C as Controller
     participant WE as Workflow Engine
@@ -76,7 +76,7 @@ sequenceDiagram
     else not enabled
         WE-->>C: error (transition not enabled)
     end
-\`\`\`
+```
 
 These sequence diagrams illustrate the main interactions between the Workflow Engine and other components of the Petri Flow system when creating a workflow, starting a case, and executing a transition. The Workflow Engine coordinates with Case Management, Token Management, and Guard Evaluation to ensure proper execution of the workflow process.
 

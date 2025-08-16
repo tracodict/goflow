@@ -1,6 +1,6 @@
 Here's an execution plan organized into epics, user stories, and test cases for implementing the Petri Net-Based Workflow Engine according to the simplified architecture. The plan is presented in a single code block for easy copying:
 
-\`\`\`markdown
+```markdown
 # Execution Plan for Petri Net-Based Workflow Engine
 
 ## Epic 1: Core Engine Implementation
@@ -273,6 +273,6 @@ Here's an execution plan organized into epics, user stories, and test cases for 
 - Test Case 10.3.C: System test for configuration validation
 
 This execution plan provides a comprehensive roadmap for implementing the Petri Net-Based Workflow Engine, organized into epics and user stories with associated tasks and test cases. The plan follows an agile methodology, allowing for iterative development and continuous testing throughout the implementation process.
-\`\`\`
+```
 
 This execution plan provides a structured approach to implementing the Petri Net-Based Workflow Engine, breaking down the work into manageable epics, user stories, tasks, and test cases. It follows an agile methodology, allowing for iterative development and continuous testing throughout the implementation process.

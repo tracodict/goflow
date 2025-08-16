@@ -1,6 +1,6 @@
 Here's the updated content for 'doc/re-design/Architecture.md' with go-memdb added to the tech stack and the ability to switch between go-memdb and MongoDB:
 
-\`\`\`markdown
+```markdown
 # Petri Net-Based Workflow Engine: Simplified GoLang Architecture Design
 
 ## 1. Introduction
@@ -154,7 +154,7 @@ The workflow engine is built as a monolithic microservice, combining all functio
 
 ## 8. Code Structure
 
-\`\`\`bash
+```bash
 /cmd
   /server
 /internal
@@ -180,7 +180,7 @@ The workflow engine is built as a monolithic microservice, combining all functio
   /unit
   /integration
 /docs
-\`\`\`
+```
 
 ## 9. Deployment
 

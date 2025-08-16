@@ -8,7 +8,7 @@ This document outlines the Views defined in the Petri Flow system, along with th
 
 Displays a list of workflows.
 
-\`\`\`ruby
+```ruby
 class WorkflowIndexView < ApplicationView
   def initialize(workflows:)
     @workflows = workflows
@@ -40,13 +40,13 @@ class WorkflowIndexView < ApplicationView
     end
   end
 end
-\`\`\`
+```
 
 ### WorkflowShowView
 
 Displays details of a specific workflow.
 
-\`\`\`ruby
+```ruby
 class WorkflowShowView < ApplicationView
   def initialize(workflow:)
     @workflow = workflow
@@ -81,7 +81,7 @@ class WorkflowShowView < ApplicationView
     end
   end
 end
-\`\`\`
+```
 
 ## Case Views
 
@@ -89,7 +89,7 @@ end
 
 Displays a list of cases for a specific workflow.
 
-\`\`\`ruby
+```ruby
 class CaseIndexView < ApplicationView
   def initialize(workflow:, cases:)
     @workflow = workflow
@@ -122,13 +122,13 @@ class CaseIndexView < ApplicationView
     end
   end
 end
-\`\`\`
+```
 
 ### CaseShowView
 
 Displays details of a specific case.
 
-\`\`\`ruby
+```ruby
 class CaseShowView < ApplicationView
   def initialize(case_item:)
     @case_item = case_item
@@ -174,7 +174,7 @@ class CaseShowView < ApplicationView
     end
   end
 end
-\`\`\`
+```
 
 ## Token Views
 
@@ -182,7 +182,7 @@ end
 
 Displays a list of tokens for a specific case.
 
-\`\`\`ruby
+```ruby
 class TokenIndexView < ApplicationView
   def initialize(case_item:, tokens:)
     @case_item = case_item
@@ -213,4 +213,4 @@ class TokenIndexView < ApplicationView
     end
   end
 end
-\`\`\`
+```
