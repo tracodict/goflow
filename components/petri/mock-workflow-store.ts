@@ -102,6 +102,7 @@ export const workflows: Record<string, Workflow> = {
           data: {
             kind: "place",
             name: "Start",
+            isStart: true,
             tokens: 1,
             tokenList: [{ id: "tok-aaaaaa", data: { docId: "INV-1001", amount: 250 }, createdAt: Date.now() }],
           },
@@ -198,7 +199,7 @@ export const workflows: Record<string, Workflow> = {
           id: "p-ai-out",
           type: "place",
           position: { x: 1860, y: 210 },
-          data: { kind: "place", name: "AI Out", tokens: 0, tokenList: [] },
+          data: { kind: "place", name: "AI Out", isEnd:true, tokens: 0, tokenList: [] },
         },
       ],
       edges: [

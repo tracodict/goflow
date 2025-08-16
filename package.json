@@ -12,6 +12,7 @@
     "@babel/runtime": "latest",
     "@codemirror/lang-javascript": "latest",
     "@codemirror/lang-json": "latest",
+    "@codemirror/legacy-modes": "^6.5.1",
     "@codemirror/state": "latest",
     "@codemirror/theme-one-dark": "latest",
     "@codemirror/view": "latest",

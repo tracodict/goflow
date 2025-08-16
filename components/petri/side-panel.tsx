@@ -18,8 +18,9 @@ import { FORM_SCHEMAS } from "@/lib/form-schemas"
 import { CronLite as Cron } from "@/components/petri/cron-lite"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import CodeMirror from '@uiw/react-codemirror'
-import { javascript } from '@codemirror/lang-javascript'
 import { json } from '@codemirror/lang-json'
+import { StreamLanguage } from '@codemirror/language'
+import { lua } from '@codemirror/legacy-modes/mode/lua'
 import { EditorView } from '@codemirror/view'
 
 type SelectedResolved = { type: "node"; node: Node<PetriNodeData> } | { type: "edge"; edge: Edge<PetriEdgeData> } | null
@@ -253,6 +254,24 @@ function PlaceEditor({
               Count is kept in sync with the token list. Blur this field to auto-sync.
             </p>
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={!!place.isStart}
+                onChange={e => onUpdate(node.id, { isStart: e.target.checked })}
+              />
+              Start Place
+            </label>
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={!!place.isEnd}
+                onChange={e => onUpdate(node.id, { isEnd: e.target.checked })}
+              />
+              End Place
+            </label>
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
@@ -465,7 +484,7 @@ function TransitionEditor({
             value={guardText}
             height={`${editorHeight - 8}px`}
             theme="light"
-            extensions={[EditorView.lineWrapping, javascript()]}
+            extensions={[EditorView.lineWrapping, StreamLanguage.define(lua)]}
             onChange={(val) => setGuardText(val)}
             basicSetup={{
               lineNumbers: true,
@@ -484,8 +503,7 @@ function TransitionEditor({
           />
         </div>
         <p className="text-xs text-neutral-500">
-          FEEL-like guard expression. Using Shell syntax highlight for readability. Example:{" "}
-          {'if amount > 1000 then "review" else "auto"'}.
+          Lua-like guard expression. Example: <code>if amount &gt; 1000 then return "review" else return "auto" end</code>
         </p>
       </div>
 
@@ -597,27 +615,52 @@ function ManualEditor({
   )
 }
 
-function AutoEditor({
-  node,
-  onUpdate,
-}: {
-  node: Node<PetriNodeData>
-  onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
-}) {
+function AutoEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
   const script = (node.data as any).auto?.script || ""
+  const [editorHeight, setEditorHeight] = useState<number>(160)
+  const resizeRef = useRef<HTMLDivElement | null>(null)
+  const dragState = useRef<{ startY: number; startH: number; dragging: boolean }>({ startY:0, startH:160, dragging:false })
+  useEffect(() => {
+    function onMove(e: MouseEvent){
+      if(!dragState.current.dragging) return
+      const dy = e.clientY - dragState.current.startY
+      const next = Math.min(Math.max(80, dragState.current.startH + dy), 480)
+      setEditorHeight(next)
+    }
+    function onUp(){ dragState.current.dragging = false }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+  }, [])
   return (
     <div className="space-y-2">
       <Label htmlFor="auto-script">Script</Label>
-      <textarea
-        id="auto-script"
-        className="w-full rounded border p-2 text-sm"
-        rows={6}
-        value={script}
-        onChange={(e) =>
-          onUpdate(node.id, { auto: { ...((node.data as any).auto || {}), script: e.target.value } as any })
-        }
-        placeholder="// JS script or function name"
-      />
+      <div className="relative rounded border bg-white" style={{ height: editorHeight }}>
+        <CodeMirror
+          value={script}
+          height={`${editorHeight - 8}px`}
+          theme="light"
+          extensions={[EditorView.lineWrapping, StreamLanguage.define(lua)]}
+          onChange={(val) =>
+            onUpdate(node.id, { auto: { ...((node.data as any).auto || {}), script: val } as any })
+          }
+          basicSetup={{
+            lineNumbers: true,
+            bracketMatching: true,
+            closeBrackets: true,
+            highlightActiveLine: true,
+            indentOnInput: true,
+            defaultKeymap: true,
+          }}
+        />
+        <div
+          ref={resizeRef}
+          onMouseDown={(e) => { dragState.current = { startY: e.clientY, startH: editorHeight, dragging: true } }}
+          className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize bg-gradient-to-b from-transparent to-neutral-200"
+          aria-label="Resize script editor"
+        />
+      </div>
+      <p className="text-xs text-neutral-500">Lua script or function body.</p>
     </div>
   )
 }

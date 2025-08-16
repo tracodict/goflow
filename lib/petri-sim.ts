@@ -35,6 +35,8 @@ export type PlaceData = {
   name: string
   tokens: number
   tokenList?: Token[]
+  isStart?: boolean
+  isEnd?: boolean
 }
 
 export type PetriNodeData = PlaceData | TransitionData
