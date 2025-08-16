@@ -38,6 +38,8 @@ import { PlaceNode } from "./place-node"
 import { TransitionNode } from "./transition-node"
 import { LabeledEdge } from "./labeled-edge"
 import { SidePanel } from "./side-panel"
+import { SystemSettingsProvider } from "./system-settings-context"
+import { useSystemSettings } from "./system-settings-context"
 import {
   anyEnabledTransitions,
   fireTransition,
@@ -58,9 +60,11 @@ type PanelMode = "mini" | "normal" | "full"
 
 export function FlowWorkspace() {
   return (
-    <ReactFlowProvider>
-      <CanvasInner />
-    </ReactFlowProvider>
+    <SystemSettingsProvider>
+      <ReactFlowProvider>
+        <CanvasInner />
+      </ReactFlowProvider>
+    </SystemSettingsProvider>
   )
 }
 
@@ -84,7 +88,8 @@ function CanvasInner() {
     nodeId: null,
   })
 
-  const [showMonitor, setShowMonitor] = useState<boolean>(false)
+  const [showSystem, setShowSystem] = useState<boolean>(false)
+  const [systemTab, setSystemTab] = useState<'monitor' | 'settings'>('monitor')
   const [leftTab, setLeftTab] = useState<'property' | 'explorer'>("property")
   const [interactive, setInteractive] = useState<boolean>(true)
   const [tokensOpenForPlaceId, setTokensOpenForPlaceId] = useState<string | null>(null)
@@ -131,7 +136,7 @@ function CanvasInner() {
         connectStateRef.current.inProgress = false
         connectStateRef.current.start = null
         setContextMenu((c) => ({ ...c, open: false }))
-        setShowMonitor(false)
+  setShowSystem(false)
       }
     }
     function onOpenTokens(ev: Event) {
@@ -521,75 +526,87 @@ function CanvasInner() {
 
   return (
     <div ref={containerRef} className="flex h-full w-full gap-4">
-      {/* Left Monitor Panel */}
-      {showMonitor && (
-        <div className="flex h-full w-72 flex-col rounded-lg border bg-white p-3">
-          <div className="mb-2 flex items-center justify-between">
+      {/* Left System Panel with tabs */}
+      {showSystem && (
+        <div className="flex h-full w-80 flex-col rounded-lg border bg-white">
+          <div className="flex items-center justify-between border-b px-3 py-2">
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-emerald-600" aria-hidden />
-              <h2 className="text-sm font-medium">Monitor</h2>
+              <h2 className="text-sm font-medium">System</h2>
             </div>
-            <Button size="icon" variant="ghost" onClick={() => setShowMonitor(false)} aria-label="Close monitor">
+            <Button size="icon" variant="ghost" onClick={() => setShowSystem(false)} aria-label="Close system panel">
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <Separator className="mb-3" />
-          <ScrollArea className="h-full">
-            <div className="space-y-4 pr-2">
-              <section>
-                <div className="mb-2 text-xs font-semibold text-neutral-600">Enabled Transitions</div>
-                {enabled.length === 0 && <div className="text-xs text-neutral-500">No transitions enabled</div>}
-                <div className="grid gap-2">
-                  {enabled.map((t) => (
-                    <div key={t.id} className="flex items-center justify-between rounded-md border px-2 py-1.5">
-                      <div className="flex items-center gap-2">
-                        <TransitionIcon tType={(t.data as any).tType as TransitionType} className="h-3.5 w-3.5" />
-                        <span className="text-xs">{t.data.name}</span>
+          <div className="flex border-b text-xs font-medium">
+            <button
+              className={`px-3 py-2 ${systemTab === 'monitor' ? 'border-b-2 border-emerald-600 text-emerald-700' : 'text-neutral-500'}`}
+              onClick={() => setSystemTab('monitor')}
+            >Monitor</button>
+            <button
+              className={`px-3 py-2 ${systemTab === 'settings' ? 'border-b-2 border-emerald-600 text-emerald-700' : 'text-neutral-500'}`}
+              onClick={() => setSystemTab('settings')}
+            >Settings</button>
+          </div>
+          <div className="flex-1 overflow-hidden">
+            {systemTab === 'monitor' && (
+              <div className="flex h-full flex-col p-3">
+                <ScrollArea className="h-full">
+                  <div className="space-y-4 pr-2">
+                    <section>
+                      <div className="mb-2 text-xs font-semibold text-neutral-600">Enabled Transitions</div>
+                      {enabled.length === 0 && <div className="text-xs text-neutral-500">No transitions enabled</div>}
+                      <div className="grid gap-2">
+                        {enabled.map((t) => (
+                          <div key={t.id} className="flex items-center justify-between rounded-md border px-2 py-1.5">
+                            <div className="flex items-center gap-2">
+                              <TransitionIcon tType={(t.data as any).tType as TransitionType} className="h-3.5 w-3.5" />
+                              <span className="text-xs">{t.data.name}</span>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="h-6 px-2 text-xs"
+                              onClick={() => {
+                                const { nodes: newNodes } = fireTransition(t.id, nodes, edges)
+                                setNodes(newNodes)
+                              }}
+                            >
+                              Fire
+                            </Button>
+                          </div>
+                        ))}
                       </div>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="h-6 px-2 text-xs"
-                        onClick={() => {
-                          const { nodes: newNodes } = fireTransition(t.id, nodes, edges)
-                          setNodes(newNodes)
-                        }}
-                      >
-                        Fire
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <section>
-                <div className="mb-2 text-xs font-semibold text-neutral-600">Tokens by Place</div>
-                <div className="grid gap-2">
-                  {nodes
-                    .filter((n) => n.type === "place")
-                    .map((p) => (
-                      <div
-                        key={p.id}
-                        className="flex items-center justify-between rounded-md bg-neutral-50 px-2 py-1.5"
-                      >
-                        <span className="text-xs">{(p.data as any).name}</span>
-                        <Badge variant="outline" className="gap-1 text-xs">
-                          <Coins className="h-3 w-3 text-amber-600" aria-hidden />
-                          {(p.data as any).tokens}
-                        </Badge>
+                    </section>
+                    <section>
+                      <div className="mb-2 text-xs font-semibold text-neutral-600">Tokens by Place</div>
+                      <div className="grid gap-2">
+                        {nodes
+                          .filter((n) => n.type === 'place')
+                          .map((p) => (
+                            <div key={p.id} className="flex items-center justify-between rounded-md bg-neutral-50 px-2 py-1.5">
+                              <span className="text-xs">{(p.data as any).name}</span>
+                              <Badge variant="outline" className="gap-1 text-xs">
+                                <Coins className="h-3 w-3 text-amber-600" aria-hidden />
+                                {(p.data as any).tokens}
+                              </Badge>
+                            </div>
+                          ))}
                       </div>
-                    ))}
+                    </section>
+                  </div>
+                </ScrollArea>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <Button size="sm" variant="secondary" onClick={doAutoStep}>
+                    <Play className="mr-1.5 h-4 w-4" aria-hidden /> Step
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={resetTokens}>
+                    <RotateCcw className="mr-1.5 h-4 w-4" aria-hidden /> Reset
+                  </Button>
                 </div>
-              </section>
-            </div>
-          </ScrollArea>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button size="sm" variant="secondary" onClick={doAutoStep}>
-              <Play className="mr-1.5 h-4 w-4" aria-hidden /> Step
-            </Button>
-            <Button size="sm" variant="outline" onClick={resetTokens}>
-              <RotateCcw className="mr-1.5 h-4 w-4" aria-hidden /> Reset
-            </Button>
+              </div>
+            )}
+            {systemTab === 'settings' && <SystemSettingsTab />}
           </div>
         </div>
       )}
@@ -648,8 +665,11 @@ function CanvasInner() {
 
               {/* Preview */}
               <ControlButton
-                onClick={() => setShowMonitor((v) => !v)}
-                title={showMonitor ? "Hide monitor" : "Show monitor"}
+                onClick={() => {
+                  setShowSystem((v) => !v)
+                  if (!showSystem) setSystemTab('monitor')
+                }}
+                title={showSystem ? 'Hide System panel' : 'Show System panel'}
               >
                 <Eye className="h-4 w-4" aria-hidden />
               </ControlButton>
@@ -752,6 +772,58 @@ function CanvasInner() {
         tab={leftTab}
         setTab={setLeftTab}
       />
+    </div>
+  )
+}
+
+function SystemSettingsTab() {
+  const { settings, setSetting, deleteSetting, addSetting, resetDefaults } = useSystemSettings()
+  const entries = Object.entries(settings)
+  return (
+    <div className="flex h-full flex-col p-3 text-xs">
+      <div className="mb-2 flex items-center gap-2">
+        <Button size="sm" variant="secondary" onClick={addSetting}>Add</Button>
+        <Button size="sm" variant="outline" onClick={resetDefaults}>Reset Defaults</Button>
+      </div>
+      <div className="overflow-auto rounded border">
+        <table className="w-full border-collapse text-xs">
+          <thead className="bg-neutral-50 text-neutral-600">
+            <tr>
+              <th className="border-b px-2 py-1 text-left font-medium">Key</th>
+              <th className="border-b px-2 py-1 text-left font-medium">Value</th>
+              <th className="border-b px-2 py-1" aria-label="actions" />
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map(([k, v]) => (
+              <tr key={k} className="odd:bg-white even:bg-neutral-50">
+                <td className="border-b px-2 py-1 align-top">
+                  <input
+                    className="w-full rounded border px-1 py-0.5 bg-white"
+                    value={k}
+                    readOnly={true /* keys immutable once created to keep references stable */}
+                  />
+                </td>
+                <td className="border-b px-2 py-1 align-top">
+                  <input
+                    className="w-full rounded border px-1 py-0.5 bg-white"
+                    value={v}
+                    onChange={(e) => setSetting(k, e.target.value)}
+                  />
+                </td>
+                <td className="border-b px-1 py-1 text-right align-top">
+                  {!(k === 'flowServiceUrl' || k === 'dictionaryUrl' || k === 'runMode') && (
+                    <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => deleteSetting(k)} aria-label={`Delete ${k}`}>
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-[10px] text-neutral-500">Settings are stored locally and available app-wide via context.</p>
     </div>
   )
 }

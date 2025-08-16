@@ -17,7 +17,10 @@ import { DmnDecisionTable, type DecisionTable } from "./dmn-decision-table"
 import { FORM_SCHEMAS } from "@/lib/form-schemas"
 import { CronLite as Cron } from "@/components/petri/cron-lite"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-import { FloatingCodeMirror } from "./floating-codemirror"
+import CodeMirror from '@uiw/react-codemirror'
+import { javascript } from '@codemirror/lang-javascript'
+import { json } from '@codemirror/lang-json'
+import { EditorView } from '@codemirror/view'
 
 type SelectedResolved = { type: "node"; node: Node<PetriNodeData> } | { type: "edge"; edge: Edge<PetriEdgeData> } | null
 type PanelMode = "mini" | "normal" | "full"
@@ -316,7 +319,20 @@ function TokenEditor({
     }
   })
   const [error, setError] = useState<string | null>(null)
-  const anchorRef = useRef<HTMLDivElement | null>(null)
+  const [editorHeight, setEditorHeight] = useState<number>(180)
+  const dragState = useRef<{ startY: number; startH: number; dragging: boolean }>({ startY:0, startH:180, dragging:false })
+  useEffect(() => {
+    function onMove(e: MouseEvent){
+      if(!dragState.current.dragging) return
+      const dy = e.clientY - dragState.current.startY
+      const next = Math.min(Math.max(100, dragState.current.startH + dy), 600)
+      setEditorHeight(next)
+    }
+    function onUp(){ dragState.current.dragging = false }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+  }, [])
 
   useEffect(() => {
     try {
@@ -341,19 +357,28 @@ function TokenEditor({
   return (
     <div className="space-y-2">
       <Label className="text-xs">Data (JSON)</Label>
-      {/* Anchor placeholder in the panel; real editor renders in a fixed portal */}
-      <div ref={anchorRef} className="rounded border transform-none" style={{ height: 180 }}>
-        <div className="sr-only">Floating editor anchor</div>
+      <div className="relative rounded border bg-white" style={{ height: editorHeight }}>
+        <CodeMirror
+          value={text}
+          height={`${editorHeight - 8}px`}
+          theme="light"
+          extensions={[EditorView.lineWrapping, json()]}
+          onChange={(val: string) => setText(val)}
+          basicSetup={{
+            lineNumbers: true,
+            bracketMatching: true,
+            closeBrackets: true,
+            highlightActiveLine: true,
+            indentOnInput: true,
+            defaultKeymap: true,
+          }}
+        />
+        <div
+          onMouseDown={(e) => { dragState.current = { startY: e.clientY, startH: editorHeight, dragging: true } }}
+          className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize bg-gradient-to-b from-transparent to-neutral-200"
+          aria-label="Resize token JSON editor"
+        />
       </div>
-      <FloatingCodeMirror
-        anchorRef={anchorRef}
-        scrollParents={[window, ...(scrollContainerRef.current ? [scrollContainerRef.current] : [])]}
-        height={180}
-        language="json"
-        value={text}
-        onChange={(val) => setText(val)}
-        placeholder="{ ... }"
-      />
       {error ? <div className="text-xs text-red-600">{error}</div> : null}
       <div className="flex items-center justify-between">
         <Button size="sm" variant="secondary" onClick={tryApply}>
@@ -388,7 +413,21 @@ function TransitionEditor({
 }) {
   const tType = ((node.data as any).tType || "manual") as TransitionType
   const inscRef = useRef<HTMLDivElement | null>(null)
-  const anchorRef = useRef<HTMLDivElement | null>(null)
+  const resizeRef = useRef<HTMLDivElement | null>(null)
+  const [editorHeight, setEditorHeight] = useState<number>(160)
+  const dragState = useRef<{ startY: number; startH: number; dragging: boolean }>({ startY:0, startH:160, dragging:false })
+  useEffect(() => {
+    function onMove(e: MouseEvent){
+      if(!dragState.current.dragging) return
+      const dy = e.clientY - dragState.current.startY
+      const next = Math.min(Math.max(80, dragState.current.startH + dy), 480)
+      setEditorHeight(next)
+    }
+    function onUp(){ dragState.current.dragging = false }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+  }, [])
 
   useEffect(() => {
     if (focusGuard && inscRef.current) {
@@ -421,19 +460,29 @@ function TransitionEditor({
 
       <div ref={inscRef} className="space-y-2">
         <Label className="text-sm">Guard Expression</Label>
-        {/* Anchor placeholder; actual editor is floated in a portal */}
-        <div ref={anchorRef} className="rounded border transform-none" style={{ height: 160 }}>
-          <div className="sr-only">Floating editor anchor</div>
+        <div className="relative rounded border bg-white" style={{ height: editorHeight }}>
+          <CodeMirror
+            value={guardText}
+            height={`${editorHeight - 8}px`}
+            theme="light"
+            extensions={[EditorView.lineWrapping, javascript()]}
+            onChange={(val) => setGuardText(val)}
+            basicSetup={{
+              lineNumbers: true,
+              bracketMatching: true,
+              closeBrackets: true,
+              highlightActiveLine: true,
+              indentOnInput: true,
+              defaultKeymap: true,
+            }}
+          />
+          <div
+            ref={resizeRef}
+            onMouseDown={(e) => { dragState.current = { startY: e.clientY, startH: editorHeight, dragging: true } }}
+            className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize bg-gradient-to-b from-transparent to-neutral-200"
+            aria-label="Resize guard editor"
+          />
         </div>
-        <FloatingCodeMirror
-          anchorRef={anchorRef}
-          scrollParents={[window, ...(scrollContainerRef.current ? [scrollContainerRef.current] : [])]}
-          height={160}
-          language="javascript"
-          value={guardText}
-          onChange={(val) => setGuardText(val)}
-          placeholder='if amount > 1000 then "review" else "auto"'
-        />
         <p className="text-xs text-neutral-500">
           FEEL-like guard expression. Using Shell syntax highlight for readability. Example:{" "}
           {'if amount > 1000 then "review" else "auto"'}.
@@ -488,9 +537,9 @@ function ManualEditor({
   node: Node<PetriNodeData>
   onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
 }) {
-  const manual = ((node.data as any).manual || {}) as { assignee?: string; formSchemaId?: string }
+  const manual = ((node.data as any).manual || {}) as { assignee?: string; formSchemaId?: number }
   const [open, setOpen] = useState(false)
-  const selected = FORM_SCHEMAS.find((f) => f.id === manual.formSchemaId)
+  const selected = FORM_SCHEMAS.find((f) => f.component_id === manual.formSchemaId)
 
   return (
     <div className="space-y-4">
@@ -526,16 +575,16 @@ function ManualEditor({
                 <CommandGroup>
                   {FORM_SCHEMAS.map((schema) => (
                     <CommandItem
-                      key={schema.id}
+                      key={schema.component_id}
                       value={schema.name}
                       onSelect={() => {
-                        onUpdate(node.id, { manual: { ...manual, formSchemaId: schema.id } as any })
+                        onUpdate(node.id, { manual: { ...manual, formSchemaId: schema.component_id } as any })
                         setOpen(false)
                       }}
                       className="flex items-center justify-between"
                     >
                       <span>{schema.name}</span>
-                      {schema.id === manual.formSchemaId ? <Check className="h-4 w-4 text-emerald-600" /> : null}
+                      {schema.component_id === manual.formSchemaId ? <Check className="h-4 w-4 text-emerald-600" /> : null}
                     </CommandItem>
                   ))}
                 </CommandGroup>
