@@ -28,7 +28,20 @@ export async function fireTransition(flowServiceUrl: string, workflowId: string,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ cpnId: workflowId, transitionId, bindingIndex }),
   });
-  if (!resp.ok) throw new Error(`Failed to fire transition: ${resp.status}`);
+  if (!resp.ok) {
+    let bodyText = ''
+    let parsed: any = null
+    try { bodyText = await resp.text() } catch { /* ignore */ }
+    if (bodyText) { try { parsed = JSON.parse(bodyText) } catch { /* ignore */ } }
+    const err = new ApiError('Fire transition failed', {
+      status: resp.status,
+      rawBody: bodyText,
+      errorCode: parsed?.error,
+      serverMessage: parsed?.message || parsed?.error || bodyText || `HTTP ${resp.status}`,
+      context: 'fireTransition',
+    })
+    throw err
+  }
   return resp.json();
 }
 
