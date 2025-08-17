@@ -1,21 +1,11 @@
 "use client"
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@xyflow/react"
-import type { PetriEdgeData } from "@/lib/petri-sim"
 
-export function LabeledEdge(props: EdgeProps<PetriEdgeData>) {
-  const {
-    id,
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    sourcePosition,
-    targetPosition,
-    markerEnd,
-    style = {},
-    selected,
-    data,
-  } = props
+export function LabeledEdge(props: EdgeProps) {
+  const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd } = props as any
+  const selected = (props as any).selected
+  const style: any = (props as any).style || {}
+  const data: any = (props as any).data || {}
 
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -28,12 +18,7 @@ export function LabeledEdge(props: EdgeProps<PetriEdgeData>) {
 
   return (
     <>
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        style={{ ...style, strokeWidth: selected ? 2.5 : 1.5, stroke: selected ? "#059669" : "#64748b" }}
-        markerEnd={markerEnd}
-      />
+  <BaseEdge id={id as string} path={edgePath} style={{ ...(style || {}), strokeWidth: selected ? 2.5 : 1.5, stroke: selected ? "#059669" : "#64748b" }} markerEnd={markerEnd} />
       <EdgeLabelRenderer>
         <div
           style={{

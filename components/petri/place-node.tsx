@@ -3,9 +3,9 @@ import { useState } from "react"
 import { Handle, Position, type NodeProps } from "@xyflow/react"
 import { Badge } from "@/components/ui/badge"
 import { Coins, Play, Square } from "lucide-react"
-import type { PetriNodeData, PlaceData } from "@/lib/petri-sim"
+import type { PetriNodeData, PlaceData } from "@/lib/petri-types"
 
-export function PlaceNode({ id, data, selected }: NodeProps<PetriNodeData>) {
+export function PlaceNode({ id, data, selected }: NodeProps) {
   const [hoverLeft, setHoverLeft] = useState(false)
   const [hoverRight, setHoverRight] = useState(false)
   const place = data as PlaceData

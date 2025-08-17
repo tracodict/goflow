@@ -4,9 +4,8 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 export type SystemSettings = Record<string, string>
 
 const DEFAULT_SETTINGS: SystemSettings = {
-  flowServiceUrl: 'https://localhost:8082',
-  dictionaryUrl: 'https://tracodict.vercel.app',
-  runMode: 'mockup'
+  flowServiceUrl: 'https://goflow.lizhao.net',
+  dictionaryUrl: 'https://dict.lizhao.net',
 }
 
 interface Ctx {

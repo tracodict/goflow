@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import type { Edge, Node } from "@xyflow/react"
-import type { PetriEdgeData, PetriNodeData, TransitionType, Token, PlaceData } from "@/lib/petri-sim"
+import type { PetriEdgeData, PetriNodeData, TransitionType, Token, PlaceData } from "@/lib/petri-types"
 import { GripVertical, Minimize2, Maximize2, PanelRightOpen, ChevronsUpDown, Check, Plus, Trash2 } from "lucide-react"
 import { DmnDecisionTable, type DecisionTable } from "./dmn-decision-table"
 import { FORM_SCHEMAS } from "@/lib/form-schemas"
@@ -20,6 +20,7 @@ import CodeMirror from '@uiw/react-codemirror'
 import { StreamLanguage } from '@codemirror/language'
 import { lua } from '@codemirror/legacy-modes/mode/lua'
 import { EditorView } from '@codemirror/view'
+import { json } from '@codemirror/lang-json'
 
 type SelectedResolved = { type: "node"; node: Node<PetriNodeData> } | { type: "edge"; edge: Edge<PetriEdgeData> } | null
 type PanelMode = "mini" | "normal" | "full"
@@ -39,6 +40,25 @@ export function SidePanel({
   setTab,
   explorerWorkflows,
   onExplorerSelect,
+  onCreateWorkflow,
+  onDeleteWorkflow,
+  onRenameWorkflow,
+  workflowMeta,
+  activeWorkflowId,
+  explorerNodes,
+  explorerEdges,
+  onAddPlace,
+  onRenamePlace,
+  onDeletePlace,
+  onAddTransition,
+  onRenameTransition,
+  onDeleteTransition,
+  onAddArc,
+  onDeleteArc,
+  onColorSetsChange,
+  onSelectEntity,
+  selectedEntity,
+  onRefreshWorkflows,
 }: {
   open: boolean
   mode: PanelMode
@@ -54,6 +74,25 @@ export function SidePanel({
   setTab: (tab: 'property' | 'explorer') => void
   explorerWorkflows?: any[]
   onExplorerSelect?: (workflowId: string) => void
+  onCreateWorkflow?: () => void
+  onDeleteWorkflow?: (id: string) => void
+  onRenameWorkflow?: (id: string, name: string) => void
+  workflowMeta?: Record<string, { name: string; description?: string; colorSets: string[] }>
+  activeWorkflowId?: string | null
+  explorerNodes?: any[]
+  explorerEdges?: any[]
+  onAddPlace?: () => void
+  onRenamePlace?: (id: string, name: string) => void
+  onDeletePlace?: (id: string) => void
+  onAddTransition?: () => void
+  onRenameTransition?: (id: string, name: string) => void
+  onDeleteTransition?: (id: string) => void
+  onAddArc?: () => void
+  onDeleteArc?: (id: string) => void
+  onColorSetsChange?: (next: string[]) => void
+  onSelectEntity?: (kind: 'place'|'transition'|'arc'|'colorSets', id: string) => void
+  selectedEntity?: { kind: 'place'|'transition'|'arc'|'colorSets'; id: string } | null
+  onRefreshWorkflows?: () => void
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null)
   // New: split state between explorer (top) and property (bottom)
@@ -142,14 +181,24 @@ export function SidePanel({
           <ExplorerPanel
             workflows={explorerWorkflows}
             onWorkflowSelect={onExplorerSelect}
-            onEntitySelect={(sel) => {
-              if (!sel || sel.kind === 'workflow') return
-              setExternalSelection({ kind: sel.kind, id: sel.id })
-              // Attempt to programmatically select in canvas via events
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('explorerSelectEntity', { detail: sel }))
-              }
-            }}
+            onCreateWorkflow={onCreateWorkflow}
+            onDeleteWorkflow={onDeleteWorkflow}
+            onRenameWorkflow={onRenameWorkflow}
+            activeWorkflowId={activeWorkflowId}
+            nodes={explorerNodes}
+            edges={explorerEdges}
+            workflowMeta={workflowMeta}
+            onAddPlace={onAddPlace}
+            onRenamePlace={onRenamePlace}
+            onDeletePlace={onDeletePlace}
+            onAddTransition={onAddTransition}
+            onRenameTransition={onRenameTransition}
+            onDeleteTransition={onDeleteTransition}
+            onDeleteArc={onDeleteArc}
+            onColorSetsChange={onColorSetsChange}
+            onSelectEntity={onSelectEntity}
+            selectedEntity={selectedEntity}
+            onRefreshWorkflows={onRefreshWorkflows}
           />
         </div>
         {/* Splitter */}
@@ -163,7 +212,15 @@ export function SidePanel({
         {/* Property section */}
         <div ref={contentRef} className="flex-1 overflow-y-auto overflow-x-visible p-3">
           {(() => {
-            // Prefer canvas selection; fallback to externalSelection if nothing selected
+            // If colorSets pseudo-entity selected, render its editor immediately
+            if (selectedEntity?.kind === 'colorSets' && activeWorkflowId) {
+              const meta = workflowMeta?.[activeWorkflowId]
+              return <ColorSetsEditor value={meta?.colorSets || []} onChange={(next) => {
+                const ev = new CustomEvent('updateColorSetsInternal', { detail: { next } })
+                window.dispatchEvent(ev)
+              }} />
+            }
+            // Prefer canvas selection; fallback to externalSelection if nothing selected (colorSets handled above)
             const effectiveSelected = selected || (externalSelection ? { type: externalSelection.kind === 'arc' ? 'edge' : 'node', ...(externalSelection.kind === 'arc' ? { edge: { id: externalSelection.id } as any } : { node: { id: externalSelection.id, type: externalSelection.kind === 'place' ? 'place':'transition', data: {} } as any }) } as SelectedResolved : null)
             if (!effectiveSelected) return <div className="text-xs text-neutral-500">Select an element in the explorer or canvas.</div>
             if (effectiveSelected.type === 'node') {
@@ -178,6 +235,42 @@ export function SidePanel({
         </div>
       </div>
     </aside>
+  )
+}
+
+function ColorSetsEditor({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const [text, setText] = useState(() => value.join('\n'))
+  const [dirty, setDirty] = useState(false)
+  useEffect(() => { if (!dirty) setText(value.join('\n')) }, [value.join('|')])
+  const apply = () => {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0)
+    onChange(lines)
+    setDirty(false)
+  }
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">Color Sets</div>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="secondary" disabled={!dirty} onClick={apply}>Apply</Button>
+        </div>
+      </div>
+      <p className="text-[11px] text-neutral-500">One definition per line. Example: <code>colset INT = int;</code></p>
+      <div className="rounded border bg-white">
+        <CodeMirror
+          value={text}
+            height="220px"
+            theme="light"
+            extensions={[EditorView.lineWrapping, StreamLanguage.define(lua)]}
+            onChange={(val: string) => { setText(val); setDirty(true) }}
+            basicSetup={{ lineNumbers: true, bracketMatching: true, highlightActiveLine: false }}
+        />
+      </div>
+      <div className="text-[11px] text-neutral-400 flex items-center justify-between">
+        <span>{text.split(/\r?\n/).filter(l=>l.trim().length>0).length} lines</span>
+        {dirty && <span className="text-amber-600">Unsaved</span>}
+      </div>
+    </div>
   )
 }
 
@@ -295,26 +388,37 @@ function PlaceEditor({
             <div className="rounded border bg-neutral-50 p-3 text-xs text-neutral-500">No tokens in this place.</div>
           ) : (
             <Accordion type="multiple" className="w-full">
-              {tokenList.map((tok, idx) => (
-                <AccordionItem key={tok.id} value={tok.id} className="border rounded mb-2">
-                  <AccordionTrigger className="px-3 py-2 text-sm no-underline hover:no-underline">
-                    <div className="flex w-full items-center justify-between gap-2">
-                      <span className="truncate">
-                        #{idx + 1} — {tok.id}
-                      </span>
-                      <span className="text-xs text-neutral-500">{new Date(tok.createdAt).toLocaleString()}</span>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent className="px-3 pb-3">
-                    <TokenEditor
-                      token={tok}
-                      onChange={(data) => updateTokenData(tok.id, data)}
-                      onRemove={() => removeToken(tok.id)}
-                      scrollContainerRef={scrollContainerRef}
-                    />
-                  </AccordionContent>
-                </AccordionItem>
-              ))}
+              {tokenList.map((tok, idx) => {
+                // Robust date handling: accept numeric (ms) or ISO string; fallback to '-'
+                let createdLabel = '-'
+                const raw = (tok as any).createdAt
+                if (raw !== undefined && raw !== null) {
+                  const ts = typeof raw === 'number' ? raw : (typeof raw === 'string' ? Date.parse(raw) : NaN)
+                  if (!Number.isNaN(ts) && ts > 0) {
+                    try { createdLabel = new Date(ts).toLocaleString() } catch { createdLabel = '-' }
+                  }
+                }
+                return (
+                  <AccordionItem key={tok.id || idx} value={tok.id || `tok-${idx}`} className="border rounded mb-2">
+                    <AccordionTrigger className="px-3 py-2 text-sm no-underline hover:no-underline">
+                      <div className="flex w-full items-center justify-between gap-2">
+                        <span className="truncate">
+                          #{idx + 1} — {tok.id}
+                        </span>
+                        <span className="text-xs text-neutral-500">{createdLabel}</span>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="px-3 pb-3">
+                      <TokenEditor
+                        token={tok}
+                        onChange={(data) => updateTokenData(tok.id, data)}
+                        onRemove={() => removeToken(tok.id)}
+                        scrollContainerRef={scrollContainerRef}
+                      />
+                    </AccordionContent>
+                  </AccordionItem>
+                )
+              })}
             </Accordion>
           )}
         </div>
@@ -415,7 +519,17 @@ function TokenEditor({
         {token.updatedAt ? (
           <div className="grid gap-1">
             <Label className="text-xs">Updated</Label>
-            <Input value={new Date(token.updatedAt).toLocaleString()} readOnly />
+            {(() => {
+              const raw = (token as any).updatedAt
+              let label = '-'
+              if (raw !== undefined && raw !== null) {
+                const ts = typeof raw === 'number' ? raw : (typeof raw === 'string' ? Date.parse(raw) : NaN)
+                if (!Number.isNaN(ts) && ts > 0) {
+                  try { label = new Date(ts).toLocaleString() } catch { label = '-' }
+                }
+              }
+              return <Input value={label} readOnly />
+            })()}
           </div>
         ) : null}
       </div>

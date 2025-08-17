@@ -4,7 +4,7 @@ import type React from "react"
 import { useState } from "react"
 import { Handle, Position, type NodeProps } from "@xyflow/react"
 import { Hand, Bot, MessageSquare, Timer, Brain, TableProperties, Code } from "lucide-react"
-import type { PetriNodeData, TransitionType } from "@/lib/petri-sim"
+import type { PetriNodeData, TransitionType } from "@/lib/petri-types"
 import { Badge } from "@/components/ui/badge"
 
 const typeIconMap: Record<TransitionType, React.ReactNode> = {
