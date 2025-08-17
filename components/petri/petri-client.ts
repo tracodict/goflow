@@ -62,21 +62,33 @@ export async function fetchWorkflow(flowServiceUrl: string, id: string) {
 }
 
 export async function saveWorkflow(flowServiceUrl: string, workflowData: any) {
-  const resp = await fetch(`${flowServiceUrl}/api/cpn/load`, {
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const resp = await fetch(`${base}/api/cpn/load`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(workflowData),
   });
   if (!resp.ok) {
-    const msg = await resp.text();
-    throw new Error(`Save failed: ${resp.status} ${msg}`);
+    let bodyText = ''
+    let parsed: any = null
+    try { bodyText = await resp.text() } catch { /* ignore */ }
+    if (bodyText) { try { parsed = JSON.parse(bodyText) } catch { /* ignore */ } }
+    const err = new ApiError('Save failed', {
+      status: resp.status,
+      rawBody: bodyText,
+      errorCode: parsed?.error,
+      serverMessage: parsed?.message || parsed?.error || bodyText || `HTTP ${resp.status}`,
+      context: 'saveWorkflow',
+    })
+    throw err
   }
   return resp.json();
 }
 
 // Create a new (empty) workflow on the server
 export async function createWorkflow(flowServiceUrl: string, payload: { id?: string; name: string }) {
-  const resp = await fetch(`${flowServiceUrl}/api/cpn/create`, {
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const resp = await fetch(`${base}/api/cpn/create`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -87,14 +99,16 @@ export async function createWorkflow(flowServiceUrl: string, payload: { id?: str
 
 // Delete a workflow
 export async function deleteWorkflowApi(flowServiceUrl: string, id: string) {
-  const resp = await fetch(`${flowServiceUrl}/api/cpn/delete?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const resp = await fetch(`${base}/api/cpn/delete?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
   if (!resp.ok) throw new Error(`Failed to delete workflow: ${resp.status}`)
   return resp.json()
 }
 
 // Update color sets
 export async function updateColorSets(flowServiceUrl: string, id: string, colorSets: string[]) {
-  const resp = await fetch(`${flowServiceUrl}/api/cpn/colorsets`, {
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const resp = await fetch(`${base}/api/cpn/colorsets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id, colorSets }),
@@ -103,13 +117,53 @@ export async function updateColorSets(flowServiceUrl: string, id: string, colorS
   return resp.json()
 }
 
+// Validate a workflow; expected response: { data: { violations: [...] }} or { violations: [...] }
+export async function validateWorkflow(flowServiceUrl: string, workflowId: string) {
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const resp = await fetch(`${base}/api/cpn/validate?id=${encodeURIComponent(workflowId)}`)
+  if (!resp.ok) {
+    let body = ''
+    try { body = await resp.text() } catch {}
+    throw new ApiError('Validation failed', { status: resp.status, rawBody: body, context: 'validateWorkflow' })
+  }
+  const json = await resp.json().catch(() => ({}))
+  // Normalize shape
+  const violations = json?.data?.violations || json?.violations || []
+  return { raw: json, violations }
+}
+
 // Helper to run an API call and surface any thrown error via toast; rethrows after showing
+export class ApiError extends Error {
+  status?: number
+  errorCode?: string
+  serverMessage?: string
+  rawBody?: string
+  context?: string
+  constructor(message: string, opts: { status?: number; errorCode?: string; serverMessage?: string; rawBody?: string; context?: string } = {}) {
+    super(message)
+    this.name = 'ApiError'
+    Object.assign(this, opts)
+  }
+}
+
 export async function withApiErrorToast<T>(promise: Promise<T>, toastFn?: (opts: { title: string; description?: string; variant?: 'default' | 'destructive' | null }) => void, action?: string): Promise<T> {
   try {
     return await promise
   } catch (e: any) {
     if (toastFn) {
-      toastFn({ title: action ? `${action} failed` : 'Request failed', description: e?.message || String(e), variant: 'destructive' })
+      let title = action ? `${action} failed` : 'Request failed'
+      let description: string | undefined
+      if (e instanceof ApiError) {
+        const parts = [] as string[]
+        if (e.status) parts.push(`HTTP ${e.status}`)
+        if (e.errorCode) parts.push(e.errorCode)
+        if (e.serverMessage) parts.push(e.serverMessage)
+        description = parts.join(' · ')
+      } else {
+        description = e?.message || String(e)
+      }
+      if (!description || description.trim() === '') description = 'Unknown error'
+      toastFn({ title, description, variant: 'destructive' })
     }
     throw e
   }

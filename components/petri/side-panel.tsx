@@ -96,12 +96,19 @@ export function SidePanel({
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null)
   // New: split state between explorer (top) and property (bottom)
-  const [explorerHeight, setExplorerHeight] = useState<number>(() => {
-    if (typeof window === 'undefined') return 240
-    const saved = window.localStorage.getItem('goflow.explorerHeight')
-    const num = saved ? parseInt(saved, 10) : 240
-    return isNaN(num) ? 240 : num
-  })
+  // Start with a fixed value for SSR to avoid hydration mismatch; hydrate actual saved height after mount
+  const [explorerHeight, setExplorerHeight] = useState<number>(240)
+  useEffect(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? window.localStorage.getItem('goflow.explorerHeight') : null
+      if (saved) {
+        const num = parseInt(saved, 10)
+        if (!isNaN(num) && num !== explorerHeight) setExplorerHeight(num)
+      }
+    } catch {/* ignore */}
+  // run once
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const splitterRef = useRef<HTMLDivElement | null>(null)
   const dragState = useRef<{ startY: number; startHeight: number; dragging: boolean }>({ startY:0, startHeight:0, dragging:false })
   const [, forceRerender] = useState(0)
@@ -287,6 +294,15 @@ function PlaceEditor({
 }) {
   const place = node.data as PlaceData
   const [section, setSection] = useState<"tokens" | "details">(forceOpenTokens ? "tokens" : "details")
+  // Extract workflow colorSets from global meta via window event (fallback to parsing explorer) – simple approach: read from a data attribute if set externally later.
+  const [availableColorSets, setAvailableColorSets] = useState<string[]>([])
+  useEffect(() => {
+    const handler = (e: any) => {
+      if (Array.isArray(e.detail?.colorSets)) setAvailableColorSets(e.detail.colorSets)
+    }
+    window.addEventListener('goflow-colorSets', handler as EventListener)
+    return () => window.removeEventListener('goflow-colorSets', handler as EventListener)
+  }, [])
 
   useEffect(() => {
     if (forceOpenTokens) setSection("tokens")
@@ -299,7 +315,7 @@ function PlaceEditor({
   const addToken = () => {
     const list = [
       ...tokenList,
-      { id: `tok-${Math.random().toString(36).slice(2, 8)}`, data: {}, createdAt: Date.now() },
+      { id: `tok-${Math.random().toString(36).slice(2, 8)}`, data: {}, createdAt: 0 }, // simulation step starts at 0
     ]
     onUpdate(node.id, { tokenList: list as any, tokens: list.length } as any)
   }
@@ -335,6 +351,19 @@ function PlaceEditor({
               onChange={(e) => onUpdate(node.id, { name: e.target.value })}
               placeholder="Place name"
             />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="p-colorset">Color Set</Label>
+            <select
+              id="p-colorset"
+              className="rounded border px-2 py-1 text-sm bg-white"
+              value={place.colorSet || ''}
+              onChange={(e) => onUpdate(node.id, { colorSet: e.target.value })}
+            >
+              <option value="">(none)</option>
+              {availableColorSets.map(cs => <option key={cs} value={cs}>{cs}</option>)}
+            </select>
+            <p className="text-xs text-neutral-500">Assign a declared color set to this place.</p>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="p-tokens">Tokens (count)</Label>
@@ -446,13 +475,14 @@ function TokenEditor({
     }
   })
   const [error, setError] = useState<string | null>(null)
+  // Start with a deterministic height for SSR; adjust after mount via effect if needed
   const [editorHeight, setEditorHeight] = useState<number>(180)
   const dragState = useRef<{ startY: number; startH: number; dragging: boolean }>({ startY:0, startH:180, dragging:false })
   useEffect(() => {
     function onMove(e: MouseEvent){
       if(!dragState.current.dragging) return
       const dy = e.clientY - dragState.current.startY
-      const next = Math.min(Math.max(100, dragState.current.startH + dy), 600)
+  const next = Math.min(Math.max(100, dragState.current.startH + dy), 600)
       setEditorHeight(next)
     }
     function onUp(){ dragState.current.dragging = false }

@@ -53,7 +53,7 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
   Object.entries(marking).forEach(([placeName, tokens]) => {
     const placeNode = nodes.find(n => n.type === 'place' && (n.data as any).name === placeName)
     if (placeNode) {
-      const list = tokens.map(t => ({ id: `tok-${Math.random().toString(36).slice(2,8)}`, data: t.value, createdAt: t.timestamp }))
+      const list = tokens.map(t => ({ id: `tok-${Math.random().toString(36).slice(2,8)}`, data: t.value, createdAt: typeof t.timestamp === 'number' ? t.timestamp : 0 }))
       ;(placeNode.data as any).tokenList = list
       ;(placeNode.data as any).tokens = list.length
     }
@@ -80,7 +80,7 @@ export function graphToServer(current: ServerWorkflow | undefined, id: string, n
   graph.nodes.filter(n => n.type === 'place').forEach(n => {
     const list = (n.data as any).tokenList || []
     if (list.length > 0) {
-      initialMarking[(n.data as any).name || n.id] = list.map((tok: any) => ({ value: tok.data, timestamp: tok.createdAt }))
+  initialMarking[(n.data as any).name || n.id] = list.map((tok: any) => ({ value: tok.data, timestamp: typeof tok.createdAt === 'number' ? tok.createdAt : 0 }))
     }
   })
   return {

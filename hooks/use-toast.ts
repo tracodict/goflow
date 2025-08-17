@@ -8,8 +8,8 @@ import type {
   ToastProps,
 } from "@/components/ui/toast"
 
-const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
+const TOAST_LIMIT = 3
+const TOAST_REMOVE_DELAY = 1000000 // long for errors; success/info will be auto dismissed sooner
 
 type ToasterToast = ToastProps & {
   id: string
@@ -152,17 +152,20 @@ function toast({ ...props }: Toast) {
     })
   const dismiss = () => dispatch({ type: "DISMISS_TOAST", toastId: id })
 
-  dispatch({
-    type: "ADD_TOAST",
-    toast: {
-      ...props,
-      id,
-      open: true,
-      onOpenChange: (open) => {
-        if (!open) dismiss()
-      },
-    },
-  })
+  const toastObj: ToasterToast = {
+    ...props,
+    id,
+    open: true,
+    onOpenChange: (open) => { if (!open) dismiss() },
+  }
+  dispatch({ type: "ADD_TOAST", toast: toastObj })
+
+  // Auto dismiss non-destructive after 1s
+  if ((props as any).variant !== 'destructive') {
+    setTimeout(() => {
+      dispatch({ type: 'DISMISS_TOAST', toastId: id })
+    }, 1000)
+  }
 
   return {
     id: id,

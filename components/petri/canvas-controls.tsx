@@ -1,6 +1,6 @@
 "use client"
 import { Controls, ControlButton } from '@xyflow/react'
-import { Save, Lock, LockOpen, Eye, Folder, ZoomIn, ZoomOut, Maximize2, SlidersHorizontal, CirclePlus, SquarePlus, WandSparkles } from 'lucide-react'
+import { Save, Lock, LockOpen, Eye, Folder, ZoomIn, ZoomOut, Maximize2, SlidersHorizontal, CirclePlus, SquarePlus, WandSparkles, UserRoundCheck } from 'lucide-react'
 
 interface CanvasControlsProps {
   onSave: () => void | Promise<void>
@@ -15,13 +15,14 @@ interface CanvasControlsProps {
   addPlace: () => void
   addTransition: () => void
   onAutoLayout: () => void | Promise<void>
+  onValidate?: () => void | Promise<void>
   zoomIn?: (opts?: any) => void
   zoomOut?: (opts?: any) => void
   fitView?: (opts?: any) => void
   controlsRight: number
 }
 
-export function CanvasControls({ onSave, edited, interactive, setInteractive, showSystem, toggleSystem, openExplorer, panelMode, openProperties, addPlace, addTransition, zoomIn, zoomOut, fitView, controlsRight, onAutoLayout }: CanvasControlsProps) {
+export function CanvasControls({ onSave, edited, interactive, setInteractive, showSystem, toggleSystem, openExplorer, panelMode, openProperties, addPlace, addTransition, zoomIn, zoomOut, fitView, controlsRight, onAutoLayout, onValidate }: CanvasControlsProps) {
   return (
     <div
       style={{ position: 'absolute', right: controlsRight, bottom: 12, zIndex: 10, pointerEvents: 'auto' }}
@@ -77,6 +78,11 @@ export function CanvasControls({ onSave, edited, interactive, setInteractive, sh
         <ControlButton onClick={onAutoLayout} title="Auto layout">
           <WandSparkles className="h-4 w-4" aria-hidden />
         </ControlButton>
+        {onValidate && (
+          <ControlButton onClick={onValidate} title="Validate workflow">
+            <UserRoundCheck className="h-4 w-4" aria-hidden />
+          </ControlButton>
+        )}
       </Controls>
     </div>
   )

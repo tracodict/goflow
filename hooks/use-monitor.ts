@@ -1,6 +1,7 @@
 "use client"
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { fetchMarking, fetchTransitionsStatus, fireTransition, simulationStep, resetWorkflow } from '@/components/petri/petri-client'
+import { fetchMarking, fetchTransitionsStatus, fireTransition, simulationStep, resetWorkflow, withApiErrorToast } from '@/components/petri/petri-client'
+import { toast } from '@/hooks/use-toast'
 import type { Node } from '@xyflow/react'
 import type { PetriNodeData } from '@/lib/petri-types'
 
@@ -42,8 +43,8 @@ export function useMonitor({ workflowId, flowServiceUrl, setNodes, fireRefreshDe
     setLoading(true)
     try {
       const [mk, trans] = await Promise.all([
-        fetchMarking(flowServiceUrl, workflowId),
-        fetchTransitionsStatus(flowServiceUrl, workflowId),
+        withApiErrorToast(fetchMarking(flowServiceUrl, workflowId), toast, 'Fetch marking'),
+        withApiErrorToast(fetchTransitionsStatus(flowServiceUrl, workflowId), toast, 'Fetch transitions'),
       ])
       setMarking(mk)
       setTransitions(trans.data || [])
@@ -60,7 +61,7 @@ export function useMonitor({ workflowId, flowServiceUrl, setNodes, fireRefreshDe
     if (!workflowId || !flowServiceUrl) return
     setLoading(true)
     try {
-      await fireTransition(flowServiceUrl, workflowId, transitionId, bindingIndex)
+  await withApiErrorToast(fireTransition(flowServiceUrl, workflowId, transitionId, bindingIndex), toast, 'Fire transition')
     } catch (e) {
       console.warn('Fire transition failed', e)
     } finally {
@@ -73,13 +74,13 @@ export function useMonitor({ workflowId, flowServiceUrl, setNodes, fireRefreshDe
   const step = useCallback(async () => {
     if (!workflowId || !flowServiceUrl) return
     setLoading(true)
-    try { await simulationStep(flowServiceUrl, workflowId) } finally { await refresh(); setLoading(false) }
+  try { await withApiErrorToast(simulationStep(flowServiceUrl, workflowId), toast, 'Simulation step') } finally { await refresh(); setLoading(false) }
   }, [workflowId, flowServiceUrl, refresh])
 
   const reset = useCallback(async () => {
     if (!workflowId || !flowServiceUrl) return
     setLoading(true)
-    try { await resetWorkflow(flowServiceUrl, workflowId) } catch(e){ console.warn('Reset failed', e) } finally { await refresh(); setLoading(false) }
+  try { await withApiErrorToast(resetWorkflow(flowServiceUrl, workflowId), toast, 'Reset workflow') } catch(e){ /* handled */ } finally { await refresh(); setLoading(false) }
   }, [workflowId, flowServiceUrl, refresh])
 
   // Auto refresh when workflow changes (caller can gate by tab state)

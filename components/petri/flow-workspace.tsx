@@ -51,9 +51,15 @@ import { CanvasControls } from './canvas-controls'
 import { useMonitor } from '@/hooks/use-monitor'
 import { useGraphEditing } from '@/hooks/use-graph-editing'
 import { computePetriLayout } from '@/lib/auto-layout'
+import { validateWorkflow } from './petri-client'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog'
+import { Button as UIButton } from '@/components/ui/button'
 
 const nodeTypes = { place: PlaceNode, transition: TransitionNode } as any
 const edgeTypes = { labeled: LabeledEdge } as any
+
+// Default color sets always present in a workflow unless explicitly overridden
+const DEFAULT_COLOR_SETS = ['INT','REAL','STRING','BOOL','UNIT']
 
 type SelectedRef = { type: "node"; id: string } | { type: "edge"; id: string } | null
 type SelectedResolved = { type: "node"; node: Node<PetriNodeData> } | { type: "edge"; edge: Edge<PetriEdgeData> } | null
@@ -82,7 +88,7 @@ function CanvasInner() {
   const isRestoringRef = useRef(false)
   const isLoadingWorkflowRef = useRef(false)
   const [selectedRef, setSelectedRef] = useState<SelectedRef>(null)
-  const [panelMode, setPanelMode] = useState<PanelMode>("mini")
+  const [panelMode, setPanelMode] = useState<PanelMode>("normal")
   const [panelWidth, setPanelWidth] = useState<number>(360)
   const [resizing, setResizing] = useState(false)
   const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null)
@@ -104,6 +110,9 @@ function CanvasInner() {
   const [interactive, setInteractive] = useState<boolean>(true)
   const [tokensOpenForPlaceId, setTokensOpenForPlaceId] = useState<string | null>(null)
   const [guardOpenForTransitionId, setGuardOpenForTransitionId] = useState<string | null>(null)
+  const [validationOpen, setValidationOpen] = useState(false)
+  const [violations, setViolations] = useState<any[]>([])
+  const [validating, setValidating] = useState(false)
   // Use a ref for connect state so it's available synchronously on first drag
   const connectStateRef = useRef<{
     start: { nodeId?: string | null; handleType?: "source" | "target" | null } | null
@@ -134,11 +143,12 @@ function CanvasInner() {
   const fetchServerWorkflowList = useCallback(async () => {
     if (!settings.flowServiceUrl) return;
     try {
-      const list = await import("./petri-client").then(m => m.fetchWorkflowList(settings.flowServiceUrl));
-      setServerWorkflows(list.data.cpns);
+      const list = await withApiErrorToast(import("./petri-client").then(m => m.fetchWorkflowList(settings.flowServiceUrl)), toast, 'Fetch workflows');
+      const arr = Array.isArray(list?.data?.cpns) ? list.data.cpns : []
+      setServerWorkflows(arr);
       setServerWorkflowsFetched(true);
     } catch (err: any) {
-      alert('Failed to fetch workflow list: ' + (err?.message || err));
+  // toast already shown
     }
   }, [settings.flowServiceUrl]);
 
@@ -148,30 +158,42 @@ function CanvasInner() {
     let swf = serverWorkflowCache[workflowId]
     if (!swf) {
       try {
-        const resp = await fetchWorkflow(settings.flowServiceUrl, workflowId)
+        const resp = await withApiErrorToast(fetchWorkflow(settings.flowServiceUrl, workflowId), toast, 'Fetch workflow')
         swf = resp.data as ServerWorkflow
         setServerWorkflowCache(prev => ({ ...prev, [workflowId]: swf! }))
         const g = serverToGraph(swf!)
         setWorkflowGraphCache(prev => ({ ...prev, [workflowId]: g.graph }))
-        setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: swf!.colorSets || [] } }))
+  setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: swf!.colorSets || [] } }))
         setNodes(g.graph.nodes); setEdges(g.graph.edges)
         // Initialize history present only (no past yet)
         historyRef.current = { past: [], present: { nodes: g.graph.nodes.map(n => ({ ...n })), edges: g.graph.edges.map(e => ({ ...e })) }, future: [] }
         isLoadingWorkflowRef.current = true
-      } catch(e:any) { alert('Failed to fetch workflow: '+(e?.message||e)); return }
+        // Broadcast colorSets for property editors
+  window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: swf!.colorSets || [] } }))
+      } catch(e:any) { return }
     } else {
       const graph = workflowGraphCache[workflowId] || serverToGraph(swf).graph
       if (!workflowGraphCache[workflowId]) setWorkflowGraphCache(prev => ({ ...prev, [workflowId]: graph }))
       setNodes(graph.nodes); setEdges(graph.edges)
-      if (!workflowMeta[workflowId]) setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: swf!.colorSets || [] } }))
+  if (!workflowMeta[workflowId]) setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: swf!.colorSets || [] } }))
       historyRef.current = { past: [], present: { nodes: graph.nodes.map(n => ({ ...n })), edges: graph.edges.map(e => ({ ...e })) }, future: [] }
       isLoadingWorkflowRef.current = true
+  window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: swf!.colorSets || [] } }))
     }
     setSelectedRef(null); setTokensOpenForPlaceId(null); setGuardOpenForTransitionId(null)
     setActiveWorkflowId(workflowId)
     setEditedMap(prev => ({ ...prev, [workflowId]: false }))
     if (panelMode === 'mini') setPanelMode('normal')
   }, [settings.flowServiceUrl, serverWorkflowCache, workflowGraphCache, workflowMeta, panelMode])
+
+  // Auto-fetch workflow list when side panel is visible (no need to press button)
+  useEffect(() => {
+    if (panelMode !== 'mini' && !serverWorkflowsFetched && settings.flowServiceUrl) {
+      (async () => {
+        try { await withApiErrorToast(fetchServerWorkflowList(), toast, 'Fetch workflows') } catch(e) { /* toasted */ }
+      })()
+    }
+  }, [panelMode, serverWorkflowsFetched, settings.flowServiceUrl, fetchServerWorkflowList])
 
   const edited = activeWorkflowId ? editedMap[activeWorkflowId] ?? false : false;
 
@@ -405,7 +427,7 @@ function CanvasInner() {
 
   const onNodeContextMenu = useCallback(
     (event: React.MouseEvent, node: Node) => {
-      if (node.type !== "transition") return
+      if (node.type !== "transition" && node.type !== 'place') return
       event.preventDefault()
       const { clientX, clientY } = event
       setContextMenu({ open: true, x: clientX, y: clientY, nodeId: node.id })
@@ -689,6 +711,21 @@ function CanvasInner() {
             addPlace={addPlace}
             addTransition={addTransition}
             onAutoLayout={() => autoLayout()}
+            onValidate={async () => {
+              if (!activeWorkflowId || !settings.flowServiceUrl) return
+              setValidating(true)
+              try {
+                const result = await withApiErrorToast(validateWorkflow(settings.flowServiceUrl, activeWorkflowId), toast, 'Validate')
+                const v = result.violations || []
+                setViolations(v)
+                if (v.length > 0) {
+                  setValidationOpen(true)
+                } else {
+                  toast({ title: 'Validation passed', description: 'No violations found.' })
+                }
+              } catch(e:any){ /* toasted */ }
+              finally { setValidating(false) }
+            }}
             zoomIn={zoomIn}
             zoomOut={zoomOut}
             fitView={fitView}
@@ -706,36 +743,89 @@ function CanvasInner() {
             role="menu"
             aria-label="Transition context menu"
           >
-            <button
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-neutral-50"
-              onClick={() => {
-                deleteNodeById(contextMenu.nodeId as string)
-                setContextMenu({ open: false, x: 0, y: 0, nodeId: null })
-              }}
-            >
-              <Trash2 className="h-4 w-4 text-red-600" aria-hidden />
-              Delete transition
-            </button>
-            <Separator />
-            {(["Manual", "Auto", "Dmn", "Message", "Llm"] as TransitionType[]).map((t) => (
-              <button
-                key={t}
-                className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-neutral-50"
-                onClick={() => {
-                  setTransitionType(contextMenu.nodeId as string, t)
-                  setContextMenu({ open: false, x: 0, y: 0, nodeId: null })
-                  setSelectedRef({ type: "node", id: contextMenu.nodeId as string })
-                }}
-              >
-                <span className="flex items-center gap-2 capitalize">
-                  <TransitionIcon tType={t} className="h-4 w-4" />
-                  {t}
-                </span>
-                {(((nodes as any[]).find((n: any) => n.id === contextMenu.nodeId) as any)?.data as any)?.tType === t ? (
-                  <Check className="h-4 w-4 text-emerald-600" aria-hidden />
-                ) : null}
-              </button>
-            ))}
+            {(nodes.find(n=>n.id===contextMenu.nodeId)?.type === 'transition') && (
+              <>
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-neutral-50"
+                  onClick={() => {
+                    deleteNodeById(contextMenu.nodeId as string)
+                    setContextMenu({ open: false, x: 0, y: 0, nodeId: null })
+                  }}
+                >
+                  <Trash2 className="h-4 w-4 text-red-600" aria-hidden />
+                  Delete transition
+                </button>
+                <Separator />
+                {(["Manual", "Auto", "Dmn", "Message", "Llm"] as TransitionType[]).map((t) => (
+                  <button
+                    key={t}
+                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-neutral-50"
+                    onClick={() => {
+                      setTransitionType(contextMenu.nodeId as string, t)
+                      setContextMenu({ open: false, x: 0, y: 0, nodeId: null })
+                      setSelectedRef({ type: "node", id: contextMenu.nodeId as string })
+                    }}
+                  >
+                    <span className="flex items-center gap-2 capitalize">
+                      <TransitionIcon tType={t} className="h-4 w-4" />
+                      {t}
+                    </span>
+                    {(((nodes as any[]).find((n: any) => n.id === contextMenu.nodeId) as any)?.data as any)?.tType === t ? (
+                      <Check className="h-4 w-4 text-emerald-600" aria-hidden />
+                    ) : null}
+                  </button>
+                ))}
+              </>
+            )}
+            {(nodes.find(n=>n.id===contextMenu.nodeId)?.type === 'place') && (
+              <>
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-neutral-50"
+                  onClick={() => {
+                    deleteNodeById(contextMenu.nodeId as string)
+                    setContextMenu({ open: false, x: 0, y: 0, nodeId: null })
+                  }}
+                >
+                  <Trash2 className="h-4 w-4 text-red-600" aria-hidden />
+                  Delete place
+                </button>
+                <Separator />
+                <div className="px-3 py-2 text-xs uppercase tracking-wide text-neutral-500">Color Set</div>
+                {(() => {
+                  const custom = workflowMeta[activeWorkflowId||'']?.colorSets || []
+                  // Ensure built-ins always available even if user removed from meta
+                  const all = Array.from(new Set([...DEFAULT_COLOR_SETS, ...custom]))
+                  return all.length === 0 ? (
+                    <div className="px-3 py-2 text-xs text-neutral-400">No color sets defined</div>
+                  ) : (
+                    all.map(cs => (
+                      <button
+                        key={cs}
+                        className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm hover:bg-neutral-50"
+                        onClick={() => {
+                          setNodes(nds => nds.map(n => n.id===contextMenu.nodeId ? { ...n, data: { ...(n.data as any), colorSet: cs } } : n))
+                          setContextMenu({ open: false, x:0, y:0, nodeId: null })
+                          setSelectedRef({ type: 'node', id: contextMenu.nodeId as string })
+                        }}
+                      >
+                        <span className={DEFAULT_COLOR_SETS.includes(cs) ? 'font-medium' : ''}>{cs}</span>
+                        {(((nodes as any[]).find((n:any)=>n.id===contextMenu.nodeId)?.data as any)?.colorSet) === cs ? <Check className="h-4 w-4 text-emerald-600" /> : null}
+                      </button>
+                    ))
+                  )
+                })()}
+                <Separator />
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-neutral-50"
+                  onClick={() => {
+                    setNodes(nds => nds.map(n => n.id===contextMenu.nodeId ? { ...n, data: { ...(n.data as any), colorSet: '' } } : n))
+                    setContextMenu({ open: false, x:0, y:0, nodeId: null })
+                  }}
+                >
+                  <span>Clear color set</span>
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -765,7 +855,7 @@ function CanvasInner() {
             const empty = { id: newId, name, description: '', colorSets: [], places: [], transitions: [], arcs: [], initialMarking: {} }
             await withApiErrorToast(saveWorkflow(settings.flowServiceUrl, empty), toast, 'Create workflow')
             // optimistic add
-            setServerWorkflows(wfs => [...wfs, { id: newId, name }])
+            setServerWorkflows(wfs => ([...(Array.isArray(wfs) ? wfs : []), { id: newId, name }]))
             setWorkflowMeta(meta => ({ ...meta, [newId]: { name, description: '', colorSets: [] } }))
             onExplorerSelect(newId)
             toast({ title: 'Created', description: name })
@@ -781,7 +871,7 @@ function CanvasInner() {
             toast({ title: 'Deleted', description: id })
           } catch(e:any) { /* toasted */ }
         }}
-        onRenameWorkflow={(id, name) => { setWorkflowMeta(prev => ({ ...prev, [id]: { ...(prev[id]||{ colorSets: [] }), name } })); setEditedMap(prev => ({ ...prev, [id]: true })); setServerWorkflows(list => list.map(w => w.id===id?{...w,name}:w)) }}
+  onRenameWorkflow={(id, name) => { setWorkflowMeta(prev => ({ ...prev, [id]: { ...(prev[id]||{ colorSets: [] }), name } })); setEditedMap(prev => ({ ...prev, [id]: true })); setServerWorkflows(list => list.map(w => w.id===id?{...w,name}:w)) }}
         workflowMeta={workflowMeta}
         activeWorkflowId={activeWorkflowId}
         explorerNodes={nodes}
@@ -860,6 +950,39 @@ function CanvasInner() {
             }
         })()}
       />
+      <Dialog open={validationOpen} onOpenChange={setValidationOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Validation Result</DialogTitle>
+            <DialogDescription>{violations.length} violation(s) found.</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[360px] overflow-auto rounded border">
+            {violations.length === 0 ? (
+              <div className="p-4 text-sm text-emerald-600">No violations.</div>
+            ) : (
+              <table className="w-full text-xs">
+                <thead className="bg-neutral-50 text-neutral-600">
+                  <tr>
+                    <th className="px-2 py-1 text-left font-medium">Rule</th>
+                    <th className="px-2 py-1 text-left font-medium">Message</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {violations.map((v, idx) => (
+                    <tr key={idx} className="odd:bg-white even:bg-neutral-50">
+                      <td className="border-t px-2 py-1 align-top whitespace-pre-wrap max-w-[160px]">{v.rule || v.code || '-'}</td>
+                      <td className="border-t px-2 py-1 align-top whitespace-pre-wrap">{v.message || v.detail || v.description || JSON.stringify(v)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <DialogFooter>
+            <UIButton onClick={() => setValidationOpen(false)}>Close</UIButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

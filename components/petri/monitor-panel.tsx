@@ -78,13 +78,7 @@ export function MonitorPanel({ open, loading, enabledTransitions, marking, onFir
                             {tokenArr.map((tok, idx) => (
                               <li key={idx} className="flex items-center gap-2 text-xs text-neutral-700">
                                 <span className="font-mono">{JSON.stringify(tok.value)}</span>
-                                <span className="text-[10px] text-neutral-400">{
-                                  (() => {
-                                    const d = new Date(tok.timestamp)
-                                    const pad = (n: number) => n.toString().padStart(2, '0')
-                                    return `${d.getFullYear().toString().slice(2)}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-                                  })()
-                                }</span>
+                                <span className="text-[10px] text-neutral-400">Step {typeof tok.timestamp === 'number' ? tok.timestamp : 0}</span>
                               </li>
                             ))}
                           </ul>
