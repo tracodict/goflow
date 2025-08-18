@@ -16,10 +16,9 @@ curl -X POST {$FLOW_SVC}/api/cpn/load \
     "id": "test-cpn",
     "name": "Test CPN",
     "description": "A test CPN for API testing",
-    "colorSets": ["colset INT = int;"],
     "colorSets": [
-      "colset INT = int;",
-      "colset jsonMap = map;"
+      "colset Order = json;",
+      "colset RFQ = json;"
     ],
     "places": [
       {"id": "p1", "name": "Place1", "colorSet": "INT"},

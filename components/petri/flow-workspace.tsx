@@ -135,9 +135,9 @@ function CanvasInner() {
   const [serverWorkflowsFetched, setServerWorkflowsFetched] = useState(false);
   const [serverWorkflowCache, setServerWorkflowCache] = useState<Record<string, ServerWorkflow>>({});
   const [workflowGraphCache, setWorkflowGraphCache] = useState<Record<string, { nodes: Node<PetriNodeData>[]; edges: Edge<PetriEdgeData>[] }>>({})
-  const [workflowMeta, setWorkflowMeta] = useState<Record<string, { name: string; description?: string; colorSets: string[] }>>({})
-  // Explorer-only selection (for non-canvas pseudo entities like colorSets)
-  const [explorerSelection, setExplorerSelection] = useState<{ kind: 'colorSets'; id: string } | null>(null)
+  const [workflowMeta, setWorkflowMeta] = useState<Record<string, { name: string; description?: string; colorSets: string[]; declarations?: { batchOrdering?: string[]; globref?: string[]; color?: string[]; var?: string[]; lua?: string[] } }>>({})
+  // Explorer-only selection (for non-canvas pseudo entities like declarations)
+  const [explorerSelection, setExplorerSelection] = useState<{ kind: 'declarations'; id: string } | null>(null)
 
   // Fetch workflow list from server
   const fetchServerWorkflowList = useCallback(async () => {
@@ -163,7 +163,18 @@ function CanvasInner() {
         setServerWorkflowCache(prev => ({ ...prev, [workflowId]: swf! }))
         const g = serverToGraph(swf!)
         setWorkflowGraphCache(prev => ({ ...prev, [workflowId]: g.graph }))
-  setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: swf!.colorSets || [] } }))
+        // Reconstruct declarations: use server declarations if present else parse colorSets; merge with stored categories
+        let stored: any = {}
+        try { stored = JSON.parse(localStorage.getItem('goflow.declarations.'+workflowId) || '{}') } catch {}
+        const allServerColorSetLines = (swf!.colorSets || []).filter(cs => /^\s*colset\s+/i.test(cs))
+        const decls = (swf as any).declarations && Object.keys((swf as any).declarations).length
+          ? (swf as any).declarations
+          : { ...stored, color: allServerColorSetLines }
+        const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
+        const colorSetNames = allServerColorSetLines.map(l => {
+          const m = l.match(nameRegex); return m? m[1]: l
+        })
+        setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: colorSetNames, declarations: decls } }))
         setNodes(g.graph.nodes); setEdges(g.graph.edges)
         // Initialize history present only (no past yet)
         historyRef.current = { past: [], present: { nodes: g.graph.nodes.map(n => ({ ...n })), edges: g.graph.edges.map(e => ({ ...e })) }, future: [] }
@@ -175,7 +186,19 @@ function CanvasInner() {
       const graph = workflowGraphCache[workflowId] || serverToGraph(swf).graph
       if (!workflowGraphCache[workflowId]) setWorkflowGraphCache(prev => ({ ...prev, [workflowId]: graph }))
       setNodes(graph.nodes); setEdges(graph.edges)
-  if (!workflowMeta[workflowId]) setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: swf!.colorSets || [] } }))
+      if (!workflowMeta[workflowId]) {
+        let stored: any = {}
+        try { stored = JSON.parse(localStorage.getItem('goflow.declarations.'+workflowId) || '{}') } catch {}
+        const allServerColorSetLines = (swf!.colorSets || []).filter(cs => /^\s*colset\s+/i.test(cs))
+        const decls = (swf as any).declarations && Object.keys((swf as any).declarations).length
+          ? (swf as any).declarations
+          : { ...stored, color: allServerColorSetLines }
+        const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
+        const colorSetNames = allServerColorSetLines.map(l => {
+          const m = l.match(nameRegex); return m? m[1]: l
+        })
+        setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: colorSetNames, declarations: decls } }))
+      }
       historyRef.current = { past: [], present: { nodes: graph.nodes.map(n => ({ ...n })), edges: graph.edges.map(e => ({ ...e })) }, future: [] }
       isLoadingWorkflowRef.current = true
   window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: swf!.colorSets || [] } }))
@@ -346,6 +369,9 @@ function CanvasInner() {
   useEffect(() => { return () => {} }, [])
 
   useEffect(() => {
+    // NOTE: We include activeWorkflowId in the dependency array so the event handlers
+    // always close over the current workflow id. Previously they always returned early
+    // because the captured activeWorkflowId was null when the listener was first mounted.
     function onMove(e: MouseEvent) {
       if (!resizing || !containerRef.current) return
       const rect = containerRef.current.getBoundingClientRect()
@@ -355,22 +381,60 @@ function CanvasInner() {
     function onUp() {
       if (resizing) setResizing(false)
     }
+    function extractDeclarationColorNames(decls: any): string[] {
+      if (!decls || !Array.isArray(decls.color)) return []
+      const regex = /^\s*colset\s+([A-Za-z_]\w*)/i
+      return decls.color.map((line: any) => {
+        if (typeof line !== 'string') return ''
+        const m = line.match(regex); return m? m[1]: ''
+      }).filter(Boolean)
+    }
+    function broadcastMergedColors(metaMap: typeof workflowMeta, wfId: string) {
+      const meta = metaMap[wfId]
+      const declNames = extractDeclarationColorNames(meta?.declarations)
+      const nameSet = Array.from(new Set([ ...DEFAULT_COLOR_SETS, ...(meta?.colorSets||[]), ...declNames ]))
+      window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: nameSet } }))
+    }
     function onUpdateColorSets(ev: Event) {
       const ce = ev as CustomEvent<{ next: string[] }>
       if (!activeWorkflowId) return
       const next = ce.detail?.next || []
-      setWorkflowMeta(meta => ({ ...meta, [activeWorkflowId]: { ...(meta[activeWorkflowId]||{ name: activeWorkflowId, description:'', colorSets: [] }), colorSets: next } }))
+      setWorkflowMeta(meta => {
+        const updated = { ...meta, [activeWorkflowId]: { ...(meta[activeWorkflowId]||{ name: activeWorkflowId, description:'', colorSets: [] }), colorSets: next } }
+        broadcastMergedColors(updated, activeWorkflowId)
+        return updated
+      })
+      setEditedMap(m => ({ ...m, [activeWorkflowId]: true }))
+    }
+    function onUpdateDeclarations(ev: Event) {
+      const ce = ev as CustomEvent<{ next: any }>
+      if (!activeWorkflowId) return
+      const next = ce.detail?.next || {}
+      setWorkflowMeta(meta => {
+  const prevMeta = meta[activeWorkflowId] || { name: activeWorkflowId, description:'', colorSets: [] }
+  // Extract color declarations and merge into colorSets (avoid duplicates)
+  const colorLines: string[] = Array.isArray(next.color) ? next.color.filter((l: any) => typeof l === 'string' && l.trim().length) : []
+  const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
+  const colorNames = colorLines.map(l => { const m = l.match(nameRegex); return m? m[1]: l }).filter(Boolean)
+  const mergedColorSets = Array.from(new Set([...(prevMeta.colorSets||[]), ...colorNames]))
+  const updated = { ...meta, [activeWorkflowId]: { ...prevMeta, colorSets: mergedColorSets, declarations: next } }
+  try { localStorage.setItem('goflow.declarations.'+activeWorkflowId, JSON.stringify(next)) } catch {}
+  broadcastMergedColors(updated, activeWorkflowId)
+  return updated
+      })
       setEditedMap(m => ({ ...m, [activeWorkflowId]: true }))
     }
     window.addEventListener("mousemove", onMove)
     window.addEventListener("mouseup", onUp)
-    window.addEventListener('updateColorSetsInternal', onUpdateColorSets as EventListener)
+  window.addEventListener('updateColorSetsInternal', onUpdateColorSets as EventListener)
+  window.addEventListener('updateDeclarationsInternal', onUpdateDeclarations as EventListener)
     return () => {
       window.removeEventListener("mousemove", onMove)
       window.removeEventListener("mouseup", onUp)
-      window.removeEventListener('updateColorSetsInternal', onUpdateColorSets as EventListener)
+  window.removeEventListener('updateColorSetsInternal', onUpdateColorSets as EventListener)
+  window.removeEventListener('updateDeclarationsInternal', onUpdateDeclarations as EventListener)
     }
-  }, [resizing])
+  }, [resizing, activeWorkflowId])
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -614,6 +678,25 @@ function CanvasInner() {
     toast({ title: 'Auto layout applied' })
   }, [edges, fitView, setNodes])
 
+  // Direct declarations apply handler (bypasses global event for reliability)
+  const onDeclarationsApply = useCallback((next: any) => {
+    if (!activeWorkflowId) return
+    setWorkflowMeta(meta => {
+      const prevMeta = meta[activeWorkflowId] || { name: activeWorkflowId, description:'', colorSets: [] }
+      const colorLines: string[] = Array.isArray(next.color) ? next.color.filter((l: any) => typeof l === 'string' && l.trim().length) : []
+      const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
+      const colorNames = colorLines.map(l => { const m = l.match(nameRegex); return m? m[1]: l }).filter(Boolean)
+      const mergedColorSets = Array.from(new Set([...(prevMeta.colorSets||[]), ...colorNames]))
+      const updated = { ...meta, [activeWorkflowId]: { ...prevMeta, colorSets: mergedColorSets, declarations: next } }
+      try { localStorage.setItem('goflow.declarations.'+activeWorkflowId, JSON.stringify(next)) } catch {}
+      // Broadcast merged color set names (include defaults)
+      const broadcastNames = Array.from(new Set([ ...DEFAULT_COLOR_SETS, ...mergedColorSets ]))
+      window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: broadcastNames } }))
+      return updated
+    })
+    setEditedMap(m => ({ ...m, [activeWorkflowId]: true }))
+  }, [activeWorkflowId])
+
   return (
     <div ref={containerRef} className="flex h-full w-full gap-4">
   {/* ...existing code... */}
@@ -693,7 +776,7 @@ function CanvasInner() {
               const meta = workflowMeta[activeWorkflowId]
               const serverBase = serverWorkflowCache[activeWorkflowId]
               try {
-                const payload = graphToServer(serverBase, activeWorkflowId, meta?.name || activeWorkflowId, { nodes, edges }, meta?.colorSets || [], meta?.description)
+                const payload = graphToServer(serverBase, activeWorkflowId, meta?.name || activeWorkflowId, { nodes, edges }, meta?.colorSets || [], meta?.description, meta?.declarations)
                 await withApiErrorToast(saveWorkflow(settings.flowServiceUrl, payload), toast, 'Save')
                 setServerWorkflowCache(prev => ({ ...prev, [activeWorkflowId]: payload }))
                 setEditedMap(prev => ({ ...prev, [activeWorkflowId]: false }))
@@ -847,12 +930,13 @@ function CanvasInner() {
         onExplorerSelect={onExplorerSelect}
   // Refresh list handler
   onRefreshWorkflows={() => fetchServerWorkflowList()}
+  onDeclarationsApply={onDeclarationsApply}
         onCreateWorkflow={async () => {
           if (!settings.flowServiceUrl) return
           try {
             const newId = `wf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`
             const name = `Workflow ${newId.slice(-4)}`
-            const empty = { id: newId, name, description: '', colorSets: [], places: [], transitions: [], arcs: [], initialMarking: {} }
+            const empty = { id: newId, name, description: '', colorSets: [], places: [], transitions: [], arcs: [], initialMarking: {}, declarations: {} }
             await withApiErrorToast(saveWorkflow(settings.flowServiceUrl, empty), toast, 'Create workflow')
             // optimistic add
             setServerWorkflows(wfs => ([...(Array.isArray(wfs) ? wfs : []), { id: newId, name }]))
@@ -928,9 +1012,9 @@ function CanvasInner() {
             setSelectedRef({ type: 'edge', id })
             setEdges(eds => eds.map(e => e.id===id ? { ...e, selected: true } : { ...e, selected: false }))
             setNodes(nds => nds.map(n => ({ ...n, selected: false })))
-          } else if (kind === 'colorSets') {
+          } else if (kind === 'declarations') {
             setSelectedRef(null)
-            setExplorerSelection({ kind: 'colorSets', id })
+            setExplorerSelection({ kind: 'declarations', id })
             setNodes(nds => nds.map(n => ({ ...n, selected: false })))
             setEdges(eds => eds.map(e => ({ ...e, selected: false })))
           }
@@ -938,16 +1022,16 @@ function CanvasInner() {
         selectedEntity={(() => {
           if (explorerSelection) return explorerSelection
           if (!selectedRef) return null
-            if (selectedRef.type === 'node') {
-              const n = nodes.find(n => n.id === selectedRef.id)
-              if (!n) return null
-              if (n.type === 'place') return { kind: 'place' as const, id: n.id }
-              if (n.type === 'transition') return { kind: 'transition' as const, id: n.id }
-              return null
-            } else {
-              const e = edges.find(e => e.id === selectedRef.id)
-              return e ? { kind: 'arc' as const, id: e.id } : null
-            }
+          if (selectedRef.type === 'node') {
+            const n = nodes.find(n => n.id === selectedRef.id)
+            if (!n) return null
+            if (n.type === 'place') return { kind: 'place' as const, id: n.id }
+            if (n.type === 'transition') return { kind: 'transition' as const, id: n.id }
+            return null
+          } else {
+            const e = edges.find(e => e.id === selectedRef.id)
+            return e ? { kind: 'arc' as const, id: e.id } : null
+          }
         })()}
       />
       <Dialog open={validationOpen} onOpenChange={setValidationOpen}>

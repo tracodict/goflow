@@ -2,7 +2,7 @@
 import { useState } from "react"
 import { Handle, Position, type NodeProps } from "@xyflow/react"
 import { Badge } from "@/components/ui/badge"
-import { Coins, Play, Square } from "lucide-react"
+import { Coins, Square } from "lucide-react"
 import type { PetriNodeData, PlaceData } from "@/lib/petri-types"
 
 export function PlaceNode({ id, data, selected }: NodeProps) {
@@ -43,10 +43,7 @@ export function PlaceNode({ id, data, selected }: NodeProps) {
           </Badge>
         </button>
 
-        {/* Start/End icons */}
-        {place.isStart && (
-          <Play size={18} className="absolute left-2 top-2 text-green-600 bg-white rounded-full p-0.5 shadow" style={{zIndex:2}} aria-label="Start" />
-        )}
+  {/* End icon */}
         {place.isEnd && (
           <Square size={18} className="absolute right-2 bottom-2 text-blue-600 bg-white rounded p-0.5 shadow" style={{zIndex:2}} aria-label="End" />
         )}

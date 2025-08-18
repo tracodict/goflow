@@ -27,12 +27,13 @@ export interface GraphWorkflow {
 export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
   const nodes: Node<PetriNodeData>[] = []
   const edges: Edge<PetriEdgeData>[] = []
+  const endSet = new Set(sw.endPlaces || [])
   sw.places.forEach(p => {
     nodes.push({
       id: p.id,
       type: 'place',
       position: p.position || { x: 80 + Math.random()*400, y: 120 + Math.random()*160 },
-      data: { kind: 'place', name: p.name, colorSet: p.colorSet || '', tokens: 0, tokenList: [] }
+      data: { kind: 'place', name: p.name, colorSet: p.colorSet || '', tokens: 0, tokenList: [], isEnd: endSet.has(p.name) }
     })
   })
   sw.transitions.forEach(t => {
@@ -62,7 +63,15 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
 }
 
 // graph -> server
-export function graphToServer(current: ServerWorkflow | undefined, id: string, name: string, graph: { nodes: Node<PetriNodeData>[]; edges: Edge<PetriEdgeData>[] }, colorSets: string[], description?: string): ServerWorkflow {
+export function graphToServer(
+  current: ServerWorkflow | undefined,
+  id: string,
+  name: string,
+  graph: { nodes: Node<PetriNodeData>[]; edges: Edge<PetriEdgeData>[] },
+  colorSets: string[],
+  description?: string,
+  declarations?: { batchOrdering?: string[]; globref?: string[]; color?: string[]; var?: string[]; lua?: string[] }
+): ServerWorkflow {
   const places = graph.nodes.filter(n => n.type === 'place').map(n => ({ id: n.id, name: (n.data as any).name || n.id, colorSet: (n.data as any).colorSet || '', position: n.position }))
   const transitions = graph.nodes.filter(n => n.type === 'transition').map(n => ({ id: n.id, name: (n.data as any).name || n.id, kind: (n.data as any).tType, guardExpression: (n.data as any).guardExpression, position: n.position }))
   const arcs = graph.edges.map(e => {
@@ -83,16 +92,40 @@ export function graphToServer(current: ServerWorkflow | undefined, id: string, n
   initialMarking[(n.data as any).name || n.id] = list.map((tok: any) => ({ value: tok.data, timestamp: typeof tok.createdAt === 'number' ? tok.createdAt : 0 }))
     }
   })
+  // Derive endPlaces from graph (places marked isEnd true). Use place name (or id fallback)
+  const endPlaces = graph.nodes.filter(n => n.type==='place' && (n.data as any).isEnd).map(n => (n.data as any).name || n.id)
+  // Build server colorSets: ONLY full declaration lines (exclude derived short names)
+  const isColsetLine = (s: string) => typeof s === 'string' && /^\s*colset\s+/i.test(s)
+  const mergedSet: string[] = []
+  // 1. Take declaration color lines first
+  if (declarations?.color && declarations.color.length) {
+    for (const line of declarations.color) {
+      if (isColsetLine(line)) {
+        const trimmed = line.trim()
+        if (!mergedSet.includes(trimmed)) mergedSet.push(trimmed)
+      }
+    }
+  }
+  // 2. Include any existing colorSets entries that are already full lines (legacy compatibility)
+  if (colorSets && colorSets.length) {
+    for (const c of colorSets) {
+      if (isColsetLine(c)) {
+        const trimmed = c.trim()
+        if (!mergedSet.includes(trimmed)) mergedSet.push(trimmed)
+      }
+    }
+  }
+  const mergedColorSets = mergedSet
   return {
     id,
     name,
     description: description || current?.description || '',
-    colorSets,
+    colorSets: mergedColorSets,
     places,
     transitions,
     arcs,
-    endPlaces: current?.endPlaces || [],
+    endPlaces,
     initialMarking,
-    subWorkflows: current?.subWorkflows || []
+    subWorkflows: current?.subWorkflows || [],
   }
 }

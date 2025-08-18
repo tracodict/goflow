@@ -2,6 +2,9 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import ExplorerPanel from "./explorer-panel"
+import { DeclarationsPanel, type DeclarationsValue } from "./declarations-panel"
+// Built-in color sets (not persisted) reused for declarations info UI
+const DEFAULT_COLOR_SETS = ['INT','REAL','STRING','BOOL','UNIT']
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -59,6 +62,7 @@ export function SidePanel({
   onSelectEntity,
   selectedEntity,
   onRefreshWorkflows,
+  onDeclarationsApply,
 }: {
   open: boolean
   mode: PanelMode
@@ -77,7 +81,7 @@ export function SidePanel({
   onCreateWorkflow?: () => void
   onDeleteWorkflow?: (id: string) => void
   onRenameWorkflow?: (id: string, name: string) => void
-  workflowMeta?: Record<string, { name: string; description?: string; colorSets: string[] }>
+  workflowMeta?: Record<string, { name: string; description?: string; colorSets: string[]; declarations?: DeclarationsValue }>
   activeWorkflowId?: string | null
   explorerNodes?: any[]
   explorerEdges?: any[]
@@ -90,9 +94,10 @@ export function SidePanel({
   onAddArc?: () => void
   onDeleteArc?: (id: string) => void
   onColorSetsChange?: (next: string[]) => void
-  onSelectEntity?: (kind: 'place'|'transition'|'arc'|'colorSets', id: string) => void
-  selectedEntity?: { kind: 'place'|'transition'|'arc'|'colorSets'; id: string } | null
+  onSelectEntity?: (kind: 'place'|'transition'|'arc'|'declarations', id: string) => void
+  selectedEntity?: { kind: 'place'|'transition'|'arc'|'declarations'; id: string } | null
   onRefreshWorkflows?: () => void
+  onDeclarationsApply?: (next: DeclarationsValue) => void
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null)
   // New: split state between explorer (top) and property (bottom)
@@ -202,7 +207,6 @@ export function SidePanel({
             onRenameTransition={onRenameTransition}
             onDeleteTransition={onDeleteTransition}
             onDeleteArc={onDeleteArc}
-            onColorSetsChange={onColorSetsChange}
             onSelectEntity={onSelectEntity}
             selectedEntity={selectedEntity}
             onRefreshWorkflows={onRefreshWorkflows}
@@ -220,12 +224,20 @@ export function SidePanel({
         <div ref={contentRef} className="flex-1 overflow-y-auto overflow-x-visible p-3">
           {(() => {
             // If colorSets pseudo-entity selected, render its editor immediately
-            if (selectedEntity?.kind === 'colorSets' && activeWorkflowId) {
-              const meta = workflowMeta?.[activeWorkflowId]
-              return <ColorSetsEditor value={meta?.colorSets || []} onChange={(next) => {
-                const ev = new CustomEvent('updateColorSetsInternal', { detail: { next } })
-                window.dispatchEvent(ev)
-              }} />
+            if (selectedEntity?.kind === 'declarations' && activeWorkflowId) {
+              const meta: any = (workflowMeta as any)?.[activeWorkflowId]
+              const value: DeclarationsValue | undefined = meta?.declarations
+              return (
+                <DeclarationsPanel
+                  value={value}
+                  builtInColorSets={DEFAULT_COLOR_SETS}
+                  onApply={(next) => {
+                    const ev = new CustomEvent('updateDeclarationsInternal', { detail: { next } })
+                    window.dispatchEvent(ev)
+                    onDeclarationsApply?.(next)
+                  }}
+                />
+              )
             }
             // Prefer canvas selection; fallback to externalSelection if nothing selected (colorSets handled above)
             const effectiveSelected = selected || (externalSelection ? { type: externalSelection.kind === 'arc' ? 'edge' : 'node', ...(externalSelection.kind === 'arc' ? { edge: { id: externalSelection.id } as any } : { node: { id: externalSelection.id, type: externalSelection.kind === 'place' ? 'place':'transition', data: {} } as any }) } as SelectedResolved : null)
@@ -245,41 +257,7 @@ export function SidePanel({
   )
 }
 
-function ColorSetsEditor({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
-  const [text, setText] = useState(() => value.join('\n'))
-  const [dirty, setDirty] = useState(false)
-  useEffect(() => { if (!dirty) setText(value.join('\n')) }, [value.join('|')])
-  const apply = () => {
-    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0)
-    onChange(lines)
-    setDirty(false)
-  }
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-medium">Color Sets</div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="secondary" disabled={!dirty} onClick={apply}>Apply</Button>
-        </div>
-      </div>
-      <p className="text-[11px] text-neutral-500">One definition per line. Example: <code>colset INT = int;</code></p>
-      <div className="rounded border bg-white">
-        <CodeMirror
-          value={text}
-            height="220px"
-            theme="light"
-            extensions={[EditorView.lineWrapping, StreamLanguage.define(lua)]}
-            onChange={(val: string) => { setText(val); setDirty(true) }}
-            basicSetup={{ lineNumbers: true, bracketMatching: true, highlightActiveLine: false }}
-        />
-      </div>
-      <div className="text-[11px] text-neutral-400 flex items-center justify-between">
-        <span>{text.split(/\r?\n/).filter(l=>l.trim().length>0).length} lines</span>
-        {dirty && <span className="text-amber-600">Unsaved</span>}
-      </div>
-    </div>
-  )
-}
+// Removed ColorSetsEditor (colorSets editing deprecated in favor of declarations)
 
 function PlaceEditor({
   node,
@@ -380,15 +358,7 @@ function PlaceEditor({
               Count is kept in sync with the token list. Blur this field to auto-sync.
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={!!place.isStart}
-                onChange={e => onUpdate(node.id, { isStart: e.target.checked })}
-              />
-              Start Place
-            </label>
+          <div className="grid grid-cols-1 gap-2">
             <label className="flex items-center gap-2 text-xs">
               <input
                 type="checkbox"

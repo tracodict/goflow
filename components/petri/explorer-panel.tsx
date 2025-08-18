@@ -57,16 +57,14 @@ interface ExplorerPanelProps {
   onRenameTransition?: (id: string, name: string) => void
   onDeleteTransition?: (id: string) => void
   onDeleteArc?: (id: string) => void
-  onColorSetsChange?: (next: string[]) => void
-  // Selection sync
-  onSelectEntity?: (kind: 'place'|'transition'|'arc'|'colorSets', id: string) => void
-  selectedEntity?: { kind: 'place'|'transition'|'arc'|'colorSets'; id: string } | null
+  onSelectEntity?: (kind: 'place'|'transition'|'arc'|'declarations', id: string) => void
+  selectedEntity?: { kind: 'place'|'transition'|'arc'|'declarations'; id: string } | null
   onRefreshWorkflows?: () => void
 }
 
 export default function ExplorerPanel(props: ExplorerPanelProps) {
   const { workflows, workflowMeta, nodes = [], edges = [], activeWorkflowId, onWorkflowSelect, onCreateWorkflow, onDeleteWorkflow, onRenameWorkflow,
-    onAddPlace, onRenamePlace, onDeletePlace, onAddTransition, onRenameTransition, onDeleteTransition, onDeleteArc, onColorSetsChange, onSelectEntity, selectedEntity, onRefreshWorkflows } = props
+    onAddPlace, onRenamePlace, onDeletePlace, onAddTransition, onRenameTransition, onDeleteTransition, onDeleteArc, onSelectEntity, selectedEntity, onRefreshWorkflows } = props
 
   const [expandedWf, setExpandedWf] = useState<Record<string, boolean>>({})
   const [groupExpanded, setGroupExpanded] = useState<Record<string, boolean>>({})
@@ -84,7 +82,7 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
   const wfTransitions = nodes.filter(n => n.type === 'transition')
   const wfArcs = edges
 
-  const colorSets = activeWorkflowId ? (workflowMeta?.[activeWorkflowId]?.colorSets || []) : []
+  // colorSets editing removed; declarations panel supersedes it
 
   return (
     <div style={{ padding: 6, height: '100%', display: 'flex', flexDirection: 'column', fontSize: 12 }}>
@@ -126,20 +124,16 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
               </div>
               {isExpanded && (
                 <div style={{ marginLeft: 18, marginTop: 2 }}>
-                  {/* ColorSets non-expandable selectable row */}
-                  <div
-                    style={{ display:'flex', alignItems:'center', gap:6, padding:'2px 0', cursor:'pointer', borderRadius:4, background: selectedEntity?.kind==='colorSets'? '#e3f2fd':'transparent' }}
-                    onClick={() => onSelectEntity?.('colorSets', w.id)}
-                    onMouseEnter={() => setHoverId('colorsets-'+w.id)}
-                    onMouseLeave={() => setHoverId(h => h==='colorsets-'+w.id? null : h)}
-                  >
-                    <span style={{ fontWeight:500 }}>colorSets</span>
-                    {onColorSetsChange && (
-                      <button title="Add colorset" onClick={(e) => { e.stopPropagation(); onColorSetsChange([...colorSets, 'colset NAME = int;']) }}>
-                        <Plus className="h-3 w-3" />
-                      </button>
-                    )}
-                    <span style={{ fontSize:10, color:'#666' }}>{colorSets.length}</span>
+                  {/* Declarations row */}
+                  <div style={{ marginLeft:16 }}>
+                    <div
+                      style={{ display:'flex', alignItems:'center', gap:6, padding:'2px 4px', cursor:'pointer', borderRadius:4, background: selectedEntity?.kind==='declarations'? '#e3f2fd':'transparent' }}
+                      onClick={() => onSelectEntity?.('declarations', w.id)}
+                      onMouseEnter={() => setHoverId('declarations-'+w.id)}
+                      onMouseLeave={() => setHoverId(h => h==='declarations-'+w.id? null : h)}
+                    >
+                      <span style={{ fontWeight:500 }}>declarations</span>
+                    </div>
                   </div>
                   {/* Places */}
                   <div>
