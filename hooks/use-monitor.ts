@@ -1,6 +1,6 @@
 "use client"
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { fetchMarking, fetchTransitionsStatus, fireTransition, simulationStep, resetWorkflow, withApiErrorToast } from '@/components/petri/petri-client'
+import { fetchMarking, fetchTransitionsStatus, fireTransition, simulationStep, simulationSteps, resetWorkflow, withApiErrorToast } from '@/components/petri/petri-client'
 import { toast } from '@/hooks/use-toast'
 import type { Node } from '@xyflow/react'
 import type { PetriNodeData } from '@/lib/petri-types'
@@ -16,6 +16,7 @@ export function useMonitor({ workflowId, flowServiceUrl, setNodes, fireRefreshDe
   const [marking, setMarking] = useState<any>(null)
   const [transitions, setTransitions] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
+  const [fastForwarding, setFastForwarding] = useState(false)
   const delayTimer = useRef<any>(null)
 
   const normalizeTokensOntoNodes = useCallback((mk: any) => {
@@ -77,6 +78,38 @@ export function useMonitor({ workflowId, flowServiceUrl, setNodes, fireRefreshDe
   try { await withApiErrorToast(simulationStep(flowServiceUrl, workflowId), toast, 'Simulation step') } finally { await refresh(); setLoading(false) }
   }, [workflowId, flowServiceUrl, refresh])
 
+  const fastForward = useCallback(async (steps: number) => {
+    if (!workflowId || !flowServiceUrl) return
+    setFastForwarding(true)
+    try {
+      await withApiErrorToast(simulationSteps(flowServiceUrl, workflowId, steps), toast, 'Fast forward')
+    } finally {
+      await refresh();
+      setFastForwarding(false)
+    }
+  }, [workflowId, flowServiceUrl, refresh])
+
+  const forwardToEnd = useCallback(async () => {
+    if (!workflowId || !flowServiceUrl) return
+    setFastForwarding(true)
+    try {
+      for (let i=0;i<1000;i++) {
+        const trans = await fetchTransitionsStatus(flowServiceUrl, workflowId)
+        const list = (trans?.data || trans)?.transitions || trans?.transitions || []
+        const anyEnabled = list.some((t: any) => t.enabled)
+        if (!anyEnabled) break
+        await simulationStep(flowServiceUrl, workflowId)
+      }
+    } finally {
+      await refresh();
+      setFastForwarding(false)
+    }
+  }, [workflowId, flowServiceUrl, refresh])
+
+  const rollback = useCallback(async () => {
+    toast({ title: 'Rollback not supported', description: 'No rollback API available', variant: 'destructive' })
+  }, [])
+
   const reset = useCallback(async () => {
     if (!workflowId || !flowServiceUrl) return
     setLoading(true)
@@ -92,10 +125,14 @@ export function useMonitor({ workflowId, flowServiceUrl, setNodes, fireRefreshDe
     marking,
     transitions,
     enabled,
-    loading,
+  loading,
+  fastForwarding,
     refresh,
     fire,
     step,
+  fastForward,
+  forwardToEnd,
+  rollback,
     reset,
   }
 }

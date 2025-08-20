@@ -53,6 +53,15 @@ export async function simulationStep(flowServiceUrl: string, workflowId: string)
   if (!resp.ok) throw new Error(`Failed to step simulation: ${resp.status}`);
   return resp.json();
 }
+// Proceed multiple simulation steps
+export async function simulationSteps(flowServiceUrl: string, workflowId: string, steps: number) {
+  const safe = Math.max(1, Math.min(steps || 1, 1000))
+  const resp = await fetch(`${flowServiceUrl}/api/simulation/steps?id=${encodeURIComponent(workflowId)}&steps=${safe}`, {
+    method: 'POST',
+  })
+  if (!resp.ok) throw new Error(`Failed to fast-forward simulation: ${resp.status}`)
+  return resp.json()
+}
 // Reset workflow to its initial marking
 export async function resetWorkflow(flowServiceUrl: string, workflowId: string) {
   const resp = await fetch(`${flowServiceUrl}/api/cpn/reset?id=${encodeURIComponent(workflowId)}`, { method: 'POST' });

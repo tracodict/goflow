@@ -632,7 +632,7 @@ function CanvasInner() {
     [setNodes],
   )
 
-  const { marking: serverMarking, enabled, loading: monitorLoading, refresh: refreshMonitorData, fire: fireTransitionMon, step: doAutoStep, reset: resetMonitor } = useMonitor({ workflowId: activeWorkflowId, flowServiceUrl: settings.flowServiceUrl, setNodes })
+  const { marking: serverMarking, enabled, loading: monitorLoading, fastForwarding: monitorFastForwarding, refresh: refreshMonitorData, fire: fireTransitionMon, step: doMonitorStep, fastForward: monitorFastForward, forwardToEnd: monitorForwardToEnd, rollback: monitorRollback, reset: resetMonitor } = useMonitor({ workflowId: activeWorkflowId, flowServiceUrl: settings.flowServiceUrl, setNodes })
 
   // Event (a) open Monitor tab & (b) workflow change while on Monitor
   useEffect(() => { if (systemTab === 'monitor') { refreshMonitorData() } }, [systemTab, activeWorkflowId, refreshMonitorData])
@@ -727,10 +727,14 @@ function CanvasInner() {
               <MonitorPanel
                 open={true}
                 loading={monitorLoading}
+                fastForwarding={monitorFastForwarding}
                 enabledTransitions={enabled}
                 marking={serverMarking}
                 onFire={(tid) => fireTransitionMon(tid)}
-                onStep={() => doAutoStep()}
+                onStep={() => doMonitorStep()}
+                onFastForward={(n) => monitorFastForward(n)}
+                onForwardToEnd={() => monitorForwardToEnd()}
+                onRollback={() => monitorRollback()}
                 onReset={() => resetMonitor()}
                 onRefresh={() => refreshMonitorData()}
               />
