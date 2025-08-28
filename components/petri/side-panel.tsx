@@ -652,6 +652,7 @@ function TransitionEditor({
       </div>
 
       <TypeSpecificEditor node={node} tType={tType} onUpdate={onUpdate} />
+  <ActionExpressionEditor node={node} onUpdate={onUpdate} />
       <div className="mt-6 space-y-2">
         <Label htmlFor="t-delay" className="text-sm">Transition Delay</Label>
         <Input
@@ -681,7 +682,7 @@ function TypeSpecificEditor({
     case "Manual":
       return <ManualEditor node={node} onUpdate={onUpdate} />
     case "Auto":
-      return <AutoEditor node={node} onUpdate={onUpdate} />
+      return null
     case "Message":
       return <MessageEditor node={node} onUpdate={onUpdate} />
     case "Dmn":
@@ -801,8 +802,8 @@ function ManualEditor({
   )
 }
 
-function AutoEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
-  // Expect server to populate root-level actionExpression when tType === 'Auto'
+function ActionExpressionEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
+  // actionExpression is now available for all transition types
   const actionExpression = (node.data as any).actionExpression || ""
   const [editorHeight, setEditorHeight] = useState<number>(160)
   const resizeRef = useRef<HTMLDivElement | null>(null)
@@ -820,8 +821,8 @@ function AutoEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
   }, [])
   return (
-    <div className="space-y-2">
-      <Label htmlFor="auto-action-expression">Action Expression</Label>
+    <div className="space-y-2 mt-6">
+      <Label htmlFor="transition-action-expression">Action Expression</Label>
       <div className="relative rounded border bg-white" style={{ height: editorHeight }}>
         <CodeMirror
           value={actionExpression}
@@ -845,7 +846,7 @@ function AutoEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (
           aria-label="Resize script editor"
         />
       </div>
-  <p className="text-xs text-neutral-500">Lua-like action expression or function body executed when the transition fires.</p>
+      <p className="text-xs text-neutral-500">Lua-like action expression executed when this transition fires.</p>
     </div>
   )
 }

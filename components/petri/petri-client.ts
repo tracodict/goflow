@@ -23,11 +23,11 @@ export async function fetchTransitionsStatus(flowServiceUrl: string, workflowId:
 }
 
 // Fire an enabled transition
-export async function fireTransition(flowServiceUrl: string, workflowId: string, transitionId: string, bindingIndex: number = 0) {
+export async function fireTransition(flowServiceUrl: string, workflowId: string, transitionId: string, bindingIndex: number = 0, formData?: any) {
   const resp = await fetch(`${flowServiceUrl}/api/transitions/fire`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cpnId: workflowId, transitionId, bindingIndex }),
+  body: JSON.stringify({ cpnId: workflowId, transitionId, bindingIndex, ...(formData !== undefined ? { formData } : {}) }),
   });
   if (!resp.ok) {
     let bodyText = ''

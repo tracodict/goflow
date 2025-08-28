@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react'
 import { MessageSquare, MessageSquareDot, X } from 'lucide-react'
 import { useMonitor } from '@/hooks/use-monitor'
-import { fetchWorkflow } from '@/components/petri/petri-client'
+import { fetchWorkflow, fireTransition } from '@/components/petri/petri-client'
 import type { PetriNodeData } from '@/lib/petri-types'
 import type { Node } from '@xyflow/react'
 import { DEFAULT_SETTINGS } from '@/components/petri/system-settings-context'
@@ -21,6 +21,8 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
   const [formSchema, setFormSchema] = useState<any>(null)
   const [formData, setFormData] = useState<any>(null)
   const [formTitle, setFormTitle] = useState<string>('Manual Task')
+  const [formTransitionId, setFormTransitionId] = useState<string | null>(null)
+  const [formBindingIndex, setFormBindingIndex] = useState<number>(0)
   // Resolve flowServiceUrl with fallbacks: env -> global -> persisted settings -> default
   const flowServiceUrl = process.env.NEXT_PUBLIC_FLOW_SERVICE_URL
     || (typeof window !== 'undefined' ? (window as any).__goflowServiceBase : undefined)
@@ -104,7 +106,9 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
     }
     setFormData(value)
     setFormTitle((transition.name || transition.id || 'Manual Task') + (variableName ? ` – ${variableName}` : ''))
-    setFormOpen(true)
+  setFormOpen(true)
+  setFormTransitionId(transition.id || transition.transitionId)
+  setFormBindingIndex(index)
     setMenuOpen(false)
     setHoverTransitionId(null)
   }
@@ -333,7 +337,12 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
             >Cancel</button>
             <button
               type="button"
-              onClick={() => { /* placeholder submit */ setFormOpen(false) }}
+              onClick={async () => {
+                if (flowServiceUrl && workflowId && formTransitionId != null) {
+                  try { await fireTransition(flowServiceUrl, workflowId, formTransitionId, formBindingIndex, formData) } catch(e){ /* eslint-disable no-console */ console.warn('Fire with formData failed', e) }
+                }
+                setFormOpen(false)
+              }}
               className="px-3 py-1.5 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-500"
             >Submit</button>
           </div>
