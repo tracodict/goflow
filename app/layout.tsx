@@ -16,7 +16,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+  <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
       <head>
         <style>{`
 html {
@@ -26,7 +26,7 @@ html {
 }
         `}</style>
       </head>
-      <body>
+  <body className="font-sans">
         {children}
         <Toaster />
       </body>

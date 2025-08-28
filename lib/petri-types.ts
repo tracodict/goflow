@@ -6,6 +6,7 @@ export type Token = {
   data: any
   createdAt: number
   updatedAt?: number
+  count?: number // multiplicity for multiset markings
 }
 
 export type TransitionData = {
@@ -13,9 +14,10 @@ export type TransitionData = {
   name: string
   tType: TransitionType
   guardExpression?: string
+  transitionDelay?: number // delay (time units) before firing completes (advances global clock)
   time?: { cron?: string; delaySec?: number }
-  manual?: { assignee?: string; formSchemaId?: string }
-  auto?: { script?: string }
+  manual?: { assignee?: string; formSchema?: string; layoutSchema?: string }
+  actionExpression?: string
   message?: { channel?: string }
   dmnDefinition?: any
   llm?: {

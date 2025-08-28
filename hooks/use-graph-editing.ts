@@ -16,13 +16,15 @@ export function useGraphEditing({ screenToFlowPosition, setNodes, setEdges }: Us
   const addPlace = useCallback(() => {
     const id = `p-${Math.random().toString(36).slice(2, 7)}`
     const pos = screenToFlowPosition ? screenToFlowPosition({ x: 200, y: 150 }) : { x: 200, y: 150 }
-    setNodes(nds => [...nds, { id, type: 'place', position: pos, data: { kind: 'place', name: 'Place', tokens: 0, tokenList: [], colorSet: 'INT' } } as any])
+  const suffix = ' #' + Math.random().toString(16).slice(2,5)
+  setNodes(nds => [...nds, { id, type: 'place', position: pos, data: { kind: 'place', name: 'Place' + suffix, tokens: 0, tokenList: [], colorSet: 'INT' } } as any])
   }, [screenToFlowPosition, setNodes])
 
   const addTransition = useCallback(() => {
     const id = `t-${Math.random().toString(36).slice(2, 7)}`
     const pos = screenToFlowPosition ? screenToFlowPosition({ x: 420, y: 150 }) : { x: 420, y: 150 }
-    setNodes(nds => [...nds, { id, type: 'transition', position: pos, guardExpression: 'true', data: { kind: 'transition', name: 'Transition', tType: 'Manual', manual: { assignee: '', formSchemaId: '' } } } as any])
+  const suffix = ' #' + Math.random().toString(16).slice(2,5)
+  setNodes(nds => [...nds, { id, type: 'transition', position: pos, guardExpression: 'true', data: { kind: 'transition', name: 'Transition' + suffix, tType: 'Manual', manual: { assignee: '', formSchema: '', layoutSchema: '' } } } as any])
   }, [screenToFlowPosition, setNodes])
 
   const setTransitionType = useCallback((id: string, tType: TransitionType) => {
@@ -39,7 +41,8 @@ export function useGraphEditing({ screenToFlowPosition, setNodes, setEdges }: Us
     connectStateRef.current.inProgress = false
     connectStateRef.current.cancel = false
     connectStateRef.current.start = null
-    const newEdge: Edge<PetriEdgeData> = { ...connection, id: `e-${connection.source ?? ''}-${connection.sourceHandle ?? ''}-${connection.target ?? ''}-${connection.targetHandle ?? ''}-${Math.random().toString(36).slice(2, 7)}`, type: 'labeled', data: { label: 'arc' } }
+  const suffix = ' #' + Math.random().toString(16).slice(2,5)
+  const newEdge: Edge<PetriEdgeData> = { ...connection, id: `e-${connection.source ?? ''}-${connection.sourceHandle ?? ''}-${connection.target ?? ''}-${connection.targetHandle ?? ''}-${Math.random().toString(36).slice(2, 7)}`, type: 'labeled', data: { label: 'arc' + suffix } }
     setEdges(eds => addEdge(newEdge, eds))
   }, [setEdges])
 

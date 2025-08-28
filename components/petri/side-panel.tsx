@@ -16,8 +16,7 @@ import type { Edge, Node } from "@xyflow/react"
 import type { PetriEdgeData, PetriNodeData, TransitionType, Token, PlaceData } from "@/lib/petri-types"
 import { GripVertical, Minimize2, Maximize2, PanelRightOpen, ChevronsUpDown, Check, Plus, Trash2 } from "lucide-react"
 import { DmnDecisionTable, type DecisionTable } from "./dmn-decision-table"
-import { FORM_SCHEMAS } from "@/lib/form-schemas"
-import { CronLite as Cron } from "@/components/petri/cron-lite"
+// Removed static FORM_SCHEMAS; dynamic list comes from workflow declarations jsonSchemas
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import CodeMirror from '@uiw/react-codemirror'
 import { StreamLanguage } from '@codemirror/language'
@@ -81,7 +80,7 @@ export function SidePanel({
   onCreateWorkflow?: () => void
   onDeleteWorkflow?: (id: string) => void
   onRenameWorkflow?: (id: string, name: string) => void
-  workflowMeta?: Record<string, { name: string; description?: string; colorSets: string[]; declarations?: DeclarationsValue }>
+  workflowMeta?: Record<string, { name: string; description?: string; colorSets: string[]; declarations?: DeclarationsValue & { jsonSchemas?: { name: string; schema: any }[] } }>
   activeWorkflowId?: string | null
   explorerNodes?: any[]
   explorerEdges?: any[]
@@ -139,6 +138,17 @@ export function SidePanel({
       window.localStorage.setItem('goflow.explorerHeight', String(explorerHeight))
     }
   }, [explorerHeight])
+  // Emit current workflow meta (jsonSchemas) so ManualEditor can seed available form schemas
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!activeWorkflowId) return
+    const meta: any = (workflowMeta as any)?.[activeWorkflowId]
+    const jsonSchemas = meta?.declarations?.jsonSchemas || []
+  // Cache latest meta so late-mounted listeners (ManualEditor) can read synchronously
+  ;(window as any).__goflowLastWorkflowMeta = { jsonSchemas }
+    const ev = new CustomEvent('goflow-workflowMeta', { detail: { jsonSchemas } })
+    window.dispatchEvent(ev)
+  }, [activeWorkflowId, workflowMeta && activeWorkflowId ? JSON.stringify((workflowMeta as any)[activeWorkflowId]?.declarations?.jsonSchemas?.map((s: any)=>s.name)||[]) : null])
   
 
   if (!open || mode === "mini") {
@@ -397,12 +407,22 @@ function PlaceEditor({
                     try { createdLabel = new Date(ts).toLocaleString() } catch { createdLabel = '-' }
                   }
                 }
+                const previewValue = (() => {
+                  try {
+                    const val = (tok as any).data
+                    if (val === undefined) return ''
+                    const json = typeof val === 'string' ? val : JSON.stringify(val)
+                    if (!json) return ''
+                    return json.length > 15 ? json.slice(0, 12) + '...' : json
+                  } catch { return '' }
+                })()
                 return (
                   <AccordionItem key={tok.id || idx} value={tok.id || `tok-${idx}`} className="border rounded mb-2">
                     <AccordionTrigger className="px-3 py-2 text-sm no-underline hover:no-underline">
                       <div className="flex w-full items-center justify-between gap-2">
-                        <span className="truncate">
+                        <span className="truncate" title={String((tok as any).data)}>
                           #{idx + 1} — {tok.id}
+                          {previewValue ? <span className="ml-1 text-emerald-600">({previewValue})</span> : null}
                         </span>
                         <span className="text-xs text-neutral-500">{createdLabel}</span>
                       </div>
@@ -633,11 +653,16 @@ function TransitionEditor({
 
       <TypeSpecificEditor node={node} tType={tType} onUpdate={onUpdate} />
       <div className="mt-6 space-y-2">
-        <div className="flex items-center justify-between">
-          <Label className="text-sm">Time Trigger</Label>
-        </div>
-        <TimeEditor node={node} onUpdate={onUpdate} />
-        <p className="text-xs text-neutral-500">If neither delay nor cron provided, transition fires immediately when enabled.</p>
+        <Label htmlFor="t-delay" className="text-sm">Transition Delay</Label>
+        <Input
+          id="t-delay"
+          type="number"
+          min={0}
+          value={(node.data as any).transitionDelay ?? 0}
+          onChange={(e) => onUpdate(node.id, { transitionDelay: Math.max(0, Number(e.target.value || 0)) } as any)}
+          placeholder="0"
+        />
+        <p className="text-xs text-neutral-500">Delay advances global clock when this transition fires (timed nets).</p>
       </div>
     </div>
   )
@@ -675,9 +700,39 @@ function ManualEditor({
   node: Node<PetriNodeData>
   onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
 }) {
-  const manual = ((node.data as any).manual || {}) as { assignee?: string; formSchemaId?: number }
+  const manual = ((node.data as any).manual || {}) as { assignee?: string; formSchema?: string; layoutSchema?: string }
   const [open, setOpen] = useState(false)
-  const selected = FORM_SCHEMAS.find((f) => f.component_id === manual.formSchemaId)
+  const [availableSchemas, setAvailableSchemas] = useState<string[]>([])
+
+  // Listen for declarations updates dispatched from DeclarationsPanel apply
+  useEffect(() => {
+    function sync(e: any) {
+      const list: string[] = (e.detail?.next?.jsonSchemas || []).map((s: any) => s.name).filter(Boolean)
+      setAvailableSchemas(list)
+    }
+    window.addEventListener('updateDeclarationsInternal', sync as EventListener)
+    return () => window.removeEventListener('updateDeclarationsInternal', sync as EventListener)
+  }, [])
+
+  // Initial load: try read from current workflow meta via global event (emitted elsewhere when workflow selected)
+  useEffect(() => {
+    function seed(e: any) {
+      const list: string[] = (e.detail?.jsonSchemas || []).map((s: any) => s.name).filter(Boolean)
+      if (list.length) setAvailableSchemas(list)
+    }
+    window.addEventListener('goflow-workflowMeta', seed as EventListener)
+    // Immediate seed from cached global if present (event may have fired before mount)
+    try {
+      const cached = (window as any).__goflowLastWorkflowMeta
+      if (cached?.jsonSchemas) {
+        const list: string[] = cached.jsonSchemas.map((s: any)=> s.name).filter(Boolean)
+        if (list.length) setAvailableSchemas(list)
+      }
+    } catch {/* ignore */}
+    return () => window.removeEventListener('goflow-workflowMeta', seed as EventListener)
+  }, [])
+
+  const selectedName = manual.formSchema && availableSchemas.includes(manual.formSchema) ? manual.formSchema : undefined
 
   return (
     <div className="space-y-4">
@@ -701,7 +756,7 @@ function ManualEditor({
               aria-expanded={open}
               className="w-full justify-between bg-transparent"
             >
-              {selected ? selected.name : "Select a form schema..."}
+              {selectedName || "Select a form schema..."}
               <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
             </Button>
           </PopoverTrigger>
@@ -711,18 +766,18 @@ function ManualEditor({
               <CommandList>
                 <CommandEmpty>No schema found.</CommandEmpty>
                 <CommandGroup>
-                  {FORM_SCHEMAS.map((schema) => (
+                  {availableSchemas.map((name) => (
                     <CommandItem
-                      key={schema.component_id}
-                      value={schema.name}
+                      key={name}
+                      value={name}
                       onSelect={() => {
-                        onUpdate(node.id, { manual: { ...manual, formSchemaId: schema.component_id } as any })
+                        onUpdate(node.id, { manual: { ...manual, formSchema: name } as any })
                         setOpen(false)
                       }}
                       className="flex items-center justify-between"
                     >
-                      <span>{schema.name}</span>
-                      {schema.component_id === manual.formSchemaId ? <Check className="h-4 w-4 text-emerald-600" /> : null}
+                      <span>{name}</span>
+                      {name === manual.formSchema ? <Check className="h-4 w-4 text-emerald-600" /> : null}
                     </CommandItem>
                   ))}
                 </CommandGroup>
@@ -731,12 +786,24 @@ function ManualEditor({
           </PopoverContent>
         </Popover>
       </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="manual-layout-schema">Layout Schema (optional)</Label>
+        <Textarea
+          id="manual-layout-schema"
+          rows={3}
+          value={manual.layoutSchema || ""}
+          onChange={(e) => onUpdate(node.id, { manual: { ...manual, layoutSchema: e.target.value } as any })}
+          placeholder="layout schema name or JSON"
+        />
+      </div>
     </div>
   )
 }
 
 function AutoEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
-  const script = (node.data as any).auto?.script || ""
+  // Expect server to populate root-level actionExpression when tType === 'Auto'
+  const actionExpression = (node.data as any).actionExpression || ""
   const [editorHeight, setEditorHeight] = useState<number>(160)
   const resizeRef = useRef<HTMLDivElement | null>(null)
   const dragState = useRef<{ startY: number; startH: number; dragging: boolean }>({ startY:0, startH:160, dragging:false })
@@ -754,16 +821,14 @@ function AutoEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (
   }, [])
   return (
     <div className="space-y-2">
-      <Label htmlFor="auto-script">Script</Label>
+      <Label htmlFor="auto-action-expression">Action Expression</Label>
       <div className="relative rounded border bg-white" style={{ height: editorHeight }}>
         <CodeMirror
-          value={script}
+          value={actionExpression}
           height={`${editorHeight - 8}px`}
           theme="light"
           extensions={[EditorView.lineWrapping, StreamLanguage.define(lua)]}
-          onChange={(val) =>
-            onUpdate(node.id, { auto: { ...((node.data as any).auto || {}), script: val } as any })
-          }
+          onChange={(val) => onUpdate(node.id, { actionExpression: val } as any)}
           basicSetup={{
             lineNumbers: true,
             bracketMatching: true,
@@ -780,46 +845,12 @@ function AutoEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (
           aria-label="Resize script editor"
         />
       </div>
-      <p className="text-xs text-neutral-500">Lua script or function body.</p>
+  <p className="text-xs text-neutral-500">Lua-like action expression or function body executed when the transition fires.</p>
     </div>
   )
 }
 
 // Inline time trigger editor (cron or delay seconds)
-function TimeEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
-  const time = ((node.data as any).time || {}) as { cron?: string; delaySec?: number }
-  const delaySec = time.delaySec ?? 0
-  const cron = time.cron || ""
-  const [cronError, setCronError] = useState<string | null>(null)
-  return (
-    <div className="space-y-3">
-      <div className="grid gap-2">
-        <Label htmlFor="time-delay">Delay (seconds)</Label>
-        <Input
-          id="time-delay"
-          type="number"
-          min={0}
-            value={delaySec}
-            onChange={(e) => onUpdate(node.id, { time: { ...time, delaySec: Math.max(0, Number(e.target.value || 0)), cron } as any })}
-          placeholder="e.g., 30"
-        />
-        <p className="text-xs text-neutral-500">Optional one-shot delay after all preconditions are satisfied.</p>
-      </div>
-      <div className="grid gap-2">
-        <Label>Crontab Schedule</Label>
-        <div className="rounded-md border p-2">
-          <Cron
-            value={cron}
-            setValue={(v) => onUpdate(node.id, { time: { ...time, cron: v || undefined, delaySec } as any })}
-            onError={(e) => setCronError(e ? e.description : null)}
-          />
-        </div>
-        {cronError ? <p className="text-xs text-red-600">{cronError}</p> : null}
-        <p className="text-xs text-neutral-500">Provide either a cron schedule or a delay; both may be combined.</p>
-      </div>
-    </div>
-  )
-}
 
 function MessageEditor({
   node,

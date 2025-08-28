@@ -152,61 +152,63 @@ function CanvasInner() {
     }
   }, [settings.flowServiceUrl]);
 
-  // Handler for selecting a workflow in Explorer (server or mockup)
-  const onExplorerSelect = useCallback(async (workflowId: string) => {
+  // Handler for selecting a workflow in Explorer (server or mockup) with microtask deferral
+  const onExplorerSelect = useCallback((workflowId: string) => {
     if (!settings.flowServiceUrl) return
-    let swf = serverWorkflowCache[workflowId]
-    if (!swf) {
-      try {
-        const resp = await withApiErrorToast(fetchWorkflow(settings.flowServiceUrl, workflowId), toast, 'Fetch workflow')
-        swf = resp.data as ServerWorkflow
-        setServerWorkflowCache(prev => ({ ...prev, [workflowId]: swf! }))
-        const g = serverToGraph(swf!)
-        setWorkflowGraphCache(prev => ({ ...prev, [workflowId]: g.graph }))
-        // Reconstruct declarations: use server declarations if present else parse colorSets; merge with stored categories
-        let stored: any = {}
-        try { stored = JSON.parse(localStorage.getItem('goflow.declarations.'+workflowId) || '{}') } catch {}
-        const allServerColorSetLines = (swf!.colorSets || []).filter(cs => /^\s*colset\s+/i.test(cs))
-        const decls = (swf as any).declarations && Object.keys((swf as any).declarations).length
-          ? (swf as any).declarations
-          : { ...stored, color: allServerColorSetLines }
-        const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
-        const colorSetNames = allServerColorSetLines.map(l => {
-          const m = l.match(nameRegex); return m? m[1]: l
-        })
-        setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: colorSetNames, declarations: decls } }))
-        setNodes(g.graph.nodes); setEdges(g.graph.edges)
-        // Initialize history present only (no past yet)
-        historyRef.current = { past: [], present: { nodes: g.graph.nodes.map(n => ({ ...n })), edges: g.graph.edges.map(e => ({ ...e })) }, future: [] }
+    // Defer actual state updates to avoid triggering during ExplorerPanel render
+    queueMicrotask(async () => {
+      let swf = serverWorkflowCache[workflowId]
+      if (!swf) {
+        try {
+          const resp = await withApiErrorToast(fetchWorkflow(settings.flowServiceUrl!, workflowId), toast, 'Fetch workflow')
+          swf = resp.data as ServerWorkflow
+          setServerWorkflowCache(prev => ({ ...prev, [workflowId]: swf! }))
+          const g = serverToGraph(swf!)
+          setWorkflowGraphCache(prev => ({ ...prev, [workflowId]: g.graph }))
+          let stored: any = {}
+          try { stored = JSON.parse(localStorage.getItem('goflow.declarations.'+workflowId) || '{}') } catch {}
+          const allServerColorSetLines = (swf!.colorSets || []).filter(cs => /^\s*colset\s+/i.test(cs))
+          const decls = (swf as any).declarations && Object.keys((swf as any).declarations).length
+            ? (swf as any).declarations
+            : { ...stored, color: allServerColorSetLines }
+          if (Array.isArray((swf as any).jsonSchemas)) {
+            (decls as any).jsonSchemas = (swf as any).jsonSchemas
+          }
+          const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
+          const colorSetNames = allServerColorSetLines.map(l => { const m = l.match(nameRegex); return m? m[1]: l })
+          setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: colorSetNames, declarations: decls } }))
+          requestAnimationFrame(() => { setNodes(g.graph.nodes); setEdges(g.graph.edges) })
+          historyRef.current = { past: [], present: { nodes: g.graph.nodes.map(n => ({ ...n })), edges: g.graph.edges.map(e => ({ ...e })) }, future: [] }
+          isLoadingWorkflowRef.current = true
+          window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: swf!.colorSets || [] } }))
+        } catch(e:any) { return }
+      } else {
+        const graph = workflowGraphCache[workflowId] || serverToGraph(swf).graph
+        if (!workflowGraphCache[workflowId]) setWorkflowGraphCache(prev => ({ ...prev, [workflowId]: graph }))
+        requestAnimationFrame(() => { setNodes(graph.nodes); setEdges(graph.edges) })
+        if (!workflowMeta[workflowId]) {
+          let stored: any = {}
+          try { stored = JSON.parse(localStorage.getItem('goflow.declarations.'+workflowId) || '{}') } catch {}
+          const allServerColorSetLines = (swf!.colorSets || []).filter(cs => /^\s*colset\s+/i.test(cs))
+          const decls = (swf as any).declarations && Object.keys((swf as any).declarations).length
+            ? (swf as any).declarations
+            : { ...stored, color: allServerColorSetLines }
+          if (Array.isArray((swf as any).jsonSchemas)) {
+            (decls as any).jsonSchemas = (swf as any).jsonSchemas
+          }
+          const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
+          const colorSetNames = allServerColorSetLines.map(l => { const m = l.match(nameRegex); return m? m[1]: l })
+          setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: colorSetNames, declarations: decls } }))
+        }
+        historyRef.current = { past: [], present: { nodes: graph.nodes.map(n => ({ ...n })), edges: graph.edges.map(e => ({ ...e })) }, future: [] }
         isLoadingWorkflowRef.current = true
-        // Broadcast colorSets for property editors
-  window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: swf!.colorSets || [] } }))
-      } catch(e:any) { return }
-    } else {
-      const graph = workflowGraphCache[workflowId] || serverToGraph(swf).graph
-      if (!workflowGraphCache[workflowId]) setWorkflowGraphCache(prev => ({ ...prev, [workflowId]: graph }))
-      setNodes(graph.nodes); setEdges(graph.edges)
-      if (!workflowMeta[workflowId]) {
-        let stored: any = {}
-        try { stored = JSON.parse(localStorage.getItem('goflow.declarations.'+workflowId) || '{}') } catch {}
-        const allServerColorSetLines = (swf!.colorSets || []).filter(cs => /^\s*colset\s+/i.test(cs))
-        const decls = (swf as any).declarations && Object.keys((swf as any).declarations).length
-          ? (swf as any).declarations
-          : { ...stored, color: allServerColorSetLines }
-        const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
-        const colorSetNames = allServerColorSetLines.map(l => {
-          const m = l.match(nameRegex); return m? m[1]: l
-        })
-        setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: colorSetNames, declarations: decls } }))
+        window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: swf!.colorSets || [] } }))
       }
-      historyRef.current = { past: [], present: { nodes: graph.nodes.map(n => ({ ...n })), edges: graph.edges.map(e => ({ ...e })) }, future: [] }
-      isLoadingWorkflowRef.current = true
-  window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: swf!.colorSets || [] } }))
-    }
-    setSelectedRef(null); setTokensOpenForPlaceId(null); setGuardOpenForTransitionId(null)
-    setActiveWorkflowId(workflowId)
-    setEditedMap(prev => ({ ...prev, [workflowId]: false }))
-    if (panelMode === 'mini') setPanelMode('normal')
+      setSelectedRef(null); setTokensOpenForPlaceId(null); setGuardOpenForTransitionId(null)
+      setActiveWorkflowId(workflowId)
+      setEditedMap(prev => ({ ...prev, [workflowId]: false }))
+      if (panelMode === 'mini') setPanelMode('normal')
+    })
   }, [settings.flowServiceUrl, serverWorkflowCache, workflowGraphCache, workflowMeta, panelMode])
 
   // Auto-fetch workflow list when side panel is visible (no need to press button)
@@ -552,11 +554,12 @@ function CanvasInner() {
         return
       }
 
-      const startIsPlace = startNode.type === "place"
+  const startIsPlace = startNode.type === "place"
       const newId = startIsPlace
         ? `t-${Math.random().toString(36).slice(2, 7)}`
         : `p-${Math.random().toString(36).slice(2, 7)}`
 
+      const suffix = ' #' + Math.random().toString(16).slice(2,5)
       const newNode = startIsPlace
         ? {
             id: newId,
@@ -565,16 +568,16 @@ function CanvasInner() {
             guardExpression: "true",
             data: {
               kind: "transition",
-              name: "Transition",
+              name: "Transition" + suffix,
               tType: "Manual", // TransitionType value
-              manual: { assignee: "", formSchemaId: "" }
+              manual: { assignee: "", formSchema: "", layoutSchema: "" }
             },
           }
         : {
             id: newId,
             type: "place" as const,
             position: flowPos,
-            data: { kind: "place", name: "Place", tokens: 0, tokenList: [], colorSet: 'INT' },
+            data: { kind: "place", name: "Place" + suffix, tokens: 0, tokenList: [], colorSet: 'INT' },
           }
 
       setNodes((nds) => [...nds, newNode as any])
@@ -601,14 +604,16 @@ function CanvasInner() {
   const addPlace = useCallback(() => {
     const id = `p-${Math.random().toString(36).slice(2, 7)}`
     const pos = screenToFlowPosition ? screenToFlowPosition({ x: 200, y: 150 }) : { x: 200, y: 150 }
-  setNodes((nds) => [...nds, { id, type: "place", position: pos, data: { kind: "place", name: "Place", tokens: 0, tokenList: [], colorSet: 'INT' } } as any])
+  const suffixP = ' #' + Math.random().toString(16).slice(2,5)
+  setNodes((nds) => [...nds, { id, type: "place", position: pos, data: { kind: "place", name: "Place" + suffixP, tokens: 0, tokenList: [], colorSet: 'INT' } } as any])
     setSelectedRef({ type: "node", id })
   }, [screenToFlowPosition, setNodes])
 
   const addTransition = useCallback(() => {
     const id = `t-${Math.random().toString(36).slice(2, 7)}`
     const pos = screenToFlowPosition ? screenToFlowPosition({ x: 420, y: 150 }) : { x: 420, y: 150 }
-  setNodes((nds) => [...nds, { id, type: "transition", position: pos, guardExpression: "true", data: { kind: "transition", name: "Transition", tType: "Manual", manual: { assignee: "", formSchemaId: "" } } } as any])
+  const suffixT = ' #' + Math.random().toString(16).slice(2,5)
+  setNodes((nds) => [...nds, { id, type: "transition", position: pos, guardExpression: "true", data: { kind: "transition", name: "Transition" + suffixT, tType: "Manual", manual: { assignee: "", formSchema: "", layoutSchema: "" } } } as any])
     setSelectedRef({ type: "node", id })
   }, [screenToFlowPosition, setNodes])
 
@@ -632,7 +637,7 @@ function CanvasInner() {
     [setNodes],
   )
 
-  const { marking: serverMarking, enabled, loading: monitorLoading, fastForwarding: monitorFastForwarding, refresh: refreshMonitorData, fire: fireTransitionMon, step: doMonitorStep, fastForward: monitorFastForward, forwardToEnd: monitorForwardToEnd, rollback: monitorRollback, reset: resetMonitor } = useMonitor({ workflowId: activeWorkflowId, flowServiceUrl: settings.flowServiceUrl, setNodes })
+  const { marking: serverMarking, enabled, loading: monitorLoading, fastForwarding: monitorFastForwarding, globalClock, currentStep, refresh: refreshMonitorData, fire: fireTransitionMon, step: doMonitorStep, fastForward: monitorFastForward, forwardToEnd: monitorForwardToEnd, rollback: monitorRollback, reset: resetMonitor } = useMonitor({ workflowId: activeWorkflowId, flowServiceUrl: settings.flowServiceUrl, setNodes })
 
   // Event (a) open Monitor tab & (b) workflow change while on Monitor
   useEffect(() => { if (systemTab === 'monitor') { refreshMonitorData() } }, [systemTab, activeWorkflowId, refreshMonitorData])
@@ -730,6 +735,8 @@ function CanvasInner() {
                 fastForwarding={monitorFastForwarding}
                 enabledTransitions={enabled}
                 marking={serverMarking}
+                globalClock={globalClock}
+                currentStep={currentStep}
                 onFire={(tid) => fireTransitionMon(tid)}
                 onStep={() => doMonitorStep()}
                 onFastForward={(n) => monitorFastForward(n)}
@@ -817,6 +824,11 @@ function CanvasInner() {
             zoomOut={zoomOut}
             fitView={fitView}
             controlsRight={controlsRight}
+            onOpenRun={() => {
+              // navigate to run mode keeping current workflow id
+              const wf = activeWorkflowId ? `&workflow=${encodeURIComponent(activeWorkflowId)}` : ''
+              window.location.href = `/?mode=run${wf}`
+            }}
           />
         </ReactFlow>
 

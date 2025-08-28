@@ -16,9 +16,10 @@ export async function fetchMarking(flowServiceUrl: string, workflowId: string) {
 
 // Get all transitions' enabled/disabled status
 export async function fetchTransitionsStatus(flowServiceUrl: string, workflowId: string) {
-  const resp = await fetch(`${flowServiceUrl}/api/transitions/list?id=${encodeURIComponent(workflowId)}`);
-  if (!resp.ok) throw new Error(`Failed to fetch transitions status: ${resp.status}`);
-  return resp.json();
+  // New endpoint returns only enabled transitions: { success: boolean, data: Transition[] }
+  const resp = await fetch(`${flowServiceUrl}/api/transitions/enabled?id=${encodeURIComponent(workflowId)}`)
+  if (!resp.ok) throw new Error(`Failed to fetch enabled transitions: ${resp.status}`)
+  return resp.json()
 }
 
 // Fire an enabled transition

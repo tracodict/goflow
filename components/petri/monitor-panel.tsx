@@ -13,6 +13,8 @@ export interface MonitorPanelProps {
   fastForwarding?: boolean
   enabledTransitions: any[]
   marking: any
+  globalClock?: number
+  currentStep?: number
   onFire: (transitionId: string) => Promise<void> | void
   onStep: () => Promise<void> | void
   onFastForward: (steps: number) => Promise<void> | void
@@ -22,7 +24,7 @@ export interface MonitorPanelProps {
   onRefresh: () => Promise<void> | void
 }
 
-export function MonitorPanel({ open, loading, fastForwarding, enabledTransitions, marking, onFire, onStep, onFastForward, onForwardToEnd, onRollback, onReset, onRefresh }: MonitorPanelProps) {
+export function MonitorPanel({ open, loading, fastForwarding, enabledTransitions, marking, globalClock, currentStep, onFire, onStep, onFastForward, onForwardToEnd, onRollback, onReset, onRefresh }: MonitorPanelProps) {
   if (!open) return null
   const enabled = enabledTransitions
   const serverMarking = marking
@@ -34,7 +36,13 @@ export function MonitorPanel({ open, loading, fastForwarding, enabledTransitions
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-1 border-b px-2 py-1 text-xs">
+      {/* Clock / Step row */}
+      <div className="flex items-center gap-4 border-b px-3 py-1 text-xs bg-neutral-50">
+        <span className="font-medium" title="Global Clock">Global Clock: <span className="font-mono">{globalClock ?? 0}</span></span>
+        <span className="font-medium" title="Current Step">Current Step: <span className="font-mono">{currentStep ?? 0}</span></span>
+      </div>
+      {/* Controls row */}
+      <div className="flex items-center gap-2 border-b px-2 py-1 text-xs flex-wrap">
         <input
           type="number"
           className="h-6 w-16 rounded border px-1 text-xs"
@@ -110,12 +118,18 @@ export function MonitorPanel({ open, loading, fastForwarding, enabledTransitions
                         </div>
                         {tokenArr.length > 0 && (
                           <ul className="ml-2 mt-1 space-y-0.5">
-                            {tokenArr.map((tok, idx) => (
-                              <li key={idx} className="flex items-center gap-2 text-xs text-neutral-700">
-                                <span className="font-mono">{JSON.stringify(tok.value)}</span>
-                                <span className="text-[10px] text-neutral-400">Step {typeof tok.timestamp === 'number' ? tok.timestamp : 0}</span>
-                              </li>
-                            ))}
+                            {tokenArr.map((tok, idx) => {
+                              let full = ''
+                              try { full = JSON.stringify(tok.value) } catch { full = String(tok.value) }
+                              if (full == null) full = ''
+                              const truncated = full.length > 20 ? full.slice(0,20) + '...' : full
+                              return (
+                                <li key={idx} className="flex items-center gap-2 text-xs text-neutral-700">
+                                  <span className="font-mono" title={full}>{truncated}</span>
+                                  <span className="text-[10px] text-neutral-400">Timed {typeof tok.timestamp === 'number' ? tok.timestamp : 0}</span>
+                                </li>
+                              )
+                            })}
                           </ul>
                         )}
                       </div>

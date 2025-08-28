@@ -15,6 +15,16 @@ export function PlaceNode({ id, data, selected }: NodeProps) {
     window.dispatchEvent(evt)
   }
 
+  // Compute total token multiplicity (sum of counts, default 1)
+  let totalTokens: number = 0
+  try {
+    const list: any[] = Array.isArray((place as any).tokenList) ? (place as any).tokenList : []
+    totalTokens = list.reduce((acc, t) => {
+      const c = (t && typeof t.count === 'number' && t.count > 0) ? t.count : 1
+      return acc + c
+    }, 0)
+  } catch { totalTokens = place.tokens ?? 0 }
+
   return (
     <div className="group flex select-none flex-col items-center">
       <div
@@ -39,7 +49,7 @@ export function PlaceNode({ id, data, selected }: NodeProps) {
         >
           <Badge variant="outline" className="flex items-center gap-1 bg-white text-xs">
             <Coins className="h-3 w-3 text-amber-600" aria-hidden />
-            {place.tokens ?? 0}
+            {totalTokens}
           </Badge>
         </button>
 
