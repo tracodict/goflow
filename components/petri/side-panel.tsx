@@ -15,7 +15,6 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import type { Edge, Node } from "@xyflow/react"
 import type { PetriEdgeData, PetriNodeData, TransitionType, Token, PlaceData } from "@/lib/petri-types"
 import { GripVertical, Minimize2, Maximize2, PanelRightOpen, ChevronsUpDown, Check, Plus, Trash2 } from "lucide-react"
-import { DmnDecisionTable, type DecisionTable } from "./dmn-decision-table"
 // Removed static FORM_SCHEMAS; dynamic list comes from workflow declarations jsonSchemas
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import CodeMirror from '@uiw/react-codemirror'
@@ -651,7 +650,8 @@ function TransitionEditor({
         Type: <span className="font-medium capitalize">{tType}</span> (right-click the node to change)
       </div>
 
-      <TypeSpecificEditor node={node} tType={tType} onUpdate={onUpdate} />
+  <TypeSpecificEditor node={node} tType={tType} onUpdate={onUpdate} />
+  <SubPageSection node={node} onUpdate={onUpdate} />
   <ActionExpressionEditor node={node} onUpdate={onUpdate} />
       <div className="mt-6 space-y-2">
         <Label htmlFor="t-delay" className="text-sm">Transition Delay</Label>
@@ -685,9 +685,7 @@ function TypeSpecificEditor({
       return null
     case "Message":
       return <MessageEditor node={node} onUpdate={onUpdate} />
-    case "Dmn":
-      return <DmnEditor node={node} onUpdate={onUpdate} />
-    case "Llm":
+    case "LLM":
       return <LLMEditor node={node} onUpdate={onUpdate} />
     default:
       return null
@@ -876,33 +874,64 @@ function MessageEditor({
   )
 }
 
-function DmnEditor({
-  node,
-  onUpdate,
-}: {
-  node: Node<PetriNodeData>
-  onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
-}) {
-  const value = ((node.data as any).dmnDefinition || {
-    name: "Decision",
-    hitPolicy: "U",
-    inputs: [{ id: "in-1", label: "amount", expression: "amount" }],
-    outputs: [{ id: "out-1", label: "approved" }],
-    rules: [{ when: ["> 1000"], then: ["no"] }],
-  }) as DecisionTable
-
+// Generic subpage (hierarchical call) section now independent of transition type.
+function SubPageSection({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
+  const cfg = ((node.data as any).subPage || {}) as any
+  const enabled = !!cfg.enabled
+  const [expanded, setExpanded] = useState<boolean>(enabled)
+  const [inputMap, setInputMap] = useState(() => JSON.stringify(cfg.inputMapping || {}, null, 2))
+  const [outputMap, setOutputMap] = useState(() => JSON.stringify(cfg.outputMapping || {}, null, 2))
+  const safeParse = (txt: string) => { try { const o = JSON.parse(txt); return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {} } catch { return {} } }
+  const toggle = (checked: boolean) => {
+    onUpdate(node.id, { subPage: { ...cfg, enabled: checked } as any })
+    setExpanded(checked)
+  }
   return (
-    <div className="space-y-2">
-      <Label>Decision Table</Label>
-      <div className="rounded border">
-        <DmnDecisionTable model={value} onChange={(m) => onUpdate(node.id, { dmnDefinition: m } as any)} height={360} />
-      </div>
-      <div className="text-xs text-neutral-500">
-        This built-in editor mimics jdm-editor's decision table behavior for quick prototyping.
-      </div>
+    <div className="mt-6 rounded border bg-neutral-50">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium"
+        onClick={() => { if (!enabled) toggle(true); else setExpanded(e => !e) }}
+        aria-expanded={expanded}
+      >
+        <span className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => toggle(e.target.checked)}
+            aria-label="Enable sub workflow call"
+            className="h-4 w-4"
+          />
+          <span>subpage</span>
+        </span>
+        <span className="text-xs text-neutral-500">{expanded ? 'Collapse' : 'Expand'}</span>
+      </button>
+      {expanded && enabled && (
+        <div className="space-y-3 border-t px-3 py-3">
+          <div className="grid gap-1">
+            <Label htmlFor="subpage-cpn">Child Workflow ID</Label>
+            <Input id="subpage-cpn" value={cfg.cpnId || ''} placeholder="child-cpn-1" onChange={e => onUpdate(node.id, { subPage: { ...cfg, cpnId: e.target.value } as any })} />
+          </div>
+          <div className="flex flex-wrap items-center gap-4 text-xs">
+            <label className="inline-flex items-center gap-1"><input type="checkbox" checked={!!cfg.autoStart} onChange={e => onUpdate(node.id, { subPage: { ...cfg, autoStart: e.target.checked } as any })} /> Auto Start</label>
+            <label className="inline-flex items-center gap-1"><input type="checkbox" checked={!!cfg.propagateOnComplete} onChange={e => onUpdate(node.id, { subPage: { ...cfg, propagateOnComplete: e.target.checked } as any })} /> Propagate On Complete</label>
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="subpage-input-map">Input Mapping JSON</Label>
+            <Textarea id="subpage-input-map" rows={4} value={inputMap} onChange={e => setInputMap(e.target.value)} onBlur={() => onUpdate(node.id, { subPage: { ...cfg, inputMapping: safeParse(inputMap) } as any })} />
+          </div>
+            <div className="grid gap-1">
+            <Label htmlFor="subpage-output-map">Output Mapping JSON</Label>
+            <Textarea id="subpage-output-map" rows={4} value={outputMap} onChange={e => setOutputMap(e.target.value)} onBlur={() => onUpdate(node.id, { subPage: { ...cfg, outputMapping: safeParse(outputMap) } as any })} />
+          </div>
+          <p className="text-[11px] text-neutral-500">Hierarchical call: maps parent variables to child variables (input) and child back to parent (output).</p>
+        </div>
+      )}
     </div>
   )
 }
+
+// DmnEditor removed (DMN support deprecated). SubPageEditor replaced by generic section.
 
 function LLMEditor({
   node,

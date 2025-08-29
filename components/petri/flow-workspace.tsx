@@ -106,6 +106,8 @@ function CanvasInner() {
   })
   const [showSystem, setShowSystem] = useState<boolean>(false)
   const [systemTab, setSystemTab] = useState<'monitor' | 'settings'>('monitor')
+  const [monitorTabs, setMonitorTabs] = useState<string[]>([])
+  const [activeMonitorTab, setActiveMonitorTab] = useState<string>('root')
   const [leftTab, setLeftTab] = useState<'property' | 'explorer'>("property")
   const [interactive, setInteractive] = useState<boolean>(true)
   const [tokensOpenForPlaceId, setTokensOpenForPlaceId] = useState<string | null>(null)
@@ -729,22 +731,38 @@ function CanvasInner() {
           </div>
           <div className="flex-1 overflow-hidden">
             {systemTab === 'monitor' && (
-              <MonitorPanel
-                open={true}
-                loading={monitorLoading}
-                fastForwarding={monitorFastForwarding}
-                enabledTransitions={enabled}
-                marking={serverMarking}
-                globalClock={globalClock}
-                currentStep={currentStep}
-                onFire={(tid) => fireTransitionMon(tid)}
-                onStep={() => doMonitorStep()}
-                onFastForward={(n) => monitorFastForward(n)}
-                onForwardToEnd={() => monitorForwardToEnd()}
-                onRollback={() => monitorRollback()}
-                onReset={() => resetMonitor()}
-                onRefresh={() => refreshMonitorData()}
-              />
+              <div className="flex h-full flex-col">
+                <div className="flex items-center gap-1 border-b bg-neutral-50 px-2 py-1">
+                  {['root', ...monitorTabs].map(tabId => (
+                    <button
+                      key={tabId}
+                      className={`px-2 py-1 text-[11px] rounded ${activeMonitorTab===tabId ? 'bg-white border border-neutral-300' : 'text-neutral-500 hover:text-neutral-800'}`}
+                      onClick={() => setActiveMonitorTab(tabId)}
+                    >{tabId === 'root' ? (activeWorkflowId || 'root') : tabId}</button>
+                  ))}
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <MonitorPanel
+                    open={true}
+                    loading={monitorLoading}
+                    fastForwarding={monitorFastForwarding}
+                    enabledTransitions={enabled}
+                    marking={serverMarking}
+                    globalClock={globalClock}
+                    currentStep={currentStep}
+                    onFire={(tid) => {
+                      // Tab spawning for subpages now driven by generic subPage.enabled flag (future enhancement).
+                      fireTransitionMon(tid)
+                    }}
+                    onStep={() => doMonitorStep()}
+                    onFastForward={(n) => monitorFastForward(n)}
+                    onForwardToEnd={() => monitorForwardToEnd()}
+                    onRollback={() => monitorRollback()}
+                    onReset={() => resetMonitor()}
+                    onRefresh={() => refreshMonitorData()}
+                  />
+                </div>
+              </div>
             )}
             {systemTab === 'settings' && <SystemSettingsTab />}
           </div>
@@ -855,7 +873,7 @@ function CanvasInner() {
                   Delete transition
                 </button>
                 <Separator />
-                {(["Manual", "Auto", "Dmn", "Message", "Llm"] as TransitionType[]).map((t) => (
+                {(["Manual", "Auto", "Message", "LLM"] as TransitionType[]).map((t) => (
                   <button
                     key={t}
                     className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-neutral-50"

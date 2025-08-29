@@ -1,5 +1,6 @@
 // Petri net core types (client-side representation)
-export type TransitionType = "Manual" | "Auto" | "Message" | "Dmn" | "Llm"
+// Transition types no longer include a dedicated SubPage kind; any transition can act as a subpage caller.
+export type TransitionType = "Manual" | "Auto" | "Message" | "LLM"
 
 export type Token = {
   id: string
@@ -19,7 +20,16 @@ export type TransitionData = {
   manual?: { assignee?: string; formSchema?: string; layoutSchema?: string }
   actionExpression?: string
   message?: { channel?: string }
-  dmnDefinition?: any
+  // Generic sub-workflow (hierarchical) call configuration; applies when `subPage?.enabled` (UI flag) is true.
+  subPage?: {
+    enabled?: boolean
+    id?: string
+    cpnId?: string
+    autoStart?: boolean
+    propagateOnComplete?: boolean
+    inputMapping?: Record<string,string>
+    outputMapping?: Record<string,string>
+  }
   llm?: {
     system?: string
     user?: string

@@ -14,7 +14,8 @@ export interface ServerWorkflow {
   arcs: { id: string; sourceId: string; targetId: string; expression?: string }[]
   initialMarking?: Record<string, { value: any; timestamp: number }[]>
   endPlaces?: string[]
-  subWorkflows?: string[]
+  // Hierarchical sub workflows: array of objects with at minimum callTransitionId & cpnId
+  subWorkflows?: { id?: string; cpnId?: string; callTransitionId?: string; autoStart?: boolean; propagateOnComplete?: boolean; inputMapping?: Record<string,any>; outputMapping?: Record<string,any> }[]
 }
 
 export interface GraphWorkflow {
@@ -30,15 +31,19 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
   const edges: Edge<PetriEdgeData>[] = []
   const endSet = new Set(sw.endPlaces || [])
   sw.places.forEach(p => {
+    // Prefer ID matching; fallback to name match for backward compatibility with older saved workflows.
+    const isEnd = endSet.has(p.id) || endSet.has(p.name)
     nodes.push({
       id: p.id,
       type: 'place',
       position: p.position || { x: 80 + Math.random()*400, y: 120 + Math.random()*160 },
-      data: { kind: 'place', name: p.name, colorSet: p.colorSet || '', tokens: 0, tokenList: [], isEnd: endSet.has(p.name) }
+      data: { kind: 'place', name: p.name, colorSet: p.colorSet || '', tokens: 0, tokenList: [], isEnd }
     })
   })
+  const allowed: any[] = ['Manual','Auto','Message','LLM']
   sw.transitions.forEach(t => {
-    const tType = (t.kind as any) || 'Manual'
+    let tType: any = (t.kind as any) || 'Manual'
+    if (!allowed.includes(tType)) tType = 'Manual'
     const manual = tType === 'Manual' ? { formSchema: (t as any).formSchema, layoutSchema: (t as any).layoutSchema } : undefined
     nodes.push({
       id: t.id,
@@ -70,6 +75,24 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
       ;(placeNode.data as any).tokens = list.length
     }
   })
+  // Attach subPage configs from server subWorkflows
+  if (Array.isArray(sw.subWorkflows)) {
+    for (const link of sw.subWorkflows) {
+      if (!link || typeof link !== 'object') continue
+      const tNode = nodes.find(n => n.id === (link as any).callTransitionId)
+      if (tNode && tNode.type === 'transition') {
+        ;(tNode.data as any).subPage = {
+          enabled: true,
+          id: (link as any).id,
+            cpnId: (link as any).cpnId,
+          autoStart: (link as any).autoStart,
+          propagateOnComplete: (link as any).propagateOnComplete,
+          inputMapping: (link as any).inputMapping,
+          outputMapping: (link as any).outputMapping,
+        }
+      }
+    }
+  }
   return { id: sw.id, graph: { nodes, edges }, colorSets: sw.colorSets || [], initialMarking: marking }
 }
 
@@ -125,8 +148,8 @@ export function graphToServer(
       initialMarking[placeName] = list.map((tok: any) => ({ value: tok.data, timestamp: typeof tok.createdAt === 'number' ? tok.createdAt : 0 }))
     }
   })
-  // Derive endPlaces from graph (places marked isEnd true). Use place name (or id fallback)
-  const endPlaces = graph.nodes.filter(n => n.type==='place' && (n.data as any).isEnd).map(n => (n.data as any).name || n.id)
+  // Derive endPlaces from graph (places marked isEnd true) using place IDs.
+  const endPlaces = graph.nodes.filter(n => n.type==='place' && (n.data as any).isEnd).map(n => n.id)
   // Build server colorSets: ONLY full declaration lines (exclude derived short names)
   const isColsetLine = (s: string) => typeof s === 'string' && /^\s*colset\s+/i.test(s)
   const mergedSet: string[] = []
@@ -152,17 +175,36 @@ export function graphToServer(
     }
   }
   const mergedColorSets = mergedSet
+  // Build subWorkflows from transitions with subPage.enabled
+  const prevLinks = Array.isArray(current?.subWorkflows) ? current!.subWorkflows! : []
+  const subWorkflows = graph.nodes
+    .filter(n => n.type === 'transition' && (n.data as any).subPage?.enabled)
+    .map(n => {
+      const cfg = (n.data as any).subPage || {}
+      // Try to reuse previous id if exists for same transition
+      const prev = prevLinks.find(l => (l as any).callTransitionId === n.id)
+      const idExisting = cfg.id || prev?.id || `sw_${n.id}`
+      return {
+        id: idExisting,
+        cpnId: cfg.cpnId,
+        callTransitionId: n.id,
+        autoStart: cfg.autoStart ?? true,
+        propagateOnComplete: cfg.propagateOnComplete ?? true,
+        inputMapping: cfg.inputMapping || {},
+        outputMapping: cfg.outputMapping || {},
+      }
+    })
   return {
     id,
     name,
     description: description || current?.description || '',
     colorSets: mergedColorSets,
-  jsonSchemas: (declarations as any)?.jsonSchemas || current?.jsonSchemas || [],
+    jsonSchemas: (declarations as any)?.jsonSchemas || current?.jsonSchemas || [],
     places,
     transitions,
     arcs,
     endPlaces,
     initialMarking,
-    subWorkflows: current?.subWorkflows || [],
+    subWorkflows,
   }
 }

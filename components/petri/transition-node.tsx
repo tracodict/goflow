@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState } from "react"
 import { Handle, Position, type NodeProps } from "@xyflow/react"
-import { Hand, Bot, MessageSquare, Timer, Brain, TableProperties, Code } from "lucide-react"
+import { Hand, Bot, MessageSquare, Timer, Brain, Code } from "lucide-react"
 import type { PetriNodeData, TransitionType } from "@/lib/petri-types"
 import { Badge } from "@/components/ui/badge"
 
@@ -11,8 +11,7 @@ const typeIconMap: Record<TransitionType, React.ReactNode> = {
   Manual: <Hand className="h-4 w-4 text-emerald-700" aria-label="manual" />,
   Auto: <Bot className="h-4 w-4 text-emerald-700" aria-label="auto" />,
   Message: <MessageSquare className="h-4 w-4 text-emerald-700" aria-label="message" />,
-  Dmn: <TableProperties className="h-4 w-4 text-emerald-700" aria-label="dmn" />,
-  Llm: <Brain className="h-4 w-4 text-emerald-700" aria-label="llm" />,
+  LLM: <Brain className="h-4 w-4 text-emerald-700" aria-label="llm" />,
 }
 
 export function TransitionNode({ id, data, selected }: NodeProps<any>) {
