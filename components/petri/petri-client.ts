@@ -191,3 +191,40 @@ export async function withApiErrorToast<T>(promise: Promise<T>, toastFn?: (opts:
     throw e
   }
 }
+
+// ---- Case-based API helpers ----
+export async function createCase(flowServiceUrl: string, payload: { id?: string; cpnId: string; name?: string; description?: string; variables?: Record<string,any> }) {
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const resp = await fetch(`${base}/api/cases/create`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  })
+  if (!resp.ok) throw new Error(`Failed to create case: ${resp.status}`)
+  return resp.json()
+}
+export async function startCase(flowServiceUrl: string, caseId: string) {
+  const resp = await fetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/start?id=${encodeURIComponent(caseId)}`, { method: 'POST' })
+  if (!resp.ok) throw new Error(`Failed to start case: ${resp.status}`)
+  return resp.json()
+}
+export async function executeAllCase(flowServiceUrl: string, caseId: string) {
+  const resp = await fetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/executeall?id=${encodeURIComponent(caseId)}`, { method: 'POST' })
+  if (!resp.ok) throw new Error(`Failed to execute all: ${resp.status}`)
+  return resp.json()
+}
+export async function fetchCaseEnabledTransitions(flowServiceUrl: string, caseId: string) {
+  const resp = await fetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/transitions/enabled?id=${encodeURIComponent(caseId)}`)
+  if (!resp.ok) throw new Error(`Failed to fetch case transitions: ${resp.status}`)
+  return resp.json()
+}
+export async function fireCaseTransition(flowServiceUrl: string, caseId: string, transitionId: string, bindingIndex: number = 0, formData?: any) {
+  const resp = await fetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/fire?id=${encodeURIComponent(caseId)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transitionId, bindingIndex, ...(formData !== undefined ? { formData } : {}) })
+  })
+  if (!resp.ok) throw new Error(`Failed to fire case transition: ${resp.status}`)
+  return resp.json()
+}
+export async function getCase(flowServiceUrl: string, caseId: string) {
+  const resp = await fetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/get?id=${encodeURIComponent(caseId)}`)
+  if (!resp.ok) throw new Error(`Failed to get case: ${resp.status}`)
+  return resp.json()
+}

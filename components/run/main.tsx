@@ -1,8 +1,7 @@
 "use client"
 import React, { useEffect, useState } from 'react'
-import { MessageSquare, MessageSquareDot, X } from 'lucide-react'
-import { useMonitor } from '@/hooks/use-monitor'
-import { fetchWorkflow, fireTransition } from '@/components/petri/petri-client'
+import { MessageSquare, MessageSquareDot, X, PanelLeftOpen, PanelLeftClose, Plus, RefreshCcw } from 'lucide-react'
+import { fetchWorkflowList, fetchWorkflow, createCase, startCase, fetchCaseEnabledTransitions, fireCaseTransition } from '@/components/petri/petri-client'
 import type { PetriNodeData } from '@/lib/petri-types'
 import type { Node } from '@xyflow/react'
 import { DEFAULT_SETTINGS } from '@/components/petri/system-settings-context'
@@ -12,6 +11,11 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
   const [nodes, setNodes] = useState<Node<PetriNodeData>[]>([])
   const [wfTransitions, setWfTransitions] = useState<any[]>([])
   const [jsonSchemas, setJsonSchemas] = useState<{ name: string; schema: any }[]>([])
+  const [workflows, setWorkflows] = useState<any[]>([])
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [showWorkflowPicker, setShowWorkflowPicker] = useState(false)
+  const [cases, setCases] = useState<{ id: string; cpnId: string; name: string; description?: string; enabled: any[] }[]>([])
+  const [activeCaseId, setActiveCaseId] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const hideTimerRef = React.useRef<any>(null)
   const [hoverTransitionId, setHoverTransitionId] = useState<string | null>(null)
@@ -41,33 +45,71 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
           })()
         : undefined)
 
-  const { enabled, refresh } = useMonitor({ workflowId, flowServiceUrl, setNodes })
+  // Case-based polling of enabled transitions (simple interval)
+  const [enabled, setEnabled] = useState<any[]>([])
+  const refresh = React.useCallback(async () => {
+    if (!flowServiceUrl || !activeCaseId) return
+    try {
+      const data = await fetchCaseEnabledTransitions(flowServiceUrl, activeCaseId)
+      const list = Array.isArray(data) ? data : (data?.data || [])
+      setEnabled(list)
+      setCases(cs => cs.map(c => c.id === activeCaseId ? { ...c, enabled: list } : c))
+    } catch {/* ignore */}
+  }, [flowServiceUrl, activeCaseId])
 
-  // Fetch workflow definition (for transition kind & formSchema + jsonSchemas)
+  // Fetch workflow definition for currently selected case's cpn
   useEffect(() => {
     let cancelled = false
     async function load() {
-      if (!workflowId || !flowServiceUrl) return
+      if (!flowServiceUrl) return
+      const cpn = activeCaseId ? cases.find(c => c.id === activeCaseId)?.cpnId : workflowId
+      if (!cpn) return
       try {
-        const resp: any = await fetchWorkflow(flowServiceUrl, workflowId)
+        const resp: any = await fetchWorkflow(flowServiceUrl, cpn)
         const data = resp?.data || resp
         if (!cancelled && data) {
           setWfTransitions(Array.isArray(data.transitions) ? data.transitions : [])
           setJsonSchemas(Array.isArray(data.jsonSchemas) ? data.jsonSchemas : [])
         }
-      } catch { /* ignore */ }
+      } catch {/* ignore */}
     }
     load()
     return () => { cancelled = true }
-  }, [workflowId, flowServiceUrl])
+  }, [activeCaseId, workflowId, flowServiceUrl, cases])
 
-  // Auto refresh every 5s when in run mode (light polling)
+  // Load workflow list for picker
   useEffect(() => {
-    if (!workflowId) return
+    if (!flowServiceUrl) return
+    fetchWorkflowList(flowServiceUrl).then(res => {
+      const arr = res?.cpns || res?.data?.cpns || []
+      setWorkflows(arr)
+    }).catch(()=>{})
+  }, [flowServiceUrl])
+
+  // Poll enabled transitions for active case
+  useEffect(() => {
+    if (!activeCaseId) return
     refresh()
-    const id = setInterval(() => refresh(), 5000)
+    const id = setInterval(() => refresh(), 4000)
     return () => clearInterval(id)
-  }, [workflowId, refresh])
+  }, [activeCaseId, refresh])
+
+  // Seed an initial case when workflowId prop provided (legacy deep link)
+  useEffect(() => {
+    if (!workflowId || !flowServiceUrl) return
+    if (cases.length === 0) {
+      const suffix = Math.random().toString(36).slice(2,5)
+      const caseId = `${workflowId}-case-${suffix}`
+      ;(async () => {
+        try {
+          await createCase(flowServiceUrl, { id: caseId, cpnId: workflowId, name: `${workflowId}#${suffix}` })
+          await startCase(flowServiceUrl, caseId)
+          setCases([{ id: caseId, cpnId: workflowId, name: `${workflowId}#${suffix}`, enabled: [] }])
+          setActiveCaseId(caseId)
+        } catch {/* ignore */}
+      })()
+    }
+  }, [workflowId, flowServiceUrl, cases.length])
 
   const anyEnabled = enabled.length > 0
 
@@ -114,11 +156,61 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden">
-      {/* Placeholder background */}
-      <div className="absolute inset-0 flex items-center justify-center text-neutral-400 text-sm select-none">
-        Run Mode (workflow: {workflowId || 'none'})
+    <div className="relative h-full w-full overflow-hidden flex flex-col">
+      {/* Top header bar */}
+      <div className="flex items-center justify-between h-10 border-b bg-white/80 backdrop-blur px-2 text-xs">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="h-7 w-7 inline-flex items-center justify-center rounded border bg-white hover:bg-neutral-50"
+            onClick={() => setSidebarOpen(o => !o)}
+            title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+          >{sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}</button>
+          <span className="font-medium">Run Mode</span>
+          {activeCaseId && <span className="text-neutral-500">Case: {cases.find(c=>c.id===activeCaseId)?.name || activeCaseId}</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => refresh()} className="h-7 w-7 inline-flex items-center justify-center rounded border bg-white hover:bg-neutral-50" title="Refresh transitions"><RefreshCcw className="h-4 w-4" /></button>
+        </div>
       </div>
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
+        {sidebarOpen && (
+          <div className="w-64 border-r flex flex-col bg-white">
+            <div className="flex items-center justify-between h-9 px-2 border-b text-xs font-medium">
+              <span>Cases</span>
+              <button type="button" className="h-7 w-7 inline-flex items-center justify-center rounded border bg-white hover:bg-neutral-50" title="Create case" onClick={() => setShowWorkflowPicker(v=>!v)}>
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-2 space-y-1 text-xs">
+              {cases.map(c => {
+                const enabledCount = c.enabled?.length || 0
+                return (
+                  <div key={c.id} className={`group border rounded px-2 py-1 cursor-pointer ${c.id===activeCaseId ? 'bg-emerald-50 border-emerald-300' : 'bg-white hover:bg-neutral-50'}`} onClick={() => { setActiveCaseId(c.id); setMenuOpen(false) }}>
+                    <div className="flex items-center gap-1">
+                      <input
+                        className="flex-1 bg-transparent outline-none text-xs font-medium"
+                        value={c.name}
+                        onChange={e => setCases(cs => cs.map(x => x.id===c.id ? { ...x, name: e.target.value } : x))}
+                      />
+                      {enabledCount>0 && <span className="text-[9px] text-emerald-600" title={`${enabledCount} enabled transitions`}>{enabledCount}</span>}
+                    </div>
+                    <div className="text-[10px] text-neutral-400 truncate">{c.cpnId}</div>
+                  </div>
+                )
+              })}
+              {cases.length===0 && <div className="text-neutral-400 text-[11px]">No cases</div>}
+            </div>
+          </div>
+        )}
+        {/* Main panel */}
+        <div className="relative flex-1">
+          {/* Background placeholder */}
+          <div className="absolute inset-0 flex items-center justify-center text-neutral-300 text-sm select-none pointer-events-none">
+            {activeCaseId ? `Active case: ${cases.find(c=>c.id===activeCaseId)?.name}` : 'No case selected'}
+          </div>
+          {/* Floating enabled transitions button retained */}
       <div
         className="fixed right-4 bottom-4 z-50"
         onMouseEnter={() => {
@@ -225,7 +317,39 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
           </>
         )}
       </div>
-      {formOpen && (
+          {showWorkflowPicker && (
+            <div className="absolute inset-x-0 bottom-0 max-h-[55%] bg-white border-t rounded-t-lg shadow-xl flex flex-col">
+              <div className="flex items-center justify-between px-4 py-2 border-b text-xs font-medium">
+                <span>Select Workflow</span>
+                <button type="button" onClick={()=>setShowWorkflowPicker(false)} className="h-7 w-7 inline-flex items-center justify-center rounded border bg-white hover:bg-neutral-50" aria-label="Close picker"><X className="h-4 w-4" /></button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 p-4 overflow-auto text-xs">
+                {workflows.map(w => (
+                  <button
+                    key={w.id}
+                    className="border rounded p-2 text-left hover:border-emerald-500 hover:shadow-sm bg-white"
+                    onClick={async () => {
+                      if (!flowServiceUrl || !w.id) return
+                      const suffix = Math.random().toString(36).slice(2,5)
+                      const caseId = `${w.id}-case-${suffix}`
+                      try {
+                        await createCase(flowServiceUrl, { id: caseId, cpnId: w.id, name: `${w.name || w.id}#${suffix}`, description: w.description })
+                        await startCase(flowServiceUrl, caseId)
+                        setCases(cs => [...cs, { id: caseId, cpnId: w.id, name: `${w.name || w.id}#${suffix}`, description: w.description, enabled: [] }])
+                        setActiveCaseId(caseId)
+                        setShowWorkflowPicker(false)
+                      } catch {/* ignore */}
+                    }}
+                  >
+                    <div className="font-medium truncate mb-1">{w.name || w.id}</div>
+                    <div className="text-[10px] text-neutral-500 line-clamp-3 min-h-[2.4em]">{w.description || 'No description'}</div>
+                  </button>
+                ))}
+                {!workflows.length && <div className="col-span-full text-neutral-400">No workflows</div>}
+              </div>
+            </div>
+          )}
+          {formOpen && (
         <div className="fixed inset-0 z-[100] flex flex-col bg-white/95 backdrop-blur-sm">
           <div className="flex items-center justify-between border-b px-4 py-2 bg-white/80">
             <h2 className="text-sm font-medium truncate pr-4">{formTitle}</h2>
@@ -338,8 +462,8 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
             <button
               type="button"
               onClick={async () => {
-                if (flowServiceUrl && workflowId && formTransitionId != null) {
-                  try { await fireTransition(flowServiceUrl, workflowId, formTransitionId, formBindingIndex, formData) } catch(e){ /* eslint-disable no-console */ console.warn('Fire with formData failed', e) }
+                if (flowServiceUrl && activeCaseId && formTransitionId != null) {
+                  try { await fireCaseTransition(flowServiceUrl, activeCaseId, formTransitionId, formBindingIndex, formData) } catch(e){ /* eslint-disable no-console */ console.warn('Fire with formData failed', e) }
                 }
                 setFormOpen(false)
               }}
@@ -347,7 +471,9 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
             >Submit</button>
           </div>
         </div>
-      )}
+          )}
+        </div>
+      </div>
     </div>
   )
 }
