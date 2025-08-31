@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { FolderPlus, Trash2, Folder, ChevronRight, ChevronDown, Plus, X, Activity, Bot, Hand, MessageSquare, TableProperties, Brain, RefreshCw } from 'lucide-react';
+import { FolderPlus, Trash2, Folder, ChevronRight, ChevronDown, Plus, X, RefreshCw, FileUp } from 'lucide-react';
+import { saveWorkflow } from '@/components/petri/petri-client';
+import { DEFAULT_SETTINGS } from '@/components/petri/system-settings-context';
 
 function RenameableText({ label, onRename, className, inputStyle, onAfterRename }: {
   label: string;
@@ -91,6 +93,7 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
         <button title="Create workflow" onClick={() => onCreateWorkflow?.()} style={{ display:'flex', alignItems:'center' }}>
           <FolderPlus className="h-3.5 w-3.5 text-neutral-600" />
         </button>
+  <ImportWorkflowButton onImported={() => onRefreshWorkflows?.()} />
         <button title="Refresh list" onClick={() => onRefreshWorkflows?.()} style={{ display:'flex', alignItems:'center' }}>
           <RefreshCw className="h-3.5 w-3.5 text-neutral-600" />
         </button>
@@ -237,5 +240,88 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
         })}
       </div>
     </div>
+  )
+}
+
+function ImportWorkflowButton({ onImported }: { onImported?: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [file, setFile] = useState<File | null>(null)
+  const [text, setText] = useState<string>('')
+  const [error, setError] = useState<string>('')
+  const [loading, setLoading] = useState(false)
+
+  const resolveServiceUrl = () => {
+    if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_FLOW_SERVICE_URL) return process.env.NEXT_PUBLIC_FLOW_SERVICE_URL
+    if (typeof window !== 'undefined') {
+      const g = (window as any).__goflowServiceBase
+      if (g) return g
+      try {
+        const raw = window.localStorage.getItem('goflow.systemSettings')
+        if (raw) { const parsed = JSON.parse(raw); if (parsed?.flowServiceUrl) return parsed.flowServiceUrl }
+      } catch {/* ignore */}
+    }
+    return DEFAULT_SETTINGS.flowServiceUrl
+  }
+
+  const onPick = (f: File | null) => {
+    setFile(f)
+    setError('')
+    setText('')
+    if (f) {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const t = String(e.target?.result || '')
+        setText(t)
+      }
+      reader.readAsText(f)
+    }
+  }
+
+  const doImport = async () => {
+    if (!file) { setError('Select a file first'); return }
+    let json: any
+    try { json = JSON.parse(text) } catch { setError('Invalid JSON'); return }
+    const base = resolveServiceUrl()
+    setLoading(true)
+    try {
+      await saveWorkflow(base, json)
+      onImported?.()
+      setOpen(false)
+      setFile(null)
+      setText('')
+      setError('')
+    } catch (e: any) {
+      setError(e?.serverMessage || e?.message || 'Import failed')
+    } finally { setLoading(false) }
+  }
+
+  return (
+    <>
+      <button title="Import workflow" onClick={() => setOpen(true)} style={{ display:'flex', alignItems:'center' }}>
+        <FileUp className="h-3.5 w-3.5 text-neutral-600" />
+      </button>
+      {open && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.25)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center' }} onClick={() => !loading && setOpen(false)}>
+          <div style={{ width:420, maxWidth:'90%', background:'#fff', borderRadius:8, boxShadow:'0 4px 16px rgba(0,0,0,0.15)', display:'flex', flexDirection:'column' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', borderBottom:'1px solid #eee' }}>
+              <span style={{ fontSize:13, fontWeight:600 }}>Import Workflow</span>
+              <button onClick={() => !loading && setOpen(false)} aria-label="Close" style={{ display:'flex', alignItems:'center' }}><X className="h-4 w-4 text-neutral-500" /></button>
+            </div>
+            <div style={{ padding:12, display:'flex', flexDirection:'column', gap:10 }}>
+              <input type="file" accept="application/json,.json" onChange={e => onPick(e.target.files?.[0] || null)} />
+              {file && (
+                <div style={{ fontSize:11, color:'#555' }}>Selected: <strong>{file.name}</strong> ({Math.round(file.size/1024)} KB)</div>
+              )}
+              {text && <textarea readOnly value={text.slice(0,2000)} style={{ fontSize:11, fontFamily:'monospace', width:'100%', height:120, padding:6, border:'1px solid #ddd', borderRadius:4 }} />}
+              {error && <div style={{ color:'#b91c1c', fontSize:11 }}>{error}</div>}
+            </div>
+            <div style={{ padding:'8px 12px', borderTop:'1px solid #eee', display:'flex', justifyContent:'flex-end', gap:8 }}>
+              <button disabled={loading} onClick={() => setOpen(false)} style={{ fontSize:12, padding:'4px 10px', border:'1px solid #ccc', borderRadius:4, background:'#fff' }}>Cancel</button>
+              <button disabled={loading || !file} onClick={doImport} style={{ fontSize:12, padding:'4px 12px', borderRadius:4, background: loading? '#065f46':'#059669', color:'#fff', border:'none', opacity: (!file||loading)?0.8:1 }}>{loading? 'Importing...' : 'Import'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }

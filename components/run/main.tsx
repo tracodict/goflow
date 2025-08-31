@@ -1,6 +1,15 @@
 "use client"
 import React, { useEffect, useState } from 'react'
-import { MessageSquare, MessageSquareDot, X, PanelLeftOpen, PanelLeftClose, Plus, RefreshCcw } from 'lucide-react'
+import { MessageSquare, MessageSquareDot, Square, X, PanelLeftOpen, PanelLeftClose, Plus, RefreshCcw } from 'lucide-react'
+// JSON Forms imports (packages added in package.json). Types may be unresolved until install.
+// @ts-ignore
+import { JsonForms } from '@jsonforms/react'
+// @ts-ignore
+import { vanillaCells, vanillaRenderers } from '@jsonforms/vanilla-renderers'
+// Shadcn/Radix based custom renderers
+import { shadcnRenderers, shadcnCells } from '@/components/run/forms/renderers'
+// @ts-ignore
+import { rankWith, isStringControl, isNumberControl, isBooleanControl } from '@jsonforms/core'
 import { fetchWorkflowList, fetchWorkflow, createCase, startCase, fetchCaseEnabledTransitions, fireCaseTransition } from '@/components/petri/petri-client'
 import type { PetriNodeData } from '@/lib/petri-types'
 import type { Node } from '@xyflow/react'
@@ -14,7 +23,10 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
   const [workflows, setWorkflows] = useState<any[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [showWorkflowPicker, setShowWorkflowPicker] = useState(false)
-  const [cases, setCases] = useState<{ id: string; cpnId: string; name: string; description?: string; enabled: any[] }[]>([])
+  const [cases, setCases] = useState<{ id: string; cpnId: string; name: string; description?: string; enabled: any[]; status?: string }[]>([])
+  // Mutable ref to always access latest cases inside stable callbacks
+  const casesRef = React.useRef(cases)
+  useEffect(() => { casesRef.current = cases }, [cases])
   const [activeCaseId, setActiveCaseId] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const hideTimerRef = React.useRef<any>(null)
@@ -23,10 +35,13 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
   const [hoveredBindingIndex, setHoveredBindingIndex] = useState<number | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [formSchema, setFormSchema] = useState<any>(null)
+  const [formUiSchema, setFormUiSchema] = useState<any>(null)
   const [formData, setFormData] = useState<any>(null)
   const [formTitle, setFormTitle] = useState<string>('Manual Task')
   const [formTransitionId, setFormTransitionId] = useState<string | null>(null)
   const [formBindingIndex, setFormBindingIndex] = useState<number>(0)
+  // Effective (frozen) schema determined once when form opens (avoid re-inferring on each keystroke)
+  const [effectiveSchema, setEffectiveSchema] = useState<any>(null)
   // Resolve flowServiceUrl with fallbacks: env -> global -> persisted settings -> default
   const flowServiceUrl = process.env.NEXT_PUBLIC_FLOW_SERVICE_URL
     || (typeof window !== 'undefined' ? (window as any).__goflowServiceBase : undefined)
@@ -49,6 +64,8 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
   const [enabled, setEnabled] = useState<any[]>([])
   const refresh = React.useCallback(async () => {
     if (!flowServiceUrl || !activeCaseId) return
+    const currentCase = casesRef.current.find(c => c.id === activeCaseId)
+    if (currentCase?.status === 'COMPLETED') return
     try {
       const data = await fetchCaseEnabledTransitions(flowServiceUrl, activeCaseId)
       const list = Array.isArray(data) ? data : (data?.data || [])
@@ -62,7 +79,7 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
     let cancelled = false
     async function load() {
       if (!flowServiceUrl) return
-      const cpn = activeCaseId ? cases.find(c => c.id === activeCaseId)?.cpnId : workflowId
+      const cpn = activeCaseId ? casesRef.current.find(c => c.id === activeCaseId)?.cpnId : workflowId
       if (!cpn) return
       try {
         const resp: any = await fetchWorkflow(flowServiceUrl, cpn)
@@ -75,7 +92,9 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
     }
     load()
     return () => { cancelled = true }
-  }, [activeCaseId, workflowId, flowServiceUrl, cases])
+    // Only refetch when identifiers change, not on every cases mutation
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCaseId, workflowId, flowServiceUrl])
 
   // Load workflow list for picker
   useEffect(() => {
@@ -104,14 +123,21 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
         try {
           await createCase(flowServiceUrl, { id: caseId, cpnId: workflowId, name: `${workflowId}#${suffix}` })
           await startCase(flowServiceUrl, caseId)
-          setCases([{ id: caseId, cpnId: workflowId, name: `${workflowId}#${suffix}`, enabled: [] }])
+          setCases([{ id: caseId, cpnId: workflowId, name: `${workflowId}#${suffix}`, enabled: [], status: 'ACTIVE' }])
           setActiveCaseId(caseId)
         } catch {/* ignore */}
       })()
     }
   }, [workflowId, flowServiceUrl, cases.length])
 
+  const activeCase = React.useMemo(() => cases.find(c => c.id === activeCaseId), [cases, activeCaseId])
+  const caseCompleted = activeCase?.status === 'COMPLETED'
   const anyEnabled = enabled.length > 0
+
+  // Close menu when no enabled transitions and not completed
+  useEffect(() => {
+    if (!anyEnabled && !caseCompleted) setMenuOpen(false)
+  }, [anyEnabled, caseCompleted])
 
   function getTransitionDef(t: any) {
     const tid = t.id || t.transitionId
@@ -121,9 +147,33 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
   function getSchemaForTransition(t: any) {
     const def = getTransitionDef(t)
     const formSchemaName = def?.formSchema || def?.manual?.formSchema
-    if (!formSchemaName) return null
+    const layoutSchemaRaw = def?.manual?.layoutSchema || def?.layoutSchema
+    if (!formSchemaName) return { name: undefined, schema: null, ui: layoutSchemaRaw ? safeParse(layoutSchemaRaw) : null }
     const found = jsonSchemas.find(s => s.name === formSchemaName)
-    return found ? { name: formSchemaName, schema: found.schema } : { name: formSchemaName, schema: null }
+    return found ? { name: formSchemaName, schema: found.schema, ui: layoutSchemaRaw ? safeParse(layoutSchemaRaw) : null } : { name: formSchemaName, schema: null, ui: layoutSchemaRaw ? safeParse(layoutSchemaRaw) : null }
+  }
+
+  const safeParse = (txt: string) => { try { return JSON.parse(txt) } catch { return null } }
+
+  function inferSchemaFromData(sample: any): any {
+    if (sample == null) return { type: 'string' }
+    if (typeof sample === 'string') {
+      // Infer date format yyyy-mm-dd
+      if (/^\d{4}-\d{2}-\d{2}$/.test(sample)) return { type: 'string', format: 'date' }
+      return { type: 'string' }
+    }
+    if (typeof sample === 'number') return { type: Number.isInteger(sample) ? 'integer' : 'number' }
+    if (typeof sample === 'boolean') return { type: 'boolean' }
+    if (Array.isArray(sample)) {
+      const first = sample[0]
+      return { type: 'array', items: inferSchemaFromData(first) }
+    }
+    if (typeof sample === 'object') {
+      const props: Record<string, any> = {}
+      Object.entries(sample).forEach(([k, v]) => { props[k] = inferSchemaFromData(v) })
+      return { type: 'object', properties: props }
+    }
+    return { type: 'string' }
   }
 
   const bindingsForHover = React.useMemo(() => {
@@ -136,6 +186,7 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
   const handleClickBinding = (transition: any, binding: any, index: number) => {
     const schemaInfo = getSchemaForTransition(transition)
     setFormSchema(schemaInfo?.schema || null)
+    setFormUiSchema(schemaInfo?.ui || null)
     // Binding shape: { variableName: value } – extract the value
     let value = binding
     let variableName: string | undefined
@@ -147,6 +198,14 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
       }
     }
     setFormData(value)
+    // Determine and freeze schema once
+    let eff = schemaInfo?.schema
+    if (!eff) {
+      if (value === null) eff = { type: 'string' }
+      else if (value === undefined) eff = { type: 'object', properties: {} }
+      else eff = inferSchemaFromData(value)
+    }
+    setEffectiveSchema(eff)
     setFormTitle((transition.name || transition.id || 'Manual Task') + (variableName ? ` – ${variableName}` : ''))
   setFormOpen(true)
   setFormTransitionId(transition.id || transition.transitionId)
@@ -154,6 +213,13 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
     setMenuOpen(false)
     setHoverTransitionId(null)
   }
+
+  // Reset frozen schema when form closes
+  useEffect(() => {
+    if (!formOpen) {
+      setEffectiveSchema(null)
+    }
+  }, [formOpen])
 
   return (
     <div className="relative h-full w-full overflow-hidden flex flex-col">
@@ -210,27 +276,28 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
           <div className="absolute inset-0 flex items-center justify-center text-neutral-300 text-sm select-none pointer-events-none">
             {activeCaseId ? `Active case: ${cases.find(c=>c.id===activeCaseId)?.name}` : 'No case selected'}
           </div>
-          {/* Floating enabled transitions button retained */}
-      <div
-        className="fixed right-4 bottom-4 z-50"
-        onMouseEnter={() => {
-          if (hideTimerRef.current) { clearTimeout(hideTimerRef.current); hideTimerRef.current = null }
-          if (enabled.length) setMenuOpen(true)
-        }}
-        onMouseLeave={() => {
-          if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
-          hideTimerRef.current = setTimeout(() => setMenuOpen(false), 2000)
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => refresh()}
-          title={anyEnabled ? 'Enabled transitions available – click to refresh' : 'No transitions enabled – click to refresh'}
-          className="group inline-flex h-12 w-12 items-center justify-center rounded-full border bg-white shadow-lg hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          {/* Floating enabled transitions button (hidden if none and not completed) */}
+      {(anyEnabled || caseCompleted) && (
+        <div
+          className="fixed right-4 bottom-4 z-50"
+          onMouseEnter={() => {
+            if (hideTimerRef.current) { clearTimeout(hideTimerRef.current); hideTimerRef.current = null }
+            if (enabled.length) setMenuOpen(true)
+          }}
+          onMouseLeave={() => {
+            if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+            hideTimerRef.current = setTimeout(() => setMenuOpen(false), 2000)
+          }}
         >
-          {anyEnabled ? <MessageSquareDot className="h-6 w-6 text-emerald-600" /> : <MessageSquare className="h-6 w-6 text-neutral-500" />}
-        </button>
-        {menuOpen && enabled.length > 0 && (
+          <button
+            type="button"
+            onClick={() => refresh()}
+            title={caseCompleted ? 'Case completed' : (anyEnabled ? 'Enabled transitions available – click to refresh' : 'No transitions enabled – click to refresh')}
+            className="group inline-flex h-12 w-12 items-center justify-center rounded-full border bg-white shadow-lg hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            {caseCompleted ? <Square className="h-6 w-6 text-emerald-600" /> : (anyEnabled ? <MessageSquareDot className="h-6 w-6 text-emerald-600" /> : <MessageSquare className="h-6 w-6 text-neutral-500" />)}
+          </button>
+          {menuOpen && enabled.length > 0 && (
           <>
             <div
               className="absolute bottom-14 right-0 w-60 max-h-72 overflow-auto rounded-md border bg-white shadow-lg p-1 text-xs"
@@ -314,9 +381,10 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
                 </div>
               </div>
             )}
-          </>
-        )}
-      </div>
+            </>
+          )}
+        </div>
+      )}
           {showWorkflowPicker && (
             <div className="absolute inset-x-0 bottom-0 max-h-[55%] bg-white border-t rounded-t-lg shadow-xl flex flex-col">
               <div className="flex items-center justify-between px-4 py-2 border-b text-xs font-medium">
@@ -335,7 +403,7 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
                       try {
                         await createCase(flowServiceUrl, { id: caseId, cpnId: w.id, name: `${w.name || w.id}#${suffix}`, description: w.description })
                         await startCase(flowServiceUrl, caseId)
-                        setCases(cs => [...cs, { id: caseId, cpnId: w.id, name: `${w.name || w.id}#${suffix}`, description: w.description, enabled: [] }])
+                        setCases(cs => [...cs, { id: caseId, cpnId: w.id, name: `${w.name || w.id}#${suffix}`, description: w.description, enabled: [], status: 'ACTIVE' }])
                         setActiveCaseId(caseId)
                         setShowWorkflowPicker(false)
                       } catch {/* ignore */}
@@ -363,95 +431,40 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
             </button>
           </div>
           <div className="flex-1 overflow-auto p-6">
-            {formSchema && formSchema.type === 'object' && formSchema.properties ? (
-              <form className="space-y-4 max-w-3xl">
-                {Object.entries<any>(formSchema.properties).map(([key, propSchema]: any) => {
-                  const value = formData?.[key]
-                  const required = Array.isArray(formSchema.required) && formSchema.required.includes(key)
-                  const type = propSchema.type
-                  const label = propSchema.title || key
-                  const desc = propSchema.description
-                  const common = 'block w-full rounded border px-2 py-1 text-sm'
-                  let inputEl: React.ReactNode
-                  if (type === 'string') {
-                    inputEl = (
-                      <input
-                        type="text"
-                        className={common}
-                        value={value ?? ''}
-                        onChange={e => setFormData((d: any) => ({ ...(d||{}), [key]: e.target.value }))}
-                      />
-                    )
-                  } else if (type === 'number' || type === 'integer') {
-                    inputEl = (
-                      <input
-                        type="number"
-                        className={common}
-                        value={value ?? ''}
-                        onChange={e => setFormData((d: any) => ({ ...(d||{}), [key]: e.target.value === '' ? undefined : (type==='integer'? parseInt(e.target.value,10): parseFloat(e.target.value)) }))}
-                      />
-                    )
-                  } else if (type === 'boolean') {
-                    inputEl = (
-                      <label className="inline-flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={!!value}
-                          onChange={e => setFormData((d: any) => ({ ...(d||{}), [key]: e.target.checked }))}
-                        />
-                        <span>{label}</span>
-                      </label>
-                    )
-                  } else {
-                    inputEl = <div className="text-xs text-neutral-500">Unsupported field type: {type}</div>
-                  }
-                  return (
-                    <div key={key} className="space-y-1">
-                      {type !== 'boolean' && <label className="text-xs font-medium text-neutral-700 flex items-center gap-1">{label}{required && <span className="text-rose-500">*</span>}</label>}
-                      {inputEl}
-                      {desc && <p className="text-[11px] text-neutral-500">{desc}</p>}
-                    </div>
-                  )
-                })}
-              </form>
-            ) : formSchema && (formSchema.type === 'string' || formSchema.type === 'number' || formSchema.type === 'integer' || formSchema.type === 'boolean') ? (
-              <form className="space-y-4 max-w-md">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-neutral-700 flex items-center gap-1">{formSchema.title || 'Value'}</label>
-                  {formSchema.type === 'string' && (
-                    <input
-                      type="text"
-                      className="block w-full rounded border px-2 py-1 text-sm"
-                      value={formData ?? ''}
-                      onChange={e => setFormData(e.target.value)}
-                    />
-                  )}
-                  {(formSchema.type === 'number' || formSchema.type === 'integer') && (
-                    <input
-                      type="number"
-                      className="block w-full rounded border px-2 py-1 text-sm"
-                      value={formData ?? ''}
-                      onChange={e => setFormData(e.target.value === '' ? undefined : (formSchema.type === 'integer' ? parseInt(e.target.value,10) : parseFloat(e.target.value)))}
-                    />
-                  )}
-                  {formSchema.type === 'boolean' && (
-                    <label className="inline-flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={!!formData}
-                        onChange={e => setFormData(e.target.checked)}
-                      />
-                      <span>{formSchema.title || 'Value'}</span>
-                    </label>
-                  )}
-                  {formSchema.description && <p className="text-[11px] text-neutral-500">{formSchema.description}</p>}
-                </div>
-              </form>
-            ) : formSchema ? (
-              <div className="text-sm text-neutral-500">Schema type not supported in simple renderer.</div>
-            ) : (
-              <div className="text-sm text-neutral-500">No schema available for this transition.</div>
-            )}
+            <JsonForms
+              schema={effectiveSchema || formSchema || { type: 'string' }}
+              uischema={(formUiSchema || (() => {
+                // Auto-generate responsive grid layout when schema is object
+                const s = effectiveSchema || formSchema
+                if (s && s.type === 'object' && s.properties) {
+                    const elements = Object.keys(s.properties).map(k => {
+                      const prop: any = s.properties[k]
+                      const isArray = prop?.type === 'array'
+                      const isDate = (prop?.type === 'string' && (prop?.format === 'date'))
+                      const isObject = prop?.type === 'object'
+                      return {
+                        type: 'Control',
+                        scope: `#/properties/${k}`,
+                        options: {
+                          ...(isDate ? { date: true } : {}),
+                          ...(isArray ? { fullWidth: true } : {}),
+                          ...(isObject ? { fullWidth: true, lazyObject: true } : {})
+                        }
+                      }
+                    })
+                  return { type: 'VerticalLayout', options: { grid: 'responsive', columns: { sm:1, md:3, lg:5 } }, elements }
+                }
+                // Fallback: simple control
+                if (s && s.type !== 'object') return { type: 'Control', scope: '#' }
+                return undefined
+              })()) as any}
+              data={formData ?? {}}
+              // Prefer custom shadcn renderers first, then fallback to vanilla
+              renderers={[...shadcnRenderers, ...vanillaRenderers]}
+              cells={[...shadcnCells, ...vanillaCells]}
+              onChange={(ev: any) => setFormData(ev.data)}
+            />
+            {!formSchema && !formUiSchema && <p className="mt-4 text-[11px] text-neutral-500">Schema & responsive layout inferred (1 / 3 / 5 columns). Supply layoutSchema to override (options.columns {`{ sm, md, lg }`} or per-element options.span).</p>}
           </div>
           <div className="border-t px-4 py-2 flex justify-end gap-2 bg-white/80">
             <button
@@ -463,7 +476,18 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
               type="button"
               onClick={async () => {
                 if (flowServiceUrl && activeCaseId && formTransitionId != null) {
-                  try { await fireCaseTransition(flowServiceUrl, activeCaseId, formTransitionId, formBindingIndex, formData) } catch(e){ /* eslint-disable no-console */ console.warn('Fire with formData failed', e) }
+                  try {
+                    const resp = await fireCaseTransition(flowServiceUrl, activeCaseId, formTransitionId, formBindingIndex, formData)
+                    const status = resp?.data?.status || resp?.status
+                    if (status === 'COMPLETED') {
+                      setCases(cs => cs.map(c => c.id === activeCaseId ? { ...c, status: 'COMPLETED', enabled: [] } : c))
+                      setEnabled([])
+                      setMenuOpen(false)
+                    } else {
+                      // refresh enabled transitions after fire for quicker UI feedback
+                      refresh()
+                    }
+                  } catch(e){ /* eslint-disable no-console */ console.warn('Fire with formData failed', e) }
                 }
                 setFormOpen(false)
               }}
