@@ -3,6 +3,7 @@ import { GeistSans } from 'geist/font/sans'
 import { GeistMono } from 'geist/font/mono'
 import './globals.css'
 import { Toaster } from '@/components/ui/toaster'
+import { SessionProvider } from '@/components/auth/session-context'
 
 export const metadata: Metadata = {
   title: 'goFlow Editor',
@@ -27,7 +28,9 @@ html {
         `}</style>
       </head>
   <body className="font-sans">
-        {children}
+        <SessionProvider>
+          {children}
+        </SessionProvider>
         <Toaster />
       </body>
     </html>

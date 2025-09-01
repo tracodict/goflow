@@ -1,6 +1,11 @@
+// Internal helper to always include credentials (lz_sess cookie) for cross-subdomain calls
+async function authFetch(input: string, init: RequestInit = {}) {
+  return fetch(input, { credentials: 'include', ...init })
+}
+
 // Get current marking for a workflow
 export async function fetchMarking(flowServiceUrl: string, workflowId: string) {
-  const resp = await fetch(`${flowServiceUrl}/api/marking/get?id=${encodeURIComponent(workflowId)}`)
+  const resp = await authFetch(`${flowServiceUrl}/api/marking/get?id=${encodeURIComponent(workflowId)}`)
   if (!resp.ok) throw new Error(`Failed to fetch marking: ${resp.status}`)
   const json = await resp.json()
   // Expected shape: { data: { places: { [placeName]: Token[] } } }
@@ -17,14 +22,14 @@ export async function fetchMarking(flowServiceUrl: string, workflowId: string) {
 // Get all transitions' enabled/disabled status
 export async function fetchTransitionsStatus(flowServiceUrl: string, workflowId: string) {
   // New endpoint returns only enabled transitions: { success: boolean, data: Transition[] }
-  const resp = await fetch(`${flowServiceUrl}/api/transitions/enabled?id=${encodeURIComponent(workflowId)}`)
+  const resp = await authFetch(`${flowServiceUrl}/api/transitions/enabled?id=${encodeURIComponent(workflowId)}`)
   if (!resp.ok) throw new Error(`Failed to fetch enabled transitions: ${resp.status}`)
   return resp.json()
 }
 
 // Fire an enabled transition
 export async function fireTransition(flowServiceUrl: string, workflowId: string, transitionId: string, bindingIndex: number = 0, formData?: any) {
-  const resp = await fetch(`${flowServiceUrl}/api/transitions/fire`, {
+  const resp = await authFetch(`${flowServiceUrl}/api/transitions/fire`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ cpnId: workflowId, transitionId, bindingIndex, ...(formData !== undefined ? { formData } : {}) }),
@@ -48,7 +53,7 @@ export async function fireTransition(flowServiceUrl: string, workflowId: string,
 
 // Proceed one simulation step
 export async function simulationStep(flowServiceUrl: string, workflowId: string) {
-  const resp = await fetch(`${flowServiceUrl}/api/simulation/step?id=${encodeURIComponent(workflowId)}`, {
+  const resp = await authFetch(`${flowServiceUrl}/api/simulation/step?id=${encodeURIComponent(workflowId)}`, {
     method: 'POST',
   });
   if (!resp.ok) throw new Error(`Failed to step simulation: ${resp.status}`);
@@ -57,7 +62,7 @@ export async function simulationStep(flowServiceUrl: string, workflowId: string)
 // Proceed multiple simulation steps
 export async function simulationSteps(flowServiceUrl: string, workflowId: string, steps: number) {
   const safe = Math.max(1, Math.min(steps || 1, 1000))
-  const resp = await fetch(`${flowServiceUrl}/api/simulation/steps?id=${encodeURIComponent(workflowId)}&steps=${safe}`, {
+  const resp = await authFetch(`${flowServiceUrl}/api/simulation/steps?id=${encodeURIComponent(workflowId)}&steps=${safe}`, {
     method: 'POST',
   })
   if (!resp.ok) throw new Error(`Failed to fast-forward simulation: ${resp.status}`)
@@ -65,7 +70,7 @@ export async function simulationSteps(flowServiceUrl: string, workflowId: string
 }
 // Reset workflow to its initial marking
 export async function resetWorkflow(flowServiceUrl: string, workflowId: string) {
-  const resp = await fetch(`${flowServiceUrl}/api/cpn/reset?id=${encodeURIComponent(workflowId)}`, { method: 'POST' });
+  const resp = await authFetch(`${flowServiceUrl}/api/cpn/reset?id=${encodeURIComponent(workflowId)}`, { method: 'POST' });
   if (!resp.ok) throw new Error(`Failed to reset workflow: ${resp.status}`);
   return resp.json();
 }
@@ -73,20 +78,20 @@ export async function resetWorkflow(flowServiceUrl: string, workflowId: string) 
 // HTTP client for Petri net workflow API
 
 export async function fetchWorkflowList(flowServiceUrl: string) {
-  const resp = await fetch(`${flowServiceUrl}/api/cpn/list`);
+  const resp = await authFetch(`${flowServiceUrl}/api/cpn/list`);
   if (!resp.ok) throw new Error(`Failed to fetch workflow list: ${resp.status}`);
   return resp.json();
 }
 
 export async function fetchWorkflow(flowServiceUrl: string, id: string) {
-  const resp = await fetch(`${flowServiceUrl}/api/cpn/get?id=${encodeURIComponent(id)}`);
+  const resp = await authFetch(`${flowServiceUrl}/api/cpn/get?id=${encodeURIComponent(id)}`);
   if (!resp.ok) throw new Error(`Failed to fetch workflow: ${resp.status}`);
   return resp.json();
 }
 
 export async function saveWorkflow(flowServiceUrl: string, workflowData: any) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await fetch(`${base}/api/cpn/load`, {
+  const resp = await authFetch(`${base}/api/cpn/load`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(workflowData),
@@ -111,7 +116,7 @@ export async function saveWorkflow(flowServiceUrl: string, workflowData: any) {
 // Create a new (empty) workflow on the server
 export async function createWorkflow(flowServiceUrl: string, payload: { id?: string; name: string }) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await fetch(`${base}/api/cpn/create`, {
+  const resp = await authFetch(`${base}/api/cpn/create`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -123,7 +128,7 @@ export async function createWorkflow(flowServiceUrl: string, payload: { id?: str
 // Delete a workflow
 export async function deleteWorkflowApi(flowServiceUrl: string, id: string) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await fetch(`${base}/api/cpn/delete?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const resp = await authFetch(`${base}/api/cpn/delete?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
   if (!resp.ok) throw new Error(`Failed to delete workflow: ${resp.status}`)
   return resp.json()
 }
@@ -131,7 +136,7 @@ export async function deleteWorkflowApi(flowServiceUrl: string, id: string) {
 // Update color sets
 export async function updateColorSets(flowServiceUrl: string, id: string, colorSets: string[]) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await fetch(`${base}/api/cpn/colorsets`, {
+  const resp = await authFetch(`${base}/api/cpn/colorsets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id, colorSets }),
@@ -143,7 +148,7 @@ export async function updateColorSets(flowServiceUrl: string, id: string, colorS
 // Validate a workflow; expected response: { data: { violations: [...] }} or { violations: [...] }
 export async function validateWorkflow(flowServiceUrl: string, workflowId: string) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await fetch(`${base}/api/cpn/validate?id=${encodeURIComponent(workflowId)}`)
+  const resp = await authFetch(`${base}/api/cpn/validate?id=${encodeURIComponent(workflowId)}`)
   if (!resp.ok) {
     let body = ''
     try { body = await resp.text() } catch {}
@@ -195,36 +200,78 @@ export async function withApiErrorToast<T>(promise: Promise<T>, toastFn?: (opts:
 // ---- Case-based API helpers ----
 export async function createCase(flowServiceUrl: string, payload: { id?: string; cpnId: string; name?: string; description?: string; variables?: Record<string,any> }) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await fetch(`${base}/api/cases/create`, {
+  const resp = await authFetch(`${base}/api/cases/create`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
   })
   if (!resp.ok) throw new Error(`Failed to create case: ${resp.status}`)
   return resp.json()
 }
 export async function startCase(flowServiceUrl: string, caseId: string) {
-  const resp = await fetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/start?id=${encodeURIComponent(caseId)}`, { method: 'POST' })
+  const resp = await authFetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/start?id=${encodeURIComponent(caseId)}`, { method: 'POST' })
   if (!resp.ok) throw new Error(`Failed to start case: ${resp.status}`)
   return resp.json()
 }
 export async function executeAllCase(flowServiceUrl: string, caseId: string) {
-  const resp = await fetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/executeall?id=${encodeURIComponent(caseId)}`, { method: 'POST' })
+  const resp = await authFetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/executeall?id=${encodeURIComponent(caseId)}`, { method: 'POST' })
   if (!resp.ok) throw new Error(`Failed to execute all: ${resp.status}`)
   return resp.json()
 }
 export async function fetchCaseEnabledTransitions(flowServiceUrl: string, caseId: string) {
-  const resp = await fetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/transitions/enabled?id=${encodeURIComponent(caseId)}`)
+  const resp = await authFetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/transitions/enabled?id=${encodeURIComponent(caseId)}`)
   if (!resp.ok) throw new Error(`Failed to fetch case transitions: ${resp.status}`)
   return resp.json()
 }
 export async function fireCaseTransition(flowServiceUrl: string, caseId: string, transitionId: string, bindingIndex: number = 0, formData?: any) {
-  const resp = await fetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/fire?id=${encodeURIComponent(caseId)}`, {
+  const resp = await authFetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/fire?id=${encodeURIComponent(caseId)}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transitionId, bindingIndex, ...(formData !== undefined ? { formData } : {}) })
   })
   if (!resp.ok) throw new Error(`Failed to fire case transition: ${resp.status}`)
   return resp.json()
 }
 export async function getCase(flowServiceUrl: string, caseId: string) {
-  const resp = await fetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/get?id=${encodeURIComponent(caseId)}`)
+  const resp = await authFetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/get?id=${encodeURIComponent(caseId)}`)
   if (!resp.ok) throw new Error(`Failed to get case: ${resp.status}`)
+  return resp.json()
+}
+
+export async function suspendCase(flowServiceUrl: string, caseId: string) {
+  const resp = await authFetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/suspend?id=${encodeURIComponent(caseId)}`, { method: 'POST' })
+  if (!resp.ok) throw new Error(`Failed to suspend case: ${resp.status}`)
+  return resp.json()
+}
+export async function resumeCase(flowServiceUrl: string, caseId: string) {
+  const resp = await authFetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/resume?id=${encodeURIComponent(caseId)}`, { method: 'POST' })
+  if (!resp.ok) throw new Error(`Failed to resume case: ${resp.status}`)
+  return resp.json()
+}
+export async function abortCase(flowServiceUrl: string, caseId: string) {
+  const resp = await authFetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/abort?id=${encodeURIComponent(caseId)}`, { method: 'POST' })
+  if (!resp.ok) throw new Error(`Failed to abort case: ${resp.status}`)
+  return resp.json()
+}
+export async function deleteCase(flowServiceUrl: string, caseId: string) {
+  const resp = await authFetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/delete?id=${encodeURIComponent(caseId)}`, { method: 'DELETE' })
+  if (!resp.ok) throw new Error(`Failed to delete case: ${resp.status}`)
+  return resp.json()
+}
+
+// Query cases with filter & sort; body passthrough
+export async function queryCases(flowServiceUrl: string, body: any) {
+  const resp = await authFetch(`${flowServiceUrl.replace(/\/$/, '')}/api/cases/query`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {})
+  })
+  if (!resp.ok) throw new Error(`Failed to query cases: ${resp.status}`)
+  return resp.json()
+}
+
+// List all cases (server-side)
+export async function fetchCaseList(flowServiceUrl: string, opts: { offset?: number; limit?: number } = {}) {
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const params: string[] = []
+  if (typeof opts.offset === 'number') params.push(`offset=${encodeURIComponent(String(opts.offset))}`)
+  if (typeof opts.limit === 'number') params.push(`limit=${encodeURIComponent(String(opts.limit))}`)
+  const qs = params.length ? `?${params.join('&')}` : ''
+  const resp = await authFetch(`${base}/api/cases/list${qs}`)
+  if (!resp.ok) throw new Error(`Failed to list cases: ${resp.status}`)
   return resp.json()
 }

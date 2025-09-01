@@ -1,6 +1,7 @@
 "use client"
 import React, { useEffect, useState } from 'react'
-import { MessageSquare, MessageSquareDot, Square, X, PanelLeftOpen, PanelLeftClose, Plus, RefreshCcw } from 'lucide-react'
+import { MessageSquare, MessageSquareDot, Square, X, PanelLeftOpen, PanelLeftClose, Plus, RefreshCcw, LogOut, UserCircle2, Loader2, ClockArrowDown, ClockArrowUp } from 'lucide-react'
+import { useSession } from '@/components/auth/session-context'
 // JSON Forms imports (packages added in package.json). Types may be unresolved until install.
 // @ts-ignore
 import { JsonForms } from '@jsonforms/react'
@@ -10,7 +11,7 @@ import { vanillaCells, vanillaRenderers } from '@jsonforms/vanilla-renderers'
 import { shadcnRenderers, shadcnCells } from '@/components/run/forms/renderers'
 // @ts-ignore
 import { rankWith, isStringControl, isNumberControl, isBooleanControl } from '@jsonforms/core'
-import { fetchWorkflowList, fetchWorkflow, createCase, startCase, fetchCaseEnabledTransitions, fireCaseTransition } from '@/components/petri/petri-client'
+import { fetchWorkflowList, fetchWorkflow, createCase, startCase, fetchCaseEnabledTransitions, fireCaseTransition, fetchCaseList, suspendCase, resumeCase, abortCase, deleteCase } from '@/components/petri/petri-client'
 import type { PetriNodeData } from '@/lib/petri-types'
 import type { Node } from '@xyflow/react'
 import { DEFAULT_SETTINGS } from '@/components/petri/system-settings-context'
@@ -23,7 +24,32 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
   const [workflows, setWorkflows] = useState<any[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [showWorkflowPicker, setShowWorkflowPicker] = useState(false)
-  const [cases, setCases] = useState<{ id: string; cpnId: string; name: string; description?: string; enabled: any[]; status?: string }[]>([])
+  const [cases, setCases] = useState<{ id: string; cpnId: string; name: string; description?: string; enabled: any[]; status?: string; createdAt?: string }[]>([])
+  // Filter: show only RUNNING status when true
+  const [showLive, setShowLive] = useState(true) // Live = not COMPLETED / ABORTED
+  const [sortDesc, setSortDesc] = useState(true) // true => newest first
+  const [openMenuCaseId, setOpenMenuCaseId] = useState<string | null>(null)
+  // Close open case menu on outside click
+  useEffect(() => {
+    if (!openMenuCaseId) return
+    function handleDocClick(e: MouseEvent) {
+      const target = e.target as HTMLElement
+      if (!target) return
+      if (target.closest('[data-case-menu="true"]')) return
+      if (target.closest('[data-case-menu-trigger="true"]')) return
+      setOpenMenuCaseId(null)
+    }
+    document.addEventListener('mousedown', handleDocClick)
+    return () => document.removeEventListener('mousedown', handleDocClick)
+  }, [openMenuCaseId])
+  // Pagination state for infinite scroll
+  const [caseTotal, setCaseTotal] = useState<number | null>(null)
+  const [caseLoading, setCaseLoading] = useState(false)
+  const [caseError, setCaseError] = useState<string | null>(null)
+  const pageSize = 30
+  const nextOffsetRef = React.useRef(0)
+  const reachedEnd = caseTotal != null && cases.length >= caseTotal
+  const loadMoreRef = React.useRef<HTMLDivElement | null>(null)
   // Mutable ref to always access latest cases inside stable callbacks
   const casesRef = React.useRef(cases)
   useEffect(() => { casesRef.current = cases }, [cases])
@@ -40,6 +66,10 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
   const [formTitle, setFormTitle] = useState<string>('Manual Task')
   const [formTransitionId, setFormTransitionId] = useState<string | null>(null)
   const [formBindingIndex, setFormBindingIndex] = useState<number>(0)
+  // Removed dropdown user menu; simple inline logout button now.
+  const userMenuRef = React.useRef<HTMLDivElement | null>(null)
+
+  // User menu dropdown removed; no outside click logic needed.
   // Effective (frozen) schema determined once when form opens (avoid re-inferring on each keystroke)
   const [effectiveSchema, setEffectiveSchema] = useState<any>(null)
   // Resolve flowServiceUrl with fallbacks: env -> global -> persisted settings -> default
@@ -65,7 +95,7 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
   const refresh = React.useCallback(async () => {
     if (!flowServiceUrl || !activeCaseId) return
     const currentCase = casesRef.current.find(c => c.id === activeCaseId)
-    if (currentCase?.status === 'COMPLETED') return
+  if (currentCase?.status !== 'RUNNING') return
     try {
       const data = await fetchCaseEnabledTransitions(flowServiceUrl, activeCaseId)
       const list = Array.isArray(data) ? data : (data?.data || [])
@@ -113,28 +143,73 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
     return () => clearInterval(id)
   }, [activeCaseId, refresh])
 
-  // Seed an initial case when workflowId prop provided (legacy deep link)
+  // Initial load of first page of cases (legacy auto-seed removed for clarity)
   useEffect(() => {
-    if (!workflowId || !flowServiceUrl) return
-    if (cases.length === 0) {
-      const suffix = Math.random().toString(36).slice(2,5)
-      const caseId = `${workflowId}-case-${suffix}`
-      ;(async () => {
-        try {
-          await createCase(flowServiceUrl, { id: caseId, cpnId: workflowId, name: `${workflowId}#${suffix}` })
-          await startCase(flowServiceUrl, caseId)
-          setCases([{ id: caseId, cpnId: workflowId, name: `${workflowId}#${suffix}`, enabled: [], status: 'ACTIVE' }])
-          setActiveCaseId(caseId)
-        } catch {/* ignore */}
-      })()
+    if (!flowServiceUrl) return
+    nextOffsetRef.current = 0
+    setCases([])
+    setCaseTotal(null)
+    setCaseError(null)
+    const load = async () => {
+      setCaseLoading(true)
+      try {
+        const resp: any = await fetchCaseList(flowServiceUrl, { offset: nextOffsetRef.current, limit: pageSize })
+        const list = resp?.data?.cases || resp?.data || resp?.cases || []
+        const total = resp?.data?.total ?? resp?.total ?? null
+  const mapped = list.map((c: any) => ({ id: c.id, cpnId: c.cpnId, name: c.name || c.id, description: c.description, enabled: [], status: c.status || 'ACTIVE', createdAt: c.createdAt }))
+        setCases(mapped)
+        if (total != null) setCaseTotal(total)
+        nextOffsetRef.current += mapped.length
+        if (!activeCaseId && mapped[0]?.id) setActiveCaseId(mapped[0].id)
+      } catch (e:any) {
+        setCaseError(e?.message || 'Failed to load cases')
+      } finally {
+        setCaseLoading(false)
+      }
     }
-  }, [workflowId, flowServiceUrl, cases.length])
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flowServiceUrl])
+
+  const loadMoreCases = React.useCallback(async () => {
+    if (caseLoading || reachedEnd || !flowServiceUrl) return
+    setCaseLoading(true)
+    setCaseError(null)
+    try {
+      const resp: any = await fetchCaseList(flowServiceUrl, { offset: nextOffsetRef.current, limit: pageSize })
+      const list = resp?.data?.cases || resp?.data || resp?.cases || []
+      const total = resp?.data?.total ?? resp?.total ?? null
+  const mapped = list.map((c: any) => ({ id: c.id, cpnId: c.cpnId, name: c.name || c.id, description: c.description, enabled: [], status: c.status || 'ACTIVE', createdAt: c.createdAt }))
+      setCases(cs => [...cs, ...mapped])
+      if (total != null) setCaseTotal(total)
+      nextOffsetRef.current += mapped.length
+    } catch (e:any) {
+      setCaseError(e?.message || 'Failed to load more cases')
+    } finally {
+      setCaseLoading(false)
+    }
+  }, [caseLoading, reachedEnd, flowServiceUrl])
+
+  // Intersection observer to auto-load more
+  useEffect(() => {
+    if (!loadMoreRef.current) return
+    const el = loadMoreRef.current
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          loadMoreCases()
+        }
+      })
+    }, { root: el.parentElement, rootMargin: '0px', threshold: 0.1 })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [loadMoreCases])
 
   const activeCase = React.useMemo(() => cases.find(c => c.id === activeCaseId), [cases, activeCaseId])
   const caseCompleted = activeCase?.status === 'COMPLETED'
   const anyEnabled = enabled.length > 0
 
-  // Close menu when no enabled transitions and not completed
+  // Close enabled transitions menu when none enabled and not completed
   useEffect(() => {
     if (!anyEnabled && !caseCompleted) setMenuOpen(false)
   }, [anyEnabled, caseCompleted])
@@ -221,10 +296,16 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
     }
   }, [formOpen])
 
+  const { session: userSession, loading: sessionLoading, refresh: refreshSession } = useSession()
+  const primaryRole = (userSession?.roles || [])[0]
+
+  // Robust logout handler
+  // Removed handleLogout; using plain anchor to /api/logout ensures navigation always fires.
+
   return (
     <div className="relative h-full w-full overflow-hidden flex flex-col">
       {/* Top header bar */}
-      <div className="flex items-center justify-between h-10 border-b bg-white/80 backdrop-blur px-2 text-xs">
+  <div className="flex items-center justify-between h-10 border-b bg-white/80 backdrop-blur px-2 text-xs">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -237,36 +318,116 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
         </div>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => refresh()} className="h-7 w-7 inline-flex items-center justify-center rounded border bg-white hover:bg-neutral-50" title="Refresh transitions"><RefreshCcw className="h-4 w-4" /></button>
+          <div className="flex items-center gap-2 pl-2 pr-2 h-8 rounded-full border bg-white" ref={userMenuRef}>
+            {sessionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCircle2 className="h-5 w-5 text-neutral-600" />}
+            <span className="hidden sm:inline truncate max-w-[8rem]" title={userSession?.email}>{userSession?.name || 'Guest'}{primaryRole ? ` (${primaryRole})` : ''}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const ret = encodeURIComponent(typeof window !== 'undefined' ? window.location.href : '/')
+              if (typeof window !== 'undefined') window.location.href = `/api/logout?return=${ret}`
+            }}
+            className="h-8 px-3 inline-flex items-center gap-1 rounded border bg-white hover:bg-neutral-50 text-xs"
+            title="Logout"
+          >
+            <LogOut className="h-4 w-4" /> <span className="hidden sm:inline">Logout</span>
+          </button>
         </div>
       </div>
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         {sidebarOpen && (
           <div className="w-64 border-r flex flex-col bg-white">
-            <div className="flex items-center justify-between h-9 px-2 border-b text-xs font-medium">
+            <div className="flex items-center gap-2 h-9 px-2 border-b text-xs font-medium">
               <span>Cases</span>
+              <label className="flex items-center gap-1 text-[10px] font-normal cursor-pointer select-none" title="Toggle to show only live (not completed / aborted) cases">
+                <input
+                  type="checkbox"
+                  className="h-3 w-3 cursor-pointer"
+                  checked={showLive}
+                  onChange={e => setShowLive(e.target.checked)}
+                />
+                <span>Live</span>
+              </label>
+              <button type="button" onClick={() => setSortDesc(s => !s)} className="ml-auto h-7 w-7 inline-flex items-center justify-center rounded border bg-white hover:bg-neutral-50" title={sortDesc ? 'CreatedAt desc (newest first) – click for asc' : 'CreatedAt asc (oldest first) – click for desc'}>
+                {sortDesc ? <ClockArrowDown className="h-4 w-4" /> : <ClockArrowUp className="h-4 w-4" />}
+              </button>
               <button type="button" className="h-7 w-7 inline-flex items-center justify-center rounded border bg-white hover:bg-neutral-50" title="Create case" onClick={() => setShowWorkflowPicker(v=>!v)}>
                 <Plus className="h-4 w-4" />
               </button>
             </div>
-            <div className="flex-1 overflow-auto p-2 space-y-1 text-xs">
-              {cases.map(c => {
+            <div className="flex-1 overflow-auto p-2 space-y-1 text-xs relative">
+              {(() => {
+                let visibleCases = showLive ? cases.filter(c => c.status !== 'COMPLETED' && c.status !== 'ABORTED') : [...cases]
+                // Sort by createdAt (desc when sortDesc) fallback id
+                const parseTime = (c: any) => {
+                  if (c.createdAt) {
+                    const t = Date.parse(c.createdAt)
+                    if (!Number.isNaN(t)) return t
+                  }
+                  // fallback: derive numeric from id hash-ish
+                  return 0
+                }
+                visibleCases.sort((a,b) => {
+                  const ta = parseTime(a)
+                  const tb = parseTime(b)
+                  if (ta !== tb) return sortDesc ? tb - ta : ta - tb
+                  return sortDesc ? b.id.localeCompare(a.id) : a.id.localeCompare(b.id)
+                })
+                return visibleCases.map(c => {
                 const enabledCount = c.enabled?.length || 0
                 return (
-                  <div key={c.id} className={`group border rounded px-2 py-1 cursor-pointer ${c.id===activeCaseId ? 'bg-emerald-50 border-emerald-300' : 'bg-white hover:bg-neutral-50'}`} onClick={() => { setActiveCaseId(c.id); setMenuOpen(false) }}>
-                    <div className="flex items-center gap-1">
+                  <div key={c.id} className={`group relative border rounded px-2 py-1 cursor-pointer ${c.id===activeCaseId ? 'bg-emerald-50 border-emerald-300' : 'bg-white hover:bg-neutral-50'}`}>
+                    <div className="flex items-center gap-1" onClick={() => { setActiveCaseId(c.id); setMenuOpen(false) }}>
                       <input
                         className="flex-1 bg-transparent outline-none text-xs font-medium"
                         value={c.name}
                         onChange={e => setCases(cs => cs.map(x => x.id===c.id ? { ...x, name: e.target.value } : x))}
                       />
+                      <span className={(() => {
+                        switch(c.status){
+                          case 'RUNNING': return 'text-[9px] px-1 rounded text-emerald-700 font-semibold'
+                          case 'SUSPENDED': return 'text-[9px] px-1 rounded text-amber-700 italic'
+                          case 'COMPLETED': return 'text-[9px] px-1 rounded text-neutral-500 line-through'
+                          case 'ABORTED': return 'text-[9px] px-1 rounded text-red-600 italic'
+                          default: return 'text-[9px] px-1 rounded text-neutral-500'
+                        }
+                      })()} title={c.status}>{c.status || ''}</span>
                       {enabledCount>0 && <span className="text-[9px] text-emerald-600" title={`${enabledCount} enabled transitions`}>{enabledCount}</span>}
+                      <button
+                        type="button"
+                        className="h-5 w-5 inline-flex items-center justify-center rounded hover:bg-neutral-100"
+                        data-case-menu-trigger="true"
+                        onClick={(e) => { e.stopPropagation(); setOpenMenuCaseId(id => id === c.id ? null : c.id) }}
+                        title="Actions"
+                      >
+                        <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><circle cx="4" cy="10" r="1"/><circle cx="10" cy="10" r="1"/><circle cx="16" cy="10" r="1"/></svg>
+                      </button>
                     </div>
-                    <div className="text-[10px] text-neutral-400 truncate">{c.cpnId}</div>
+                    <div className="text-[10px] text-neutral-400 truncate pr-6">{c.cpnId}</div>
+                    {openMenuCaseId === c.id && (
+                      <div className="absolute top-1 right-1 z-10 w-40 rounded border bg-white shadow-lg p-1 text-[11px]" data-case-menu="true" onClick={e => e.stopPropagation()}>
+                        <button className="w-full text-left px-2 py-1 rounded hover:bg-neutral-50" onClick={async () => { if(!flowServiceUrl)return; try { await startCase(flowServiceUrl, c.id); setCases(cs=>cs.map(x=>x.id===c.id?{...x,status:'RUNNING'}:x)) } catch{} setOpenMenuCaseId(null) }}>Start</button>
+                        <button className="w-full text-left px-2 py-1 rounded hover:bg-neutral-50" onClick={async () => { if(!flowServiceUrl)return; try { await suspendCase(flowServiceUrl, c.id); setCases(cs=>cs.map(x=>x.id===c.id?{...x,status:'SUSPENDED'}:x)) } catch{} setOpenMenuCaseId(null) }}>Suspend</button>
+                        <button className="w-full text-left px-2 py-1 rounded hover:bg-neutral-50" onClick={async () => { if(!flowServiceUrl)return; try { await resumeCase(flowServiceUrl, c.id); setCases(cs=>cs.map(x=>x.id===c.id?{...x,status:'RUNNING'}:x)) } catch{} setOpenMenuCaseId(null) }}>Resume</button>
+                        <button className="w-full text-left px-2 py-1 rounded hover:bg-neutral-50 text-red-600" onClick={async () => { if(!flowServiceUrl)return; try { await abortCase(flowServiceUrl, c.id); setCases(cs=>cs.map(x=>x.id===c.id?{...x,status:'ABORTED'}:x)) } catch{} setOpenMenuCaseId(null) }}>Abort</button>
+                        <div className="h-px bg-neutral-200 my-1" />
+                        <button className="w-full text-left px-2 py-1 rounded hover:bg-red-50 text-red-700" onClick={async () => { if(!flowServiceUrl)return; try { await deleteCase(flowServiceUrl, c.id); setCases(cs=>cs.filter(x=>x.id!==c.id)); if(activeCaseId===c.id) setActiveCaseId(null) } catch{} setOpenMenuCaseId(null) }}>Delete</button>
+                      </div>
+                    )}
                   </div>
                 )
-              })}
-              {cases.length===0 && <div className="text-neutral-400 text-[11px]">No cases</div>}
+                })
+              })()}
+              {caseLoading && cases.length===0 && <div className="text-neutral-400 text-[11px]">Loading cases...</div>}
+              {caseError && cases.length===0 && <div className="text-red-500 text-[11px]">{caseError}</div>}
+              {!caseLoading && !caseError && cases.length===0 && <div className="text-neutral-400 text-[11px]">No cases</div>}
+              {/* Load more sentinel */}
+              <div ref={loadMoreRef} className="h-8 flex items-center justify-center text-[10px] text-neutral-400">
+                {reachedEnd ? (cases.length>0 ? 'No more cases' : null) : (caseLoading ? 'Loading…' : (cases.length>0 ? 'Scroll to load more' : null))}
+              </div>
+              {caseError && cases.length>0 && <div className="sticky bottom-0 bg-white p-1 text-[10px] text-red-600 border rounded">{caseError} <button className="underline" onClick={()=>loadMoreCases()}>Retry</button></div>}
             </div>
           </div>
         )}
@@ -401,9 +562,10 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
                       const suffix = Math.random().toString(36).slice(2,5)
                       const caseId = `${w.id}-case-${suffix}`
                       try {
-                        await createCase(flowServiceUrl, { id: caseId, cpnId: w.id, name: `${w.name || w.id}#${suffix}`, description: w.description })
-                        await startCase(flowServiceUrl, caseId)
-                        setCases(cs => [...cs, { id: caseId, cpnId: w.id, name: `${w.name || w.id}#${suffix}`, description: w.description, enabled: [], status: 'ACTIVE' }])
+                        const createResp: any = await createCase(flowServiceUrl, { id: caseId, cpnId: w.id, name: `${w.name || w.id}#${suffix}`, description: w.description })
+                        const startResp: any = await startCase(flowServiceUrl, caseId)
+                        const status = startResp?.data?.status || startResp?.status || createResp?.data?.status || 'RUNNING'
+                        setCases(cs => [...cs, { id: caseId, cpnId: w.id, name: `${w.name || w.id}#${suffix}`, description: w.description, enabled: [], status }])
                         setActiveCaseId(caseId)
                         setShowWorkflowPicker(false)
                       } catch {/* ignore */}
