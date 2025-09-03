@@ -22,6 +22,7 @@ import { StreamLanguage } from '@codemirror/language'
 import { lua } from '@codemirror/legacy-modes/mode/lua'
 import { EditorView } from '@codemirror/view'
 import { json } from '@codemirror/lang-json'
+import { usePreSupportedSchemas } from './pre-supported-schemas'
 
 type SelectedResolved = { type: "node"; node: Node<PetriNodeData> } | { type: "edge"; edge: Edge<PetriEdgeData> } | null
 type PanelMode = "mini" | "normal" | "full"
@@ -702,6 +703,8 @@ function ManualEditor({
   const manual = ((node.data as any).manual || {}) as { assignee?: string; formSchema?: string; layoutSchema?: string }
   const [open, setOpen] = useState(false)
   const [availableSchemas, setAvailableSchemas] = useState<string[]>([])
+  // Pre-supported schemas (lazy from CDN dictionaryUrl)
+  const { names: preSupportedNames, loaded: preSupportedLoaded, load: loadPreSupported } = usePreSupportedSchemas()
 
   // Listen for declarations updates dispatched from DeclarationsPanel apply
   useEffect(() => {
@@ -732,6 +735,26 @@ function ManualEditor({
   }, [])
 
   const selectedName = manual.formSchema && availableSchemas.includes(manual.formSchema) ? manual.formSchema : undefined
+
+  // Merge logic: built-in color sets + workflow jsonSchemas + pre-supported (once loaded) de-duplicated
+  useEffect(() => {
+    const merged = new Set<string>()
+    // Existing availableSchemas already seeded from workflow events (jsonSchemas). We'll rebuild to include color sets & pre-supported.
+    availableSchemas.forEach(s => merged.add(s))
+    // Built-in color sets (treated as potential form schema names for quick templates)
+    try { ['INT','REAL','STRING','BOOL','UNIT'].forEach(c => merged.add(c)) } catch {/* ignore */}
+    if (preSupportedLoaded) preSupportedNames.forEach(n => merged.add(n))
+    setAvailableSchemas(Array.from(merged))
+  // We intentionally ignore setAvailableSchemas in deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preSupportedLoaded, preSupportedNames.join('|')])
+
+  // When popover first opens, trigger load if not yet
+  useEffect(() => {
+    if (open) {
+      loadPreSupported()
+    }
+  }, [open, loadPreSupported])
 
   return (
     <div className="space-y-4">
@@ -779,6 +802,9 @@ function ManualEditor({
                       {name === manual.formSchema ? <Check className="h-4 w-4 text-emerald-600" /> : null}
                     </CommandItem>
                   ))}
+                  {!preSupportedLoaded && (
+                    <div className="px-2 py-1 text-xs text-neutral-500">Loading pre-supported schemas...</div>
+                  )}
                 </CommandGroup>
               </CommandList>
             </Command>

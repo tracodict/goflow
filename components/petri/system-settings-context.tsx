@@ -5,7 +5,7 @@ export type SystemSettings = Record<string, string>
 
 const DEFAULT_SETTINGS: SystemSettings = {
   flowServiceUrl: 'https://goflow.lizhao.net',
-  dictionaryUrl: 'https://dict.lizhao.net',
+  dictionaryUrl: 'https://cdn.statically.io/gh/tracodict/jschema/main/ep299/',
 }
 
 interface Ctx {

@@ -15,6 +15,7 @@ import { fetchWorkflowList, fetchWorkflow, createCase, startCase, fetchCaseEnabl
 import type { PetriNodeData } from '@/lib/petri-types'
 import type { Node } from '@xyflow/react'
 import { DEFAULT_SETTINGS } from '@/components/petri/system-settings-context'
+import { fetchPreSupportedSchema } from '@/components/petri/pre-supported-schemas'
 
 // Minimal run view: shows floating button indicating if any transition enabled
 export default function RunMain({ workflowId }: { workflowId: string | null }) {
@@ -219,11 +220,26 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
     return wfTransitions.find(x => x.id === tid || x.transitionId === tid)
   }
 
+  // Determine dictionaryUrl similarly to flowServiceUrl (persisted settings / defaults)
+  const dictionaryUrl = (typeof window !== 'undefined'
+    ? (() => {
+        try {
+          const raw = window.localStorage.getItem('goflow.systemSettings')
+          if (raw) {
+            const parsed = JSON.parse(raw)
+            if (parsed && typeof parsed.dictionaryUrl === 'string' && parsed.dictionaryUrl.trim()) return parsed.dictionaryUrl as string
+          }
+        } catch {/* ignore */}
+        return DEFAULT_SETTINGS.dictionaryUrl
+      })()
+    : DEFAULT_SETTINGS.dictionaryUrl)
+
   function getSchemaForTransition(t: any) {
     const def = getTransitionDef(t)
     const formSchemaName = def?.formSchema || def?.manual?.formSchema
     const layoutSchemaRaw = def?.manual?.layoutSchema || def?.layoutSchema
     if (!formSchemaName) return { name: undefined, schema: null, ui: layoutSchemaRaw ? safeParse(layoutSchemaRaw) : null }
+    // Prefer workflow-embedded schema if present (explicit inclusion), otherwise null placeholder; actual body may be CDN-fetched later
     const found = jsonSchemas.find(s => s.name === formSchemaName)
     return found ? { name: formSchemaName, schema: found.schema, ui: layoutSchemaRaw ? safeParse(layoutSchemaRaw) : null } : { name: formSchemaName, schema: null, ui: layoutSchemaRaw ? safeParse(layoutSchemaRaw) : null }
   }
@@ -259,8 +275,8 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
   }, [hoverTransitionId, enabled])
 
   const handleClickBinding = (transition: any, binding: any, index: number) => {
-    const schemaInfo = getSchemaForTransition(transition)
-    setFormSchema(schemaInfo?.schema || null)
+  const schemaInfo = getSchemaForTransition(transition)
+  setFormSchema(schemaInfo?.schema || null)
     setFormUiSchema(schemaInfo?.ui || null)
     // Binding shape: { variableName: value } – extract the value
     let value = binding
@@ -272,15 +288,24 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
         value = (binding as any)[keys[0]]
       }
     }
-    setFormData(value)
+  setFormData(value);
     // Determine and freeze schema once
-    let eff = schemaInfo?.schema
-    if (!eff) {
-      if (value === null) eff = { type: 'string' }
-      else if (value === undefined) eff = { type: 'object', properties: {} }
-      else eff = inferSchemaFromData(value)
-    }
-    setEffectiveSchema(eff)
+    // If formSchema name exists and no embedded schema body, fetch from CDN (pre-supported) and override inference.
+  (async () => {
+      let eff = schemaInfo?.schema
+      const name = schemaInfo?.name
+      if (!eff && name) {
+        const fetched = await fetchPreSupportedSchema(name, dictionaryUrl)
+        if (fetched) eff = fetched
+      }
+      if (!eff) {
+        // Fallback inference ONLY when no pre-supported schema found
+        if (value === null) eff = { type: 'string' }
+        else if (value === undefined) eff = { type: 'object', properties: {} }
+        else eff = inferSchemaFromData(value)
+      }
+      setEffectiveSchema(eff)
+    })()
     setFormTitle((transition.name || transition.id || 'Manual Task') + (variableName ? ` – ${variableName}` : ''))
   setFormOpen(true)
   setFormTransitionId(transition.id || transition.transitionId)
