@@ -36,6 +36,9 @@ export function SidePanel({
   onUpdateNode,
   onUpdateEdge,
   onModeChange,
+  onRenamePlaceId,
+  onRenameTransitionId,
+  onRenameEdgeId,
   tokensOpenForPlaceId,
   guardOpenForTransitionId,
   tab,
@@ -71,6 +74,9 @@ export function SidePanel({
   onUpdateNode: (id: string, patch: Partial<PetriNodeData>) => void
   onUpdateEdge: (id: string, patch: Partial<PetriEdgeData>) => void
   onModeChange: (m: PanelMode) => void
+  onRenamePlaceId?: (oldId: string, nextId: string) => { ok: boolean; reason?: string }
+  onRenameTransitionId?: (oldId: string, nextId: string) => { ok: boolean; reason?: string }
+  onRenameEdgeId?: (oldId: string, nextId: string) => { ok: boolean; reason?: string }
   tokensOpenForPlaceId?: string
   guardOpenForTransitionId?: string
   tab: 'property' | 'explorer'
@@ -255,11 +261,11 @@ export function SidePanel({
             if (effectiveSelected.type === 'node') {
               const node = effectiveSelected.node
               if (node.type === 'place') {
-                return <PlaceEditor node={node} onUpdate={onUpdateNode} forceOpenTokens={tokensOpenForPlaceId === node.id} scrollContainerRef={contentRef} />
+                return <PlaceEditor node={node} onUpdate={onUpdateNode} onRenameId={onRenamePlaceId} forceOpenTokens={tokensOpenForPlaceId === node.id} scrollContainerRef={contentRef} />
               }
-              return <TransitionEditor node={node} onUpdate={onUpdateNode} focusGuard={guardOpenForTransitionId === node.id} scrollContainerRef={contentRef} />
+              return <TransitionEditor node={node} onUpdate={onUpdateNode} onRenameId={onRenameTransitionId} focusGuard={guardOpenForTransitionId === node.id} scrollContainerRef={contentRef} />
             }
-            return <EdgeEditor edge={effectiveSelected.edge} onUpdate={onUpdateEdge} />
+            return <EdgeEditor edge={effectiveSelected.edge} onUpdate={onUpdateEdge} onRenameId={onRenameEdgeId} />
           })()}
         </div>
       </div>
@@ -272,11 +278,13 @@ export function SidePanel({
 function PlaceEditor({
   node,
   onUpdate,
+  onRenameId,
   forceOpenTokens,
   scrollContainerRef,
 }: {
   node: Node<PetriNodeData>
   onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
+  onRenameId?: (oldId: string, nextId: string) => { ok: boolean; reason?: string }
   forceOpenTokens?: boolean
   scrollContainerRef: React.RefObject<HTMLElement | null>
 }) {
@@ -295,6 +303,11 @@ function PlaceEditor({
   useEffect(() => {
     if (forceOpenTokens) setSection("tokens")
   }, [forceOpenTokens])
+
+  const [idDraft, setIdDraft] = useState<string>(node.id)
+  useEffect(() => { setIdDraft(node.id) }, [node.id])
+  const [idError, setIdError] = useState<string>("")
+  const isValidIdent = (s: string) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s)
 
   const tokenList = useMemo<Token[]>(() => place.tokenList || [], [place.tokenList])
 
@@ -331,6 +344,24 @@ function PlaceEditor({
 
       {section === "details" ? (
         <div className="space-y-4">
+          <div className="grid gap-2">
+            <Label htmlFor="p-id">ID</Label>
+            <Input
+              id="p-id"
+              value={idDraft}
+              onChange={(e)=>{ setIdDraft(e.target.value); setIdError("") }}
+              onBlur={()=>{
+                if (!onRenameId) return
+                const next = idDraft.trim()
+                if (!next || next === node.id) return
+                if (!isValidIdent(next)) { setIdError('ID must be a valid Lua identifier'); setIdDraft(node.id); return }
+                const result = onRenameId(node.id, next)
+                if (!result?.ok) { setIdError(result?.reason || 'Rename failed'); setIdDraft(node.id) }
+              }}
+              placeholder="place identifier"
+            />
+            {idError ? <div className="text-xs text-red-600">{idError}</div> : null}
+          </div>
           <div className="grid gap-2">
             <Label htmlFor="p-name">Name</Label>
             <Input
@@ -560,11 +591,13 @@ function TokenEditor({
 function TransitionEditor({
   node,
   onUpdate,
+  onRenameId,
   focusGuard,
   scrollContainerRef,
 }: {
   node: Node<PetriNodeData>
   onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
+  onRenameId?: (oldId: string, nextId: string) => { ok: boolean; reason?: string }
   focusGuard?: boolean
   scrollContainerRef: React.RefObject<HTMLElement | null>
 }) {
@@ -592,6 +625,11 @@ function TransitionEditor({
     }
   }, [focusGuard])
 
+  const [idDraft, setIdDraft] = useState<string>(node.id)
+  useEffect(() => { setIdDraft(node.id) }, [node.id])
+  const [idError, setIdError] = useState<string>("")
+  const isValidIdent = (s: string) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s)
+
   const [guardText, setGuardText] = useState<string>(() => (node as any).guardExpression || (node.data as any).guardExpression || "")
   useEffect(() => {
     const incoming = (node as any).guardExpression || (node.data as any).guardExpression || ""
@@ -607,6 +645,18 @@ function TransitionEditor({
 
   return (
     <div className="mt-2 space-y-4">
+      <div className="grid gap-2">
+        <Label htmlFor="t-id">ID</Label>
+        <Input id="t-id" value={idDraft} onChange={(e)=>{ setIdDraft(e.target.value); setIdError("") }} onBlur={()=>{
+          if (!onRenameId) return
+          const next = idDraft.trim()
+          if (!next || next === node.id) return
+          if (!isValidIdent(next)) { setIdError('ID must be a valid Lua identifier'); setIdDraft(node.id); return }
+          const result = onRenameId(node.id, next)
+          if (!result?.ok) { setIdError(result?.reason || 'Rename failed'); setIdDraft(node.id) }
+        }} />
+        {idError ? <div className="text-xs text-red-600">{idError}</div> : null}
+      </div>
       <div className="grid gap-2">
         <Label htmlFor="t-name">Name</Label>
         <Input
@@ -1056,16 +1106,32 @@ function LLMEditor({
 function EdgeEditor({
   edge,
   onUpdate,
+  onRenameId,
 }: {
   edge: Edge<PetriEdgeData>
   onUpdate: (id: string, patch: Partial<PetriEdgeData>) => void
+  onRenameId?: (oldId: string, nextId: string) => { ok: boolean; reason?: string }
 }) {
   const [expr, setExpr] = React.useState<string>(() => (edge.data as any)?.expression || "");
   React.useEffect(() => {
     setExpr((edge.data as any)?.expression || "");
   }, [edge.id, (edge.data as any)?.expression]);
+  const [idDraft, setIdDraft] = React.useState<string>(edge.id)
+  React.useEffect(() => { setIdDraft(edge.id) }, [edge.id])
+  const [idError, setIdError] = React.useState<string>("")
+  const isValidIdent = (s: string) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s)
   return (
     <div className="grid gap-2">
+      <Label htmlFor="e-id">Arc ID</Label>
+      <Input id="e-id" value={idDraft} onChange={(e)=>{ setIdDraft(e.target.value); setIdError("") }} onBlur={()=>{
+        if (!onRenameId) return
+        const next = idDraft.trim()
+        if (!next || next === edge.id) return
+        if (!isValidIdent(next)) { setIdError('ID must be a valid Lua identifier'); setIdDraft(edge.id); return }
+        const res = onRenameId(edge.id, next)
+        if (!res?.ok) { setIdError(res?.reason || 'Rename failed'); setIdDraft(edge.id) }
+      }} />
+      {idError ? <div className="text-xs text-red-600">{idError}</div> : null}
       <Label htmlFor="e-label">Arc Label</Label>
       <Input
         id="e-label"

@@ -131,6 +131,54 @@ function CanvasInner() {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const { screenToFlowPosition, zoomIn, zoomOut, fitView } = useReactFlow()
   const { settings } = useSystemSettings();
+  // --- Helpers to rename IDs (used by property panel) ---
+  const isValidIdent = (s: string) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s)
+  const renamePlaceId = useCallback((oldId: string, nextId: string): { ok: boolean; reason?: string } => {
+    if (!nextId || !isValidIdent(nextId)) return { ok: false, reason: 'Invalid identifier' }
+    if (oldId === nextId) return { ok: true }
+    // uniqueness across all nodes
+    if (nodes.some(n => n.id === nextId)) return { ok: false, reason: 'ID already exists' }
+    setNodes((nds) => nds.map(n => (n.id === oldId && n.type === 'place') ? { ...n, id: nextId } as any : n))
+    setEdges((eds) => eds.map(e => {
+      let changed = false
+      let src = e.source, tgt = e.target
+      if (e.source === oldId) { src = nextId; changed = true }
+      if (e.target === oldId) { tgt = nextId; changed = true }
+      return changed ? { ...e, source: src, target: tgt } : e
+    }))
+    if (tokensOpenForPlaceId === oldId) setTokensOpenForPlaceId(nextId)
+    if (selectedRef && selectedRef.type === 'node' && selectedRef.id === oldId) setSelectedRef({ type: 'node', id: nextId })
+    setEditedMap(prev => activeWorkflowId ? { ...prev, [activeWorkflowId]: true } : prev)
+    return { ok: true }
+  }, [nodes, edges, tokensOpenForPlaceId, selectedRef, activeWorkflowId])
+
+  const renameTransitionId = useCallback((oldId: string, nextId: string): { ok: boolean; reason?: string } => {
+    if (!nextId || !isValidIdent(nextId)) return { ok: false, reason: 'Invalid identifier' }
+    if (oldId === nextId) return { ok: true }
+    if (nodes.some(n => n.id === nextId)) return { ok: false, reason: 'ID already exists' }
+    setNodes((nds) => nds.map(n => (n.id === oldId && n.type === 'transition') ? { ...n, id: nextId } as any : n))
+    setEdges((eds) => eds.map(e => {
+      let changed = false
+      let src = e.source, tgt = e.target
+      if (e.source === oldId) { src = nextId; changed = true }
+      if (e.target === oldId) { tgt = nextId; changed = true }
+      return changed ? { ...e, source: src, target: tgt } : e
+    }))
+    if (guardOpenForTransitionId === oldId) setGuardOpenForTransitionId(nextId)
+    if (selectedRef && selectedRef.type === 'node' && selectedRef.id === oldId) setSelectedRef({ type: 'node', id: nextId })
+    setEditedMap(prev => activeWorkflowId ? { ...prev, [activeWorkflowId]: true } : prev)
+    return { ok: true }
+  }, [nodes, edges, guardOpenForTransitionId, selectedRef, activeWorkflowId])
+
+  const renameEdgeId = useCallback((oldId: string, nextId: string): { ok: boolean; reason?: string } => {
+    if (!nextId || !isValidIdent(nextId)) return { ok: false, reason: 'Invalid identifier' }
+    if (oldId === nextId) return { ok: true }
+    if (edges.some(e => e.id === nextId)) return { ok: false, reason: 'ID already exists' }
+    setEdges((eds) => eds.map(e => e.id === oldId ? { ...e, id: nextId } : e))
+    if (selectedRef && selectedRef.type === 'edge' && selectedRef.id === oldId) setSelectedRef({ type: 'edge', id: nextId })
+    setEditedMap(prev => activeWorkflowId ? { ...prev, [activeWorkflowId]: true } : prev)
+    return { ok: true }
+  }, [edges, selectedRef, activeWorkflowId])
 
   // Server workflow state for server mode
   const [serverWorkflows, setServerWorkflows] = useState<any[]>([]);
@@ -968,7 +1016,7 @@ function CanvasInner() {
         )}
       </div>
 
-      <SidePanel
+  <SidePanel
         open={panelMode !== "mini"}
         mode={panelMode}
         width={panelWidth}
@@ -976,7 +1024,10 @@ function CanvasInner() {
         selected={selected}
         onUpdateNode={updateNode}
         onUpdateEdge={updateEdge}
-        onModeChange={setPanelMode}
+  onModeChange={setPanelMode}
+  onRenamePlaceId={(oldId: string, nextId: string) => renamePlaceId(oldId, nextId)}
+  onRenameTransitionId={(oldId: string, nextId: string) => renameTransitionId(oldId, nextId)}
+  onRenameEdgeId={(oldId: string, nextId: string) => renameEdgeId(oldId, nextId)}
         tokensOpenForPlaceId={tokensOpenForPlaceId || undefined}
         guardOpenForTransitionId={guardOpenForTransitionId || undefined}
         tab={leftTab}
