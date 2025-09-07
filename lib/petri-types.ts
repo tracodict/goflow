@@ -31,14 +31,20 @@ export type TransitionData = {
     outputMapping?: Record<string,string>
   }
   llm?: {
-    system?: string
-    user?: string
-    extras?: string[]
-    jsonOutput?: boolean
-    jsonSchema?: string
-    retryOnError?: boolean
-    maxRetries?: number
-    retryIntervalSec?: number
+  // New templated messages model
+  template?: string
+  vars?: Record<string, any>
+  stream?: boolean
+  options?: Record<string, any>
+  // Legacy fields kept optional for compatibility (no longer used by editor)
+  system?: string
+  user?: string
+  extras?: string[]
+  jsonOutput?: boolean
+  jsonSchema?: string
+  retryOnError?: boolean
+  maxRetries?: number
+  retryIntervalSec?: number
   }
 }
 

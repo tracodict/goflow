@@ -31,3 +31,24 @@ enhance and revamp #file:main.tsx:
 7. when user click a workflow card, a new case should be created. be noted, existing implementation uses network APIs. Now revamp  to use case based APIs
 8. left panel should list cases created, with default title of `workflow name` + random suffix like `#s4z`, and allow user to edit
 9. when user click different case title at left panel, the context switch to that case, e.g., `anyEnabled` variable should indicate whether select case has any enabled transition and get the message square (dot) floating button update status.
+
+
+### VIA
+
+At left panel, split to two tabs:
+1. Cases
+2. Tokens
+
+Move current case list to tab  `Cases`. Add new `Tokens` tab. The `Tokens` tab list all colors pre-built, defined and pre-supported json colors with formSchema loaded from cdn. classify the three type tokens to three folders. By default expand pre-supported json colors with formSchema loaded from cdn
+
+Clicking a color should show a VIA component in main body of the app, based on VIA pattern describe in #file:VIA.md .
+
+The VIA pattern at server is implemented following epic2 in #file:StoragePlan.md . Refer to #file:TEST-VIA.md for e2e usage of APIs related to VIA pattern.
+
+The VIA component use ag-grid to list all instances of tokens of selected color by default and allow filter, sorting and potentially grouping by custom fields. 
+
+At each row, right most column should be an action column. the action column doesn't need title. it should be just one icon width. Only when mouse move over the row, or keyboard focuses on the row, the lucide `hand` icon appear.
+
+When mouse move over the icon, it popup a menu with a divider. Above the divider is `Inspect`, which will popup to show the row's token details. 
+
+Before the menu list all enabled transition of the token. When user click, it should popup the dynamic form implemented based on the formSchema defined, or inferred automatically if the token color is json without formSchema.

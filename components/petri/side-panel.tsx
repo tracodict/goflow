@@ -734,7 +734,8 @@ function ManualEditor({
     return () => window.removeEventListener('goflow-workflowMeta', seed as EventListener)
   }, [])
 
-  const selectedName = manual.formSchema && availableSchemas.includes(manual.formSchema) ? manual.formSchema : undefined
+  // Accept server-provided formSchema even if not yet in availableSchemas (will be merged later)
+  const selectedName = manual.formSchema ? manual.formSchema : undefined
 
   // Merge logic: built-in color sets + workflow jsonSchemas + pre-supported (once loaded) de-duplicated
   useEffect(() => {
@@ -967,133 +968,86 @@ function LLMEditor({
   onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
 }) {
   const llm = ((node.data as any).llm || {
-    system: "",
-    user: "",
-    extras: [],
-    jsonOutput: false,
-    jsonSchema: "",
-    retryOnError: false,
-    maxRetries: 1,
-    retryIntervalSec: 5,
+    template: "",
+    vars: {},
+    stream: false,
+    options: {},
   }) as {
-    system?: string
-    user?: string
-    extras?: string[]
-    jsonOutput?: boolean
-    jsonSchema?: string
-    retryOnError?: boolean
-    maxRetries?: number
-    retryIntervalSec?: number
+    template?: string
+    vars?: Record<string, any>
+    stream?: boolean
+    options?: Record<string, any>
   }
 
   const update = (patch: Partial<typeof llm>) => onUpdate(node.id, { llm: { ...llm, ...patch } as any })
 
-  const addExtra = () => update({ extras: [...(llm.extras || []), ""] })
-  const removeExtra = (i: number) => update({ extras: (llm.extras || []).filter((_, idx) => idx !== i) })
-  const updateExtra = (i: number, val: string) =>
-    update({ extras: (llm.extras || []).map((v, idx) => (idx === i ? val : v)) })
+  // Keep a text version of vars for simple editing
+  const [varsText, setVarsText] = React.useState<string>(() => {
+    try { return JSON.stringify(llm.vars || {}, null, 2) } catch { return "{}" }
+  })
+  React.useEffect(() => {
+    // When node changes externally, sync the editor text
+    try {
+      const next = JSON.stringify(((node.data as any).llm?.vars) || {}, null, 2)
+      setVarsText(next)
+    } catch {}
+  }, [node.id, (node.data as any).llm?.vars])
+
+  const [editorHeight, setEditorHeight] = React.useState<number>(180)
+  const dragRef = React.useRef<{ startY: number; startH: number; dragging: boolean }>({ startY:0, startH:180, dragging:false })
+  React.useEffect(() => {
+    function onMove(e: MouseEvent){ if(!dragRef.current.dragging) return; const dy = e.clientY - dragRef.current.startY; setEditorHeight(Math.min(Math.max(120, dragRef.current.startH + dy), 560)) }
+    function onUp(){ dragRef.current.dragging = false }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+  }, [])
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-2">
-        <Label htmlFor="llm-system">System prompt</Label>
-        <Textarea
-          id="llm-system"
-          rows={4}
-          value={llm.system || ""}
-          onChange={(e) => update({ system: e.target.value })}
-          placeholder="You are a helpful assistant..."
-        />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="llm-user">User prompt (optional)</Label>
-        <Textarea
-          id="llm-user"
-          rows={3}
-          value={llm.user || ""}
-          onChange={(e) => update({ user: e.target.value })}
-          placeholder="Provide details for the task..."
-        />
-      </div>
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label>Other prompts (optional)</Label>
-          <Button size="sm" variant="outline" onClick={addExtra}>
-            <Plus className="mr-1 h-4 w-4" /> Add
-          </Button>
-        </div>
-        {(llm.extras || []).length === 0 ? (
-          <p className="text-xs text-neutral-500">No additional prompts. Click Add to insert one.</p>
-        ) : (
-          <div className="grid gap-2">
-            {(llm.extras || []).map((p, i) => (
-              <div key={`xp-${i}`} className="flex items-start gap-2">
-                <Textarea
-                  rows={2}
-                  value={p}
-                  onChange={(e) => updateExtra(i, e.target.value)}
-                  placeholder="Additional instruction or context..."
-                  className="flex-1"
-                />
-                <Button size="icon" variant="ghost" onClick={() => removeExtra(i)} title="Remove">
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="space-y-2 rounded border p-2">
-        <div className="flex items-center gap-2">
-          <Checkbox id="llm-json" checked={!!llm.jsonOutput} onCheckedChange={(v) => update({ jsonOutput: !!v })} />
-          <Label htmlFor="llm-json">JSON output</Label>
-        </div>
-        {llm.jsonOutput ? (
-          <div className="mt-2 grid gap-2">
-            <Label htmlFor="llm-json-schema">JSON schema (optional)</Label>
-            <Textarea
-              id="llm-json-schema"
-              rows={5}
-              value={llm.jsonSchema || ""}
-              onChange={(e) => update({ jsonSchema: e.target.value })}
-              placeholder='e.g. {"type":"object","properties":{...}}'
-            />
-          </div>
-        ) : null}
-      </div>
-      <div className="space-y-2 rounded border p-2">
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id="llm-retry"
-            checked={!!llm.retryOnError}
-            onCheckedChange={(v) => update({ retryOnError: !!v })}
+      <div className="grid gap-1">
+        <Label className="text-sm">Messages Template (Jinja + JSON)</Label>
+    <div className="relative rounded border bg-white" style={{ height: editorHeight }}>
+          <CodeMirror
+            value={llm.template || ""}
+            height={`${editorHeight - 8}px`}
+            theme="light"
+            // Jinja highlighting optional; install @codemirror/lang-jinja to enable.
+            extensions={[EditorView.lineWrapping]}
+            onChange={(val) => update({ template: val })}
+            basicSetup={{ lineNumbers: true, bracketMatching: true, closeBrackets: true, highlightActiveLine: true, indentOnInput: true, defaultKeymap: true }}
+            placeholder='Example:\n[\n  {"role": "system", "content": "You are helpful."},\n  {"role": "user", "content": "Answer in 3 words: {{ q }}"}\n]'
           />
-          <Label htmlFor="llm-retry">Retry on error</Label>
+          <div
+            onMouseDown={(e) => { dragRef.current = { startY: e.clientY, startH: editorHeight, dragging: true } }}
+            className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize bg-gradient-to-b from-transparent to-neutral-200"
+            aria-label="Resize LLM messages editor"
+          />
         </div>
-        {llm.retryOnError ? (
-          <div className="mt-2 grid grid-cols-2 gap-3">
-            <div className="grid gap-2">
-              <Label htmlFor="llm-retries">Max retries</Label>
-              <Input
-                id="llm-retries"
-                type="number"
-                min={0}
-                value={llm.maxRetries ?? 1}
-                onChange={(e) => update({ maxRetries: Math.max(0, Number(e.target.value || 0)) })}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="llm-interval">Retry interval (sec)</Label>
-              <Input
-                id="llm-interval"
-                type="number"
-                min={1}
-                value={llm.retryIntervalSec ?? 5}
-                onChange={(e) => update({ retryIntervalSec: Math.max(1, Number(e.target.value || 1)) })}
-              />
-            </div>
-          </div>
-        ) : null}
+  <p className="text-xs text-neutral-500 mt-1">Provide a JSON array of messages. You can reference bound variables via Jinja, e.g., <code>{"{{ q }}"}</code>.</p>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="llm-vars">Template Vars (JSON, optional)</Label>
+        <Textarea
+          id="llm-vars"
+          rows={4}
+          value={varsText}
+          onChange={(e) => setVarsText(e.target.value)}
+          onBlur={() => { try { const v = JSON.parse(varsText); update({ vars: v }) } catch { /* ignore parse errors */ } }}
+          placeholder='e.g. {"tone":"brief"}'
+        />
+        <p className="text-xs text-neutral-500">These variables are available to the Jinja template as <code>vars.&lt;name&gt;</code> in addition to input bindings.</p>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Checkbox id="llm-stream" checked={!!llm.stream} onCheckedChange={(v) => update({ stream: !!v })} />
+        <Label htmlFor="llm-stream">Stream responses</Label>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="llm-model">Model override (optional)</Label>
+        <Input id="llm-model" placeholder="provider/model" value={((llm.options||{}).model)||""} onChange={(e)=> update({ options: { ...(llm.options||{}), model: e.target.value } })} />
       </div>
     </div>
   )

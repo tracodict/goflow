@@ -4,9 +4,7 @@ import { MessageSquare, MessageSquareDot, Square, X, PanelLeftOpen, PanelLeftClo
 import { useSession } from '@/components/auth/session-context'
 // JSON Forms imports (packages added in package.json). Types may be unresolved until install.
 // @ts-ignore
-import { JsonForms } from '@jsonforms/react'
-// @ts-ignore
-import { vanillaCells, vanillaRenderers } from '@jsonforms/vanilla-renderers'
+import { DynamicForm } from '@/components/run/forms/dynamic-form'
 // Shadcn/Radix based custom renderers
 import { shadcnRenderers, shadcnCells } from '@/components/run/forms/renderers'
 // @ts-ignore
@@ -15,7 +13,9 @@ import { fetchWorkflowList, fetchWorkflow, createCase, startCase, fetchCaseEnabl
 import type { PetriNodeData } from '@/lib/petri-types'
 import type { Node } from '@xyflow/react'
 import { DEFAULT_SETTINGS } from '@/components/petri/system-settings-context'
-import { fetchPreSupportedSchema } from '@/components/petri/pre-supported-schemas'
+import { fetchPreSupportedSchema, usePreSupportedSchemas } from '@/components/petri/pre-supported-schemas'
+import { ViaTokensPanel } from '@/components/via/via-tokens-panel'
+import { ViaTokenGrid } from '@/components/via/via-token-grid'
 
 // Minimal run view: shows floating button indicating if any transition enabled
 export default function RunMain({ workflowId }: { workflowId: string | null }) {
@@ -24,8 +24,14 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
   const [jsonSchemas, setJsonSchemas] = useState<{ name: string; schema: any }[]>([])
   const [workflows, setWorkflows] = useState<any[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarTab, setSidebarTab] = useState<'cases'|'tokens'>('cases')
   const [showWorkflowPicker, setShowWorkflowPicker] = useState(false)
   const [cases, setCases] = useState<{ id: string; cpnId: string; name: string; description?: string; enabled: any[]; status?: string; createdAt?: string }[]>([])
+  const [caseQuery, setCaseQuery] = useState('')
+  const [wfColorSets, setWfColorSets] = useState<string[]>([])
+  const { names: preSupportedNames, load: loadPreSupported } = usePreSupportedSchemas()
+  React.useEffect(()=>{ loadPreSupported() }, [loadPreSupported])
+  const [selectedColor, setSelectedColor] = useState<string | null>(null)
   // Filter: show only RUNNING status when true
   const [showLive, setShowLive] = useState(true) // Live = not COMPLETED / ABORTED
   const [sortDesc, setSortDesc] = useState(true) // true => newest first
@@ -118,6 +124,14 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
         if (!cancelled && data) {
           setWfTransitions(Array.isArray(data.transitions) ? data.transitions : [])
           setJsonSchemas(Array.isArray(data.jsonSchemas) ? data.jsonSchemas : [])
+          if (Array.isArray(data.colorSets)) {
+            // Extract names from colorSets lines like "colset INT = int;"
+            const names = data.colorSets.map((l: string) => {
+              const m = /colset\s+(\w+)/i.exec(l)
+              return m ? m[1] : null
+            }).filter(Boolean)
+            setWfColorSets(names)
+          }
         }
       } catch {/* ignore */}
     }
@@ -363,10 +377,13 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         {sidebarOpen && (
-          <div className="w-64 border-r flex flex-col bg-white">
+          <div className="w-72 border-r flex flex-col bg-white">
             <div className="flex items-center gap-2 h-9 px-2 border-b text-xs font-medium">
-              <span>Cases</span>
-              <label className="flex items-center gap-1 text-[10px] font-normal cursor-pointer select-none" title="Toggle to show only live (not completed / aborted) cases">
+              <div className="flex items-center gap-1">
+                <button className={`px-2 py-1 rounded text-[11px] ${sidebarTab==='cases'?'bg-emerald-600 text-white':'hover:bg-neutral-100'}`} onClick={()=>setSidebarTab('cases')}>Cases</button>
+                <button className={`px-2 py-1 rounded text-[11px] ${sidebarTab==='tokens'?'bg-emerald-600 text-white':'hover:bg-neutral-100'}`} onClick={()=>setSidebarTab('tokens')}>Tokens</button>
+              </div>
+              {sidebarTab==='cases' && <label className="flex items-center gap-1 text-[10px] font-normal cursor-pointer select-none" title="Toggle to show only live (not completed / aborted) cases">
                 <input
                   type="checkbox"
                   className="h-3 w-3 cursor-pointer"
@@ -374,17 +391,47 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
                   onChange={e => setShowLive(e.target.checked)}
                 />
                 <span>Live</span>
-              </label>
-              <button type="button" onClick={() => setSortDesc(s => !s)} className="ml-auto h-7 w-7 inline-flex items-center justify-center rounded border bg-white hover:bg-neutral-50" title={sortDesc ? 'CreatedAt desc (newest first) – click for asc' : 'CreatedAt asc (oldest first) – click for desc'}>
-                {sortDesc ? <ClockArrowDown className="h-4 w-4" /> : <ClockArrowUp className="h-4 w-4" />}
-              </button>
-              <button type="button" className="h-7 w-7 inline-flex items-center justify-center rounded border bg-white hover:bg-neutral-50" title="Create case" onClick={() => setShowWorkflowPicker(v=>!v)}>
-                <Plus className="h-4 w-4" />
-              </button>
+              </label>}
+              {sidebarTab==='cases' && (
+                <>
+                  <button type="button" onClick={() => setSortDesc(s => !s)} className="ml-auto h-7 w-7 inline-flex items-center justify-center rounded border bg-white hover:bg-neutral-50" title={sortDesc ? 'CreatedAt desc (newest first) – click for asc' : 'CreatedAt asc (oldest first) – click for desc'}>
+                    {sortDesc ? <ClockArrowDown className="h-4 w-4" /> : <ClockArrowUp className="h-4 w-4" />}
+                  </button>
+                  <button type="button" className="h-7 w-7 inline-flex items-center justify-center rounded border bg-white hover:bg-neutral-50" title="Create case" onClick={() => setShowWorkflowPicker(v=>!v)}>
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </>
+              )}
             </div>
-            <div className="flex-1 overflow-auto p-2 space-y-1 text-xs relative">
+            {sidebarTab==='cases' && (
+              <div className="flex-1 overflow-auto p-2 space-y-1 text-xs relative">
+                <div className="sticky top-0 z-10 bg-white pb-1">
+                  <div className="relative mb-1">
+                    <input
+                      type="text"
+                      value={caseQuery}
+                      onChange={e=>setCaseQuery(e.target.value)}
+                      placeholder="Search cases..."
+                      className="w-full h-7 px-2 pr-6 rounded border text-[11px] outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                    {caseQuery && (
+                      <button
+                        type="button"
+                        className="absolute right-1 top-1 h-5 w-5 inline-flex items-center justify-center rounded hover:bg-neutral-100"
+                        onClick={()=>setCaseQuery('')}
+                        aria-label="Clear search"
+                      >
+                        <svg className="h-3 w-3" viewBox="0 0 16 16" stroke="currentColor" strokeWidth="2" fill="none"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+                      </button>
+                    )}
+                  </div>
+                </div>
               {(() => {
                 let visibleCases = showLive ? cases.filter(c => c.status !== 'COMPLETED' && c.status !== 'ABORTED') : [...cases]
+                const q = caseQuery.trim().toLowerCase()
+                if (q) {
+                  visibleCases = visibleCases.filter(c => (c.name || '').toLowerCase().includes(q) || (c.description || '').toLowerCase().includes(q))
+                }
                 // Sort by createdAt (desc when sortDesc) fallback id
                 const parseTime = (c: any) => {
                   if (c.createdAt) {
@@ -454,14 +501,31 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
               </div>
               {caseError && cases.length>0 && <div className="sticky bottom-0 bg-white p-1 text-[10px] text-red-600 border rounded">{caseError} <button className="underline" onClick={()=>loadMoreCases()}>Retry</button></div>}
             </div>
+            )}
+            {sidebarTab==='tokens' && (
+              <div className="flex-1 overflow-auto">
+                <ViaTokensPanel
+                  definedColors={wfColorSets}
+                  selected={selectedColor}
+                  onSelect={(c)=>{ setSelectedColor(c) }}
+                />
+              </div>
+            )}
           </div>
         )}
         {/* Main panel */}
-        <div className="relative flex-1">
+  <div className="relative flex-1 flex flex-col min-h-0">
           {/* Background placeholder */}
-          <div className="absolute inset-0 flex items-center justify-center text-neutral-300 text-sm select-none pointer-events-none">
-            {activeCaseId ? `Active case: ${cases.find(c=>c.id===activeCaseId)?.name}` : 'No case selected'}
-          </div>
+          {!selectedColor && (
+            <div className="absolute inset-0 flex items-center justify-center text-neutral-300 text-sm select-none pointer-events-none">
+              {activeCaseId ? `Active case: ${cases.find(c=>c.id===activeCaseId)?.name}` : 'No case selected'}
+            </div>
+          )}
+          {selectedColor && (
+            <div className="flex-1 flex flex-col min-h-0">
+              <ViaTokenGrid baseUrl={flowServiceUrl || ''} color={selectedColor} dictionaryUrl={dictionaryUrl} />
+            </div>
+          )}
           {/* Floating enabled transitions button (hidden if none and not completed) */}
       {(anyEnabled || caseCompleted) && (
         <div
@@ -618,38 +682,11 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
             </button>
           </div>
           <div className="flex-1 overflow-auto p-6">
-            <JsonForms
+            <DynamicForm
               schema={effectiveSchema || formSchema || { type: 'string' }}
-              uischema={(formUiSchema || (() => {
-                // Auto-generate responsive grid layout when schema is object
-                const s = effectiveSchema || formSchema
-                if (s && s.type === 'object' && s.properties) {
-                    const elements = Object.keys(s.properties).map(k => {
-                      const prop: any = s.properties[k]
-                      const isArray = prop?.type === 'array'
-                      const isDate = (prop?.type === 'string' && (prop?.format === 'date'))
-                      const isObject = prop?.type === 'object'
-                      return {
-                        type: 'Control',
-                        scope: `#/properties/${k}`,
-                        options: {
-                          ...(isDate ? { date: true } : {}),
-                          ...(isArray ? { fullWidth: true } : {}),
-                          ...(isObject ? { fullWidth: true, lazyObject: true } : {})
-                        }
-                      }
-                    })
-                  return { type: 'VerticalLayout', options: { grid: 'responsive', columns: { sm:1, md:3, lg:5 } }, elements }
-                }
-                // Fallback: simple control
-                if (s && s.type !== 'object') return { type: 'Control', scope: '#' }
-                return undefined
-              })()) as any}
+              uiSchema={formUiSchema as any}
               data={formData ?? {}}
-              // Prefer custom shadcn renderers first, then fallback to vanilla
-              renderers={[...shadcnRenderers, ...vanillaRenderers]}
-              cells={[...shadcnCells, ...vanillaCells]}
-              onChange={(ev: any) => setFormData(ev.data)}
+              onChange={d => setFormData(d)}
             />
             {!formSchema && !formUiSchema && <p className="mt-4 text-[11px] text-neutral-500">Schema & responsive layout inferred (1 / 3 / 5 columns). Supply layoutSchema to override (options.columns {`{ sm, md, lg }`} or per-element options.span).</p>}
           </div>

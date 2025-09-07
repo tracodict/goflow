@@ -56,6 +56,15 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
         guardExpression: t.guardExpression,
         actionExpression: t.actionExpression,
         transitionDelay: (t as any).transitionDelay,
+        // Map LLM fields (backend may send these when kind == LLM)
+        ...(tType === 'LLM' ? {
+          llm: {
+            template: (t as any).LlmTemplate || '',
+            vars: (t as any).LlmVars || {},
+            stream: !!(t as any).Stream,
+            options: (t as any).LlmOptions || {},
+          }
+        } : {}),
         ...(manual ? { manual } : {})
       } as any,
     })
@@ -123,6 +132,13 @@ export function graphToServer(
         const manual = (n.data as any).manual || {}
         if (manual.formSchema) base.formSchema = manual.formSchema
         if (manual.layoutSchema) base.layoutSchema = manual.layoutSchema
+      }
+      if ((n.data as any).tType === 'LLM') {
+        const llm = (n.data as any).llm || {}
+        if (llm.template) base.LlmTemplate = llm.template
+        if (llm.vars && typeof llm.vars === 'object') base.LlmVars = llm.vars
+        if (llm.options && typeof llm.options === 'object') base.LlmOptions = llm.options
+        if (llm.stream !== undefined) base.Stream = !!llm.stream
       }
       return base
     })

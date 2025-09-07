@@ -91,10 +91,64 @@ export async function fetchWorkflow(flowServiceUrl: string, id: string) {
 
 export async function saveWorkflow(flowServiceUrl: string, workflowData: any) {
   const base = flowServiceUrl.replace(/\/$/, '')
+  // Strip CDN-backed jsonSchema bodies to keep payload lean. Retain only { name } for schemas
+  // whose $id (or inferred path) matches the configured dictionaryUrl. Allow opt-out with _local flag.
+  let payload = workflowData
+  try {
+    if (workflowData && Array.isArray(workflowData.jsonSchemas)) {
+      // Determine dictionaryUrl from localStorage (system settings) or fallback constant.
+      const LS_KEY = 'goflow.systemSettings'
+      const FALLBACK_DICTIONARY = 'https://cdn.statically.io/gh/tracodict/jschema/main/ep299/'
+      let dictionaryUrl = FALLBACK_DICTIONARY
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = window.localStorage.getItem(LS_KEY)
+          if (raw) {
+            const parsed = JSON.parse(raw)
+            if (parsed && typeof parsed.dictionaryUrl === 'string' && parsed.dictionaryUrl.trim()) {
+              dictionaryUrl = parsed.dictionaryUrl
+            }
+          }
+        } catch { /* ignore */ }
+      }
+      const root = (dictionaryUrl || '').replace(/\/+$/, '')
+      const seen = new Set<string>()
+      payload = { ...workflowData, jsonSchemas: workflowData.jsonSchemas
+        .map((js: any) => {
+          if (!js || typeof js !== 'object') return null
+          const name = js.name
+          if (!name || typeof name !== 'string') return null
+          if (seen.has(name)) return null // drop duplicates silently (keep first)
+          seen.add(name)
+          const schema = js.schema
+          // Heuristic: treat as CDN-backed if schema exists and either:
+          // 1. schema.$id starts with dictionary root OR contains '/{firstLetter}/{name}.schema'
+          // 2. schema has marker _cdn === true
+          // Skip stripping if schema._local === true (user edited / custom)
+          let isCdn = false
+          if (schema && typeof schema === 'object') {
+            const first = name[0]?.toLowerCase() || ''
+            const pattern = `/${first}/${name}.schema`
+            if ((schema as any)._local) {
+              isCdn = false
+            } else if ((schema as any)._cdn === true) {
+              isCdn = true
+            } else if (typeof (schema as any).$id === 'string') {
+              const id: string = (schema as any).$id
+              if (id.startsWith(root)) isCdn = true
+              else if (id.includes(pattern)) isCdn = true
+            }
+          }
+          if (isCdn) return { name }
+          return { name, schema }
+        })
+        .filter(Boolean) }
+    }
+  } catch { /* non-fatal sanitization issues ignored */ }
   const resp = await authFetch(`${base}/api/cpn/load`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(workflowData),
+    body: JSON.stringify(payload),
   });
   if (!resp.ok) {
     let bodyText = ''
@@ -264,6 +318,19 @@ export async function queryCases(flowServiceUrl: string, body: any) {
   return resp.json()
 }
 
+// ---- Token-centric VIA helpers ----
+export async function queryTokens(flowServiceUrl: string, body: any) {
+  const resp = await authFetch(`${flowServiceUrl.replace(/\/$/, '')}/api/tokens/query`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {})
+  })
+  // 401 handling: provide clearer error for UI
+  if (resp.status === 401) {
+    throw new ApiError('Unauthorized querying tokens', { status: 401, context: 'queryTokens' })
+  }
+  if (!resp.ok) throw new Error(`Failed to query tokens: ${resp.status}`)
+  return resp.json()
+}
+
 // List all cases (server-side)
 export async function fetchCaseList(flowServiceUrl: string, opts: { offset?: number; limit?: number } = {}) {
   const base = flowServiceUrl.replace(/\/$/, '')
@@ -273,5 +340,39 @@ export async function fetchCaseList(flowServiceUrl: string, opts: { offset?: num
   const qs = params.length ? `?${params.join('&')}` : ''
   const resp = await authFetch(`${base}/api/cases/list${qs}`)
   if (!resp.ok) throw new Error(`Failed to list cases: ${resp.status}`)
+  return resp.json()
+}
+
+// ---- Token transition enablement & firing (VIA) ----
+// Determine enabled transitions for a set of tokens bound to a case
+// Expected body shape: { caseId: string, tokens: [{ placeId, value }] }
+// Server response (planned): { data: { results: [{ enabledTransitions: Transition[] }] } }
+export async function tokensEnabled(flowServiceUrl: string, body: { caseId: string; tokens: { placeId: string; value: any }[] }) {
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const resp = await authFetch(`${base}/api/tokens/enabled`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  if (resp.status === 401) throw new ApiError('Unauthorized querying enabled transitions', { status: 401, context: 'tokensEnabled' })
+  if (!resp.ok) throw new Error(`Failed to fetch enabled transitions: ${resp.status}`)
+  return resp.json()
+}
+
+// Fire a transition using token-centric endpoint
+// Body shape: { caseId, transitionId, tokenBinding: { placeId, value }, input?: any }
+export async function fireTokenTransition(flowServiceUrl: string, body: { caseId: string; transitionId: string; tokenBinding: { placeId: string; value: any }; input?: any }) {
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const resp = await authFetch(`${base}/api/tokens/fire`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  if (resp.status === 401) throw new ApiError('Unauthorized firing transition', { status: 401, context: 'fireTokenTransition' })
+  if (!resp.ok) {
+    let text = ''
+    try { text = await resp.text() } catch {}
+    throw new ApiError('Fire token transition failed', { status: resp.status, rawBody: text, context: 'fireTokenTransition' })
+  }
   return resp.json()
 }

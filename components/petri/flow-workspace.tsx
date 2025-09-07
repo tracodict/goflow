@@ -420,7 +420,14 @@ function CanvasInner() {
   const colorLines: string[] = Array.isArray(next.color) ? next.color.filter((l: any) => typeof l === 'string' && l.trim().length) : []
   const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
   const colorNames = colorLines.map(l => { const m = l.match(nameRegex); return m? m[1]: l }).filter(Boolean)
-  const mergedColorSets = Array.from(new Set([...(prevMeta.colorSets||[]), ...colorNames]))
+  // Dedupe while preserving first occurrence order: existing colorSets first, then new names not already present
+  const seen = new Set<string>()
+  const ordered: string[] = []
+  ;[...(prevMeta.colorSets||[]), ...colorNames].forEach(n => {
+    if (!n) return
+    if (!seen.has(n)) { seen.add(n); ordered.push(n) }
+  })
+  const mergedColorSets = ordered
   const updated = { ...meta, [activeWorkflowId]: { ...prevMeta, colorSets: mergedColorSets, declarations: next } }
   try { localStorage.setItem('goflow.declarations.'+activeWorkflowId, JSON.stringify(next)) } catch {}
   broadcastMergedColors(updated, activeWorkflowId)
@@ -910,8 +917,22 @@ function CanvasInner() {
                 <div className="px-3 py-2 text-xs uppercase tracking-wide text-neutral-500">Color Set</div>
                 {(() => {
                   const custom = workflowMeta[activeWorkflowId||'']?.colorSets || []
+                  // Pre-supported JSON form schema names as colors (lazy load)
+                  // Dynamic hook usage inside IIFE is unconventional; moved outside not trivial here so guard.
+                  let preSupportedNames: string[] = []
+                  try {
+                    // @ts-ignore - allow conditional require pattern
+                    const hook = require('@/components/petri/pre-supported-schemas')
+                    if (hook && hook.usePreSupportedSchemas) {
+                      const ps = hook.usePreSupportedSchemas()
+                      if (ps && ps.names) {
+                        preSupportedNames = ps.names
+                        if (!ps.loaded && ps.load) { try { ps.load() } catch {} }
+                      }
+                    }
+                  } catch { /* ignore runtime require issues */ }
                   // Ensure built-ins always available even if user removed from meta
-                  const all = Array.from(new Set([...DEFAULT_COLOR_SETS, ...custom]))
+                  const all = Array.from(new Set([...DEFAULT_COLOR_SETS, ...custom, ...preSupportedNames]))
                   return all.length === 0 ? (
                     <div className="px-3 py-2 text-xs text-neutral-400">No color sets defined</div>
                   ) : (

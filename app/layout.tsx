@@ -4,6 +4,7 @@ import { GeistMono } from 'geist/font/mono'
 import './globals.css'
 import { Toaster } from '@/components/ui/toaster'
 import { SessionProvider } from '@/components/auth/session-context'
+import { SystemSettingsProvider } from '@/components/petri/system-settings-context'
 
 export const metadata: Metadata = {
   title: 'goFlow Editor',
@@ -28,9 +29,11 @@ html {
         `}</style>
       </head>
   <body className="font-sans">
-        <SessionProvider>
-          {children}
-        </SessionProvider>
+        <SystemSettingsProvider>
+          <SessionProvider>
+            {children}
+          </SessionProvider>
+        </SystemSettingsProvider>
         <Toaster />
       </body>
     </html>

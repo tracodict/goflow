@@ -9,6 +9,7 @@
     "start": "next start"
   },
   "dependencies": {
+  "@codemirror/lang-jinja": "latest",
     "@babel/runtime": "latest",
     "@codemirror/lang-javascript": "latest",
     "@codemirror/lang-json": "latest",

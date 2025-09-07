@@ -4,6 +4,7 @@
 // Can be extended later (arrays, objects, categorization, groups)
 
 import React from 'react'
+import '@/styles/ag-grid-custom.css'
 // @ts-ignore - jsonforms types may not yet be available
 import {
   rankWith,
@@ -36,23 +37,8 @@ import { Button } from '@/components/ui/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { Calendar } from '@/components/ui/calendar'
 import { Calendar as CalendarIcon, Plus, Trash2, ChevronRight, ChevronDown } from 'lucide-react'
-import dynamic from 'next/dynamic'
-// Dynamic import to avoid SSR issues with ag-grid (only renders client-side)
-// @ts-ignore - types may be missing until installed
-const AgGridReact = dynamic(() => import('ag-grid-react').then(m => m.AgGridReact), { ssr: false }) as any
-import { ColDef, GridApi, ModuleRegistry, AllCommunityModule } from 'ag-grid-community'
-// Register all community modules once (AG Grid v32+ modular architecture)
-if (typeof window !== 'undefined') {
-  try {
-    // Prevent duplicate registrations
-    // @ts-ignore
-    if (!(window as any).__agGridAllModulesRegistered) {
-      ModuleRegistry.registerModules([AllCommunityModule])
-      // @ts-ignore
-      ;(window as any).__agGridAllModulesRegistered = true
-    }
-  } catch {/* ignore */}
-}
+import { ColDef, GridApi } from 'ag-grid-community'
+import AgGridWrapper from '@/components/ui/ag-grid-wrapper'
 
 // ---------- Helpers ----------
 
@@ -295,18 +281,16 @@ const ArrayControl: React.FC<ControlProps> = (props) => {
           <div className="flex justify-end">
             <Button type="button" variant="outline" size="sm" onClick={addRow}><Plus className="size-4" />Add</Button>
           </div>
-          <div className="ag-theme-quartz w-full min-h-40 border rounded-md overflow-hidden">
-            {React.createElement(AgGridReact, {
-              ref: gridRef,
-              columnDefs,
-              rowData,
-              stopEditingWhenCellsLoseFocus: true,
-              onCellValueChanged,
-              domLayout: 'autoHeight',
-              suppressDragLeaveHidesColumns: true,
-              reactiveCustomComponents: true
-            })}
-          </div>
+          <AgGridWrapper
+            rowData={rowData}
+            columnDefs={columnDefs}
+            autoHeight
+            containerClassName="w-full min-h-40 border rounded-md overflow-hidden"
+            stopEditingWhenCellsLoseFocus
+            onCellValueChanged={onCellValueChanged}
+            suppressDragLeaveHidesColumns
+            reactiveCustomComponents
+          />
         </div>
       </ControlWrapper>
     </div>
@@ -369,7 +353,6 @@ const LazyObjectControl: React.FC<ControlProps> = (props) => {
                 path={path}
                 renderers={renderers}
                 cells={cells}
-                rootSchema={rootSchema}
               />
             </div>
           )}
@@ -394,7 +377,7 @@ const ShadcnLazyObjectControl = withJsonFormsControlProps(LazyObjectControl)
 // Tailwind classes rely on standard col-span-* utilities.
 
 // @ts-ignore
-interface LayoutProps { uischema: any; schema: any; path: string; renderers: any; cells: any; visible: boolean }
+interface LayoutProps { uischema: any; schema: any; path: string; renderers?: any; cells?: any; visible?: boolean }
 
 const ResponsiveGridLayout: React.FC<LayoutProps> = ({ uischema, schema, path, renderers, cells, visible }) => {
   if (visible === false) return null

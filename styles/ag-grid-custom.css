@@ -1,0 +1,69 @@
+/* Minimal, safe AG Grid customizations (reset from scratch) */
+/* Scope */
+.ag-theme-quartz.custom-grid {
+  --ag-font-size: 11px;
+  --ag-header-height: 30px;
+  /* Force grid to use app font (quartz theme ships its own) */
+  --ag-font-family: inherit;
+  font-family: inherit !important;
+}
+
+/* Ensure all internal regions inherit (some theme rules target wrappers) */
+.ag-theme-quartz.custom-grid .ag-root-wrapper,
+.ag-theme-quartz.custom-grid .ag-root,
+.ag-theme-quartz.custom-grid .ag-header,
+.ag-theme-quartz.custom-grid .ag-body,
+.ag-theme-quartz.custom-grid .ag-cell,
+.ag-theme-quartz.custom-grid .ag-header-cell,
+.ag-theme-quartz.custom-grid .ag-panel-title-bar,
+.ag-theme-quartz.custom-grid .ag-side-bar { font-family: inherit !important; }
+
+/* Normalize header font weight & size to match typical shadcn tailwind (font-medium ~500) */
+.ag-theme-quartz.custom-grid .ag-header-cell-text { font-weight: 500; font-size: 11px; }
+.ag-theme-quartz.custom-grid .ag-cell { font-size: 11px; }
+
+/* Remove all grid lines (outer + inner) */
+.ag-theme-quartz.custom-grid .ag-root-wrapper { border: none !important; }
+.ag-theme-quartz.custom-grid .ag-root { border: none !important; }
+.ag-theme-quartz.custom-grid .ag-header,
+.ag-theme-quartz.custom-grid .ag-header-row,
+.ag-theme-quartz.custom-grid .ag-header-cell { border: none !important; box-shadow: none !important; }
+.ag-theme-quartz.custom-grid .ag-row,
+.ag-theme-quartz.custom-grid .ag-row:not(.ag-row-first),
+.ag-theme-quartz.custom-grid .ag-cell { border: none !important; }
+.ag-theme-quartz.custom-grid .ag-cell { border-right: none !important; }
+
+/* Row zebra (keep even rows white for consistency with theme) */
+.ag-theme-quartz.custom-grid .ag-row-odd .ag-cell { background:#fafafa; }
+.ag-theme-quartz.custom-grid .ag-row-hover .ag-cell { background:#f0f7ff !important; }
+
+/* Compact cell padding (leave header mostly default for alignment) */
+.ag-theme-quartz.custom-grid .ag-cell { padding: 0 6px; line-height:1.3; }
+
+/* Slightly tighter header horizontal padding WITHOUT altering internal flex children */
+.ag-theme-quartz.custom-grid .ag-header-cell .ag-header-cell-label { padding-left:4px; padding-right:4px; }
+
+/* Hide filter/menu icons by default, show on header hover (no positioning changes) */
+.ag-theme-quartz.custom-grid .ag-header-cell .ag-icon-filter,
+.ag-theme-quartz.custom-grid .ag-header-cell .ag-header-cell-menu-button {
+  opacity:0;
+  transition:opacity .15s ease;
+}
+.ag-theme-quartz.custom-grid .ag-header-cell:hover .ag-icon-filter,
+.ag-theme-quartz.custom-grid .ag-header-cell:hover .ag-header-cell-menu-button {
+  opacity:1;
+}
+
+/* Token action button reveal */
+.ag-theme-quartz.custom-grid .ag-row-hover .token-action-btn { opacity:1 !important; }
+
+/* Make resize handle visible but subtle */
+.ag-theme-quartz.custom-grid .ag-header-cell-resize { width:5px; opacity:.4; }
+.ag-theme-quartz.custom-grid .ag-header-cell:hover .ag-header-cell-resize { opacity:.9; }
+
+/* Optional: soften header background slightly */
+.ag-theme-quartz.custom-grid .ag-header { background:#fcfcfc; }
+
+/* Remove custom sort/filter overrides for now (use defaults for stability) */
+
+/* NOTE: Avoid overriding display/transform/overflow on header/body containers to preserve alignment */
