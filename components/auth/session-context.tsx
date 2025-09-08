@@ -34,7 +34,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setRedirecting(true)
       try {
         const authBase = process.env.NEXT_PUBLIC_AUTH_BASE_URL || process.env.NEXT_PUBLIC_AUTH_BASE || 'https://auth.lizhao.net'
-        const start = new URL('/oauth/start', authBase)
+        const start = new URL('/login', authBase)
         start.searchParams.set('return', window.location.href)
         window.location.replace(start.toString())
       } catch {/* ignore */}

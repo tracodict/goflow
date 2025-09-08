@@ -26,7 +26,7 @@ export async function GET(request: Request) {
   // In prod if REDIRECT_AUTH_LOGOUT disabled, just bounce to login start
   if (!isDev && process.env.REDIRECT_AUTH_LOGOUT === '0') {
     const authBase = process.env.AUTH_BASE_URL || 'https://auth.lizhao.net'
-    res.headers.set('Location', `${authBase.replace(/\/$/,'')}/oauth/start?return=${encodeURIComponent(returnParam)}`)
+    res.headers.set('Location', `${authBase.replace(/\/$/,'')}/login?return=${encodeURIComponent(returnParam)}`)
   }
   return res
 }

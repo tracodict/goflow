@@ -12,7 +12,7 @@ export async function middleware(req: NextRequest) {
   const sid = req.cookies.get('lz_sess')?.value
   if (!sid) {
     const authBase = process.env.AUTH_BASE_URL || 'https://auth.lizhao.net'
-    const start = new URL('/oauth/start', authBase)
+    const start = new URL('/login', authBase)
   start.searchParams.set('return', sanitizeReturn(req.nextUrl.toString()))
     return NextResponse.redirect(start)
   }

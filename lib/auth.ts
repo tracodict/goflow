@@ -77,7 +77,7 @@ export async function requireSession(): Promise<Principal> {
 export function buildAuthStartURL(returnUrl: string) {
   const authBase = process.env.AUTH_BASE_URL || 'https://auth.lizhao.net'
   const sanitized = sanitizeReturn(returnUrl)
-  const u = new URL('/oauth/start', authBase)
+  const u = new URL('/login', authBase)
   u.searchParams.set('return', sanitized)
   return u.toString()
 }
