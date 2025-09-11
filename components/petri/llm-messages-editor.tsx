@@ -1,27 +1,19 @@
 "use client"
-import React, { useMemo } from 'react'
+import React from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 
 export type MsgType = 'system' | 'user' | 'assistant' | 'tool' | 'placeholder'
 export interface LlmMessage { type: MsgType; text?: string; key?: string; append?: boolean }
 export interface LlmTemplateObj { messages: LlmMessage[] }
 
-function useOptionalJinja() {
-  return useMemo(() => {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const mod = require('@codemirror/lang-jinja')
-      if (mod && typeof mod.jinja === 'function') return [mod.jinja()]
-    } catch {/* ignore */}
-    return []
-  }, [])
-}
+// Jinja highlighting disabled for now to avoid duplicate @codemirror/state instances.
+function useOptionalJinja() { return [] as any[] }
 
 export const LlmMessagesEditor: React.FC<{
   value: LlmTemplateObj
   onChange: (v: LlmTemplateObj) => void
 }> = ({ value, onChange }) => {
-  const ext = useOptionalJinja()
+  const ext = useOptionalJinja() // currently [] to prevent runtime extension mismatch
   const msgs = Array.isArray(value?.messages) ? value.messages : []
 
   const updateMsg = (idx: number, patch: Partial<LlmMessage>) => {
@@ -93,7 +85,8 @@ export const LlmMessagesEditor: React.FC<{
                   height="100px"
                   theme="light"
                   basicSetup={{ lineNumbers: false }}
-                  extensions={ext}
+                  // extensions intentionally empty to avoid duplicate state instance errors
+                  extensions={[]}
                   onChange={(v)=>updateMsg(idx, { text: v })}
                 />
                 <div className="text-[10px] text-neutral-500 mt-1">Jinja placeholders supported, e.g. <code>{"{{ role }}"}</code> or <code>{"{{ question }}"}</code>.</div>

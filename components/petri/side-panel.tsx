@@ -1045,7 +1045,7 @@ function LLMEditor({
     <div className="space-y-4">
       <div className="grid gap-1">
         <Label className="text-sm">Messages (Jinja-enabled)</Label>
-        <div className="relative rounded border bg-white p-2" style={{ height: editorHeight, overflow: 'auto' }}>
+  <div className="relative rounded border bg-white p-2" style={{ height: editorHeight, overflow: 'auto' }}>
           <LlmMessagesEditor
             value={llm.templateObj || { messages: [] }}
             onChange={(v)=> update({ templateObj: v })}
