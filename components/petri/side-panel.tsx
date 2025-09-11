@@ -18,6 +18,7 @@ import { GripVertical, Minimize2, Maximize2, PanelRightOpen, ChevronsUpDown, Che
 // Removed static FORM_SCHEMAS; dynamic list comes from workflow declarations jsonSchemas
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import CodeMirror from '@uiw/react-codemirror'
+import { LlmMessagesEditor } from './llm-messages-editor'
 import { StreamLanguage } from '@codemirror/language'
 import { lua } from '@codemirror/legacy-modes/mode/lua'
 import { EditorView } from '@codemirror/view'
@@ -1018,16 +1019,11 @@ function LLMEditor({
   onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
 }) {
   const llm = ((node.data as any).llm || {
-    template: "",
+    templateObj: { messages: [] },
     vars: {},
     stream: false,
     options: {},
-  }) as {
-    template?: string
-    vars?: Record<string, any>
-    stream?: boolean
-    options?: Record<string, any>
-  }
+  }) as any
 
   const update = (patch: Partial<typeof llm>) => onUpdate(node.id, { llm: { ...llm, ...patch } as any })
 
@@ -1043,38 +1039,19 @@ function LLMEditor({
     } catch {}
   }, [node.id, (node.data as any).llm?.vars])
 
-  const [editorHeight, setEditorHeight] = React.useState<number>(180)
-  const dragRef = React.useRef<{ startY: number; startH: number; dragging: boolean }>({ startY:0, startH:180, dragging:false })
-  React.useEffect(() => {
-    function onMove(e: MouseEvent){ if(!dragRef.current.dragging) return; const dy = e.clientY - dragRef.current.startY; setEditorHeight(Math.min(Math.max(120, dragRef.current.startH + dy), 560)) }
-    function onUp(){ dragRef.current.dragging = false }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-  }, [])
+  const [editorHeight, setEditorHeight] = React.useState<number>(260)
 
   return (
     <div className="space-y-4">
       <div className="grid gap-1">
-        <Label className="text-sm">Messages Template (Jinja + JSON)</Label>
-    <div className="relative rounded border bg-white" style={{ height: editorHeight }}>
-          <CodeMirror
-            value={llm.template || ""}
-            height={`${editorHeight - 8}px`}
-            theme="light"
-            // Jinja highlighting optional; install @codemirror/lang-jinja to enable.
-            extensions={[EditorView.lineWrapping]}
-            onChange={(val) => update({ template: val })}
-            basicSetup={{ lineNumbers: true, bracketMatching: true, closeBrackets: true, highlightActiveLine: true, indentOnInput: true, defaultKeymap: true }}
-            placeholder='Example:\n[\n  {"role": "system", "content": "You are helpful."},\n  {"role": "user", "content": "Answer in 3 words: {{ q }}"}\n]'
-          />
-          <div
-            onMouseDown={(e) => { dragRef.current = { startY: e.clientY, startH: editorHeight, dragging: true } }}
-            className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize bg-gradient-to-b from-transparent to-neutral-200"
-            aria-label="Resize LLM messages editor"
+        <Label className="text-sm">Messages (Jinja-enabled)</Label>
+        <div className="relative rounded border bg-white p-2" style={{ height: editorHeight, overflow: 'auto' }}>
+          <LlmMessagesEditor
+            value={llm.templateObj || { messages: [] }}
+            onChange={(v)=> update({ templateObj: v })}
           />
         </div>
-  <p className="text-xs text-neutral-500 mt-1">Provide a JSON array of messages. You can reference bound variables via Jinja, e.g., <code>{"{{ q }}"}</code>.</p>
+        <p className="text-xs text-neutral-500 mt-1">Compose the prompt as a list of messages. Use Jinja placeholders like <code>{"{{ vars.name }}"}</code> or <code>{"{{ input.q }}"}</code>.</p>
       </div>
 
       <div className="grid gap-2">

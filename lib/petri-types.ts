@@ -31,7 +31,9 @@ export type TransitionData = {
     outputMapping?: Record<string,string>
   }
   llm?: {
-  // New templated messages model
+  // New templated messages model (preferred)
+  templateObj?: { messages: Array<{ type: 'system'|'user'|'assistant'|'tool'|'placeholder'; text?: string; key?: string; append?: boolean }> }
+  // Legacy single-string template (JSON array string with optional Jinja) — still accepted
   template?: string
   vars?: Record<string, any>
   stream?: boolean

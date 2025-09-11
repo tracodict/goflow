@@ -59,7 +59,11 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
         // Map LLM fields (backend may send these when kind == LLM)
         ...(tType === 'LLM' ? {
           llm: {
-            template: (t as any).LlmTemplate || '',
+            ...(typeof (t as any).LlmTemplate === 'string'
+              ? { template: (t as any).LlmTemplate }
+              : ( (t as any).LlmTemplate && typeof (t as any).LlmTemplate === 'object' && Array.isArray((t as any).LlmTemplate.messages)
+                  ? { templateObj: { messages: (t as any).LlmTemplate.messages } }
+                  : {})),
             vars: (t as any).LlmVars || {},
             stream: !!(t as any).Stream,
             options: (t as any).LlmOptions || {},
@@ -135,7 +139,8 @@ export function graphToServer(
       }
       if ((n.data as any).tType === 'LLM') {
         const llm = (n.data as any).llm || {}
-        if (llm.template) base.LlmTemplate = llm.template
+  if (llm.templateObj && Array.isArray(llm.templateObj.messages)) base.LlmTemplate = { messages: llm.templateObj.messages }
+  else if (llm.template) base.LlmTemplate = llm.template
         if (llm.vars && typeof llm.vars === 'object') base.LlmVars = llm.vars
         if (llm.options && typeof llm.options === 'object') base.LlmOptions = llm.options
         if (llm.stream !== undefined) base.Stream = !!llm.stream
