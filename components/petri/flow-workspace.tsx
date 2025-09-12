@@ -43,7 +43,7 @@ import { useSystemSettings } from "./system-settings-context"
 import { type PetriEdgeData, type PetriNodeData, type TransitionType } from "@/lib/petri-types"
 import { serverToGraph, graphToServer, type ServerWorkflow } from "@/lib/workflow-conversion"
 // consolidated petri client import
-import { fetchWorkflow, fetchTransitionsStatus, fetchMarking, fireTransition as fireTransitionApi, simulationStep, saveWorkflow, deleteWorkflowApi, resetWorkflow, withApiErrorToast } from "./petri-client"
+import { fetchWorkflow, fetchTransitionsStatus, fetchMarking, fireTransition as fireTransitionApi, simulationStep, saveWorkflow, deleteWorkflowApi, resetWorkflow, withApiErrorToast, listMcpTools, listRegisteredMcpServers, registerMcpServer, deregisterMcpServer } from "./petri-client"
 import { toast } from '@/hooks/use-toast'
 import { MonitorPanel } from './monitor-panel'
 import { TransitionIcon } from './transition-icon'
@@ -54,6 +54,7 @@ import { computePetriLayout } from '@/lib/auto-layout'
 import { validateWorkflow } from './petri-client'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog'
 import { Button as UIButton } from '@/components/ui/button'
+import CodeMirror from '@uiw/react-codemirror'
 
 const nodeTypes = { place: PlaceNode, transition: TransitionNode } as any
 const edgeTypes = { labeled: LabeledEdge } as any
@@ -105,7 +106,20 @@ function CanvasInner() {
     nodeId: null,
   })
   const [showSystem, setShowSystem] = useState<boolean>(false)
-  const [systemTab, setSystemTab] = useState<'monitor' | 'settings'>('monitor')
+  const [systemTab, setSystemTab] = useState<'monitor' | 'settings' | 'mcp'>('monitor')
+  // MCP state
+  type McpServer = { id: string; name: string; baseUrl: string; timeoutMs?: number; toolCount?: number; description?: string }
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([])
+  const [mcpSearch, setMcpSearch] = useState('')
+  const [mcpLoading, setMcpLoading] = useState(false)
+  const [mcpError, setMcpError] = useState<string | null>(null)
+  const [mcpAddOpen, setMcpAddOpen] = useState(false)
+  const [mcpDetailsOpen, setMcpDetailsOpen] = useState<{ open: boolean; server?: McpServer }>({ open: false })
+  const [mcpDetails, setMcpDetails] = useState<any[]>([])
+  const [mcpDetailsExpanded, setMcpDetailsExpanded] = useState<Record<number, boolean>>({})
+  const [mcpAddForm, setMcpAddForm] = useState<{ baseUrl: string; name: string; id: string; timeoutMs?: number }>({ baseUrl: '', name: '', id: '' })
+  const [mcpDiscovering, setMcpDiscovering] = useState(false)
+  const [mcpDiscovered, setMcpDiscovered] = useState<any[] | null>(null)
   const [monitorTabs, setMonitorTabs] = useState<string[]>([])
   const [activeMonitorTab, setActiveMonitorTab] = useState<string>('root')
   const [leftTab, setLeftTab] = useState<'property' | 'explorer'>("property")
@@ -759,6 +773,89 @@ function CanvasInner() {
     setEditedMap(m => ({ ...m, [activeWorkflowId]: true }))
   }, [activeWorkflowId])
 
+  // ---- MCP helpers ----
+  type ToolCatalogItem = { id: string; name: string; type: string; description?: string; inputSchema?: any; outputSchema?: any; config?: any; enabled?: boolean }
+  const refreshMcpServers = useCallback(async () => {
+    if (!settings.flowServiceUrl) return
+    setMcpLoading(true); setMcpError(null)
+    try {
+      const serversRaw: any[] = await withApiErrorToast(listRegisteredMcpServers(settings.flowServiceUrl), toast, 'Load MCP servers')
+      const baseServers: McpServer[] = (serversRaw||[]).map((s:any) => ({
+        id: s.id || s.baseUrl,
+        name: s.name || (()=>{ try { return new URL(s.baseUrl).host } catch { return s.baseUrl } })(),
+        baseUrl: s.endpoint,
+        timeoutMs: s.timeoutMs,
+        toolCount: s.toolCount,
+        description: s.description,
+      }))
+      // If toolCount missing, fetch via listMcpTools and count (silent failure tolerated)
+      const servers: McpServer[] = await Promise.all(baseServers.map(async (srv) => {
+        if (typeof srv.toolCount === 'number') return srv
+        try {
+          const tools = await listMcpTools(settings.flowServiceUrl!, { baseUrl: srv.baseUrl, timeoutMs: srv.timeoutMs })
+          return { ...srv, toolCount: Array.isArray(tools) ? tools.length : undefined }
+        } catch { return srv }
+      }))
+      setMcpServers(servers)
+    } catch(e:any) {
+      setMcpError(e?.message || String(e))
+    } finally { setMcpLoading(false) }
+  }, [settings.flowServiceUrl])
+
+  useEffect(() => { if (showSystem && systemTab==='mcp') { refreshMcpServers() } }, [showSystem, systemTab, refreshMcpServers])
+
+  const openMcpDetails = useCallback(async (srv: McpServer) => {
+    if (!settings.flowServiceUrl) return
+    try {
+      const items = await withApiErrorToast(listMcpTools(settings.flowServiceUrl, { baseUrl: srv.baseUrl, timeoutMs: srv.timeoutMs }), toast, 'Load MCP tools')
+      setMcpDetails(Array.isArray(items) ? items : [])
+      setMcpDetailsOpen({ open: true, server: srv })
+    } catch(e:any) { /* toasted */ }
+  }, [settings.flowServiceUrl])
+
+  const handleMcpDelete = useCallback(async (srv: McpServer) => {
+    if (!settings.flowServiceUrl) { toast({ title: 'Flow service URL missing', variant: 'destructive' }); return }
+    const ok = typeof window !== 'undefined' ? window.confirm(`Deregister MCP server "${srv.name || srv.baseUrl}"?`) : true
+    if (!ok) return
+    try {
+      await withApiErrorToast(deregisterMcpServer(settings.flowServiceUrl, { id: srv.id, baseUrl: srv.baseUrl }), toast, 'Deregister MCP server')
+      toast({ title: 'MCP server removed', description: srv.baseUrl })
+      await refreshMcpServers()
+    } catch(e:any) { /* toasted */ }
+  }, [settings.flowServiceUrl, refreshMcpServers])
+
+  const verifyAndDiscoverMcp = useCallback(async () => {
+    const base = mcpAddForm.baseUrl.trim().replace(/\/$/, '')
+    if (!base) { toast({ title: 'Enter baseUrl', variant: 'destructive' }); return }
+    if (!settings.flowServiceUrl) { toast({ title: 'Flow service URL missing', variant: 'destructive' }); return }
+    setMcpDiscovering(true); setMcpDiscovered(null)
+    try {
+      const arr = await withApiErrorToast(listMcpTools(settings.flowServiceUrl, { baseUrl: base, timeoutMs: mcpAddForm.timeoutMs }), toast, 'Discover MCP tools')
+      setMcpDiscovered(arr)
+      if (!arr || arr.length===0) toast({ title: 'No tools discovered', description: 'Server returned no tools' })
+    } catch(e:any) {
+      setMcpDiscovered([])
+      // withApiErrorToast already toasts; keep minimal fallback only
+    } finally { setMcpDiscovering(false) }
+  }, [mcpAddForm, settings.flowServiceUrl])
+
+  const handleRegisterDiscovered = useCallback(async (selectedNames: string[]) => {
+    if (!settings.flowServiceUrl) return
+    const base = mcpAddForm.baseUrl.trim().replace(/\/$/, '')
+    const picked = (mcpDiscovered||[]).filter((t:any)=> selectedNames.includes(t.name))
+    if (picked.length===0) { toast({ title: 'Nothing selected' }); return }
+    try {
+      // 1) Register/ensure MCP server exists in catalog
+      await withApiErrorToast(registerMcpServer(settings.flowServiceUrl, { baseUrl: base, name: mcpAddForm.name || undefined, id: mcpAddForm.id || undefined, timeoutMs: mcpAddForm.timeoutMs }), toast, 'Register MCP server')
+      // 2) Refresh MCP server list (authoritative) and close dialog
+      toast({ title: 'MCP server registered', description: base })
+      await refreshMcpServers()
+      setMcpAddOpen(false)
+      setMcpDiscovered(null)
+      setMcpAddForm({ baseUrl: '', name: '', id: '' })
+    } catch(e:any) { /* toasted */ }
+  }, [settings.flowServiceUrl, mcpDiscovered, mcpAddForm, refreshMcpServers])
+
   return (
     <div ref={containerRef} className="flex h-full w-full gap-4">
   {/* ...existing code... */}
@@ -783,6 +880,10 @@ function CanvasInner() {
               className={`px-3 py-2 ${systemTab === 'settings' ? 'border-b-2 border-emerald-600 text-emerald-700' : 'text-neutral-500'}`}
               onClick={() => setSystemTab('settings')}
             >Settings</button>
+            <button
+              className={`px-3 py-2 ${systemTab === 'mcp' ? 'border-b-2 border-emerald-600 text-emerald-700' : 'text-neutral-500'}`}
+              onClick={() => setSystemTab('mcp')}
+            >MCP</button>
           </div>
           <div className="flex-1 overflow-hidden">
             {systemTab === 'monitor' && (
@@ -820,6 +921,50 @@ function CanvasInner() {
               </div>
             )}
             {systemTab === 'settings' && <SystemSettingsTab />}
+            {systemTab === 'mcp' && (
+              <div className="flex h-full flex-col p-2 gap-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    className="flex-1 rounded border px-2 py-1 text-xs"
+                    placeholder="Search MCP servers…"
+                    value={mcpSearch}
+                    onChange={e=>setMcpSearch(e.target.value)}
+                  />
+                  <Button size="sm" onClick={()=> setMcpAddOpen(true)}>Add MCP Server</Button>
+                </div>
+                <div className="text-[11px] text-neutral-500">Registered MCP servers</div>
+                <div className="flex-1 overflow-auto space-y-2 pr-1">
+                  {mcpLoading ? <div className="text-xs text-neutral-500">Loading…</div> : null}
+                  {mcpError ? <div className="text-xs text-red-600">{mcpError}</div> : null}
+                  {mcpServers.filter(s => {
+                    const q = mcpSearch.trim().toLowerCase()
+                    if (!q) return true
+                    return (s.name?.toLowerCase().includes(q) || s.baseUrl?.toLowerCase().includes(q) || s.description?.toLowerCase().includes(q))
+                  }).map(s => (
+                    <div key={s.id} className="rounded border px-2 py-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{s.name}</span>
+                          <span className="text-[11px] text-neutral-500">{s.baseUrl}</span>
+                        </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button className="h-6 w-6 rounded hover:bg-neutral-100 text-neutral-600">⋯</button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={()=> openMcpDetails(s)}>Details</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-red-600" onClick={()=> handleMcpDelete(s)}>Delete</DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                      <div className="text-[11px] text-neutral-600 mt-1">Tools: {s.toolCount ?? '-'}</div>
+                    </div>
+                  ))}
+                  {(!mcpLoading && mcpServers.length === 0) && <div className="text-xs text-neutral-500">No MCP servers.</div>}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1170,6 +1315,124 @@ function CanvasInner() {
           </div>
           <DialogFooter>
             <UIButton onClick={() => setValidationOpen(false)}>Close</UIButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MCP Add Dialog */}
+      <Dialog open={mcpAddOpen} onOpenChange={setMcpAddOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Add MCP server</DialogTitle>
+            <DialogDescription>Enter the MCP httpstream base URL and discover tools to register.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 text-xs">
+            <div className="flex items-center gap-2">
+              <label className="w-24 text-right">Base URL</label>
+              <input className="flex-1 rounded border px-2 py-1" placeholder="https://data.lizhao.net/api/mcp" value={mcpAddForm.baseUrl} onChange={e=>setMcpAddForm(f=>({...f, baseUrl: e.target.value }))} />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="w-24 text-right">Name</label>
+              <input className="flex-1 rounded border px-2 py-1" placeholder="Optional label" value={mcpAddForm.name} onChange={e=>setMcpAddForm(f=>({...f, name: e.target.value }))} />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="w-24 text-right">Server ID</label>
+              <input className="flex-1 rounded border px-2 py-1" placeholder="Optional identifier" value={mcpAddForm.id} onChange={e=>setMcpAddForm(f=>({...f, id: e.target.value }))} />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="w-24 text-right">Timeout (ms)</label>
+              <input className="w-40 rounded border px-2 py-1" type="number" placeholder="8000" value={mcpAddForm.timeoutMs||''} onChange={e=>setMcpAddForm(f=>({...f, timeoutMs: e.target.value? Number(e.target.value): undefined }))} />
+            </div>
+            <div className="flex items-center gap-2 justify-end">
+              <Button size="sm" variant="secondary" onClick={verifyAndDiscoverMcp} disabled={mcpDiscovering}>{mcpDiscovering? 'Discovering…' : 'Discover Tools'}</Button>
+            </div>
+            {Array.isArray(mcpDiscovered) && (
+              <div className="max-h-60 overflow-auto rounded border">
+                <table className="w-full text-xs">
+                  <thead className="bg-neutral-50 text-neutral-600">
+                    <tr>
+                      <th className="px-2 py-1 text-left">Select</th>
+                      <th className="px-2 py-1 text-left">Name</th>
+                      <th className="px-2 py-1 text-left">Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mcpDiscovered.map((t:any, i:number) => (
+                      <tr key={i} className="odd:bg-white even:bg-neutral-50">
+                        <td className="border-t px-2 py-1"><input type="checkbox" onChange={(e)=>{ const name=t.name; setMcpDiscovered(arr=>{ const next=(arr||[]).map((x:any)=> ({...x})); const idx=next.findIndex((x:any)=>x.name===name); if (idx>=0) next[idx]._selected = e.target.checked; return next }) }} /></td>
+                        <td className="border-t px-2 py-1">{t.name}</td>
+                        <td className="border-t px-2 py-1">{t.description || ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <UIButton variant="secondary" onClick={()=> setMcpAddOpen(false)}>Cancel</UIButton>
+            <UIButton onClick={()=> handleRegisterDiscovered((mcpDiscovered||[]).filter((t:any)=>t._selected).map((t:any)=>t.name))} disabled={!Array.isArray(mcpDiscovered) || (mcpDiscovered||[]).every((t:any)=>!t._selected)}>Register Selected</UIButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MCP Details Dialog */}
+      <Dialog open={mcpDetailsOpen.open} onOpenChange={(v)=> setMcpDetailsOpen(prev=> ({ ...prev, open: v }))}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>MCP Tools: {mcpDetailsOpen.server?.name}</DialogTitle>
+            <DialogDescription>{mcpDetailsOpen.server?.baseUrl}</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-80 overflow-auto rounded border">
+            {mcpDetails.length === 0 ? (
+              <div className="p-3 text-xs text-neutral-500">No tools found for this server.</div>
+            ) : (
+              <table className="w-full text-xs">
+                <thead className="bg-neutral-50 text-neutral-600">
+                  <tr>
+                    <th className="px-2 py-1 text-left">Name</th>
+                    <th className="px-2 py-1 text-left">Description</th>
+                    <th className="px-2 py-1 text-left" aria-label="schema" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {mcpDetails.map((t:any, i:number) => (
+                    <>
+                      <tr key={`row-${i}`} className="odd:bg-white even:bg-neutral-50">
+                        <td className="border-t px-2 py-1 align-top">{t.name}</td>
+                        <td className="border-t px-2 py-1 align-top">{t.description || ''}</td>
+                        <td className="border-t px-2 py-1 align-top text-right">
+                          <button className="px-2 py-0.5 text-[11px] border rounded" onClick={()=> setMcpDetailsExpanded(s=> ({ ...s, [i]: !s[i] }))}>{mcpDetailsExpanded[i] ? 'Hide' : 'Show'} schema</button>
+                        </td>
+                      </tr>
+                      {mcpDetailsExpanded[i] && (
+                        <tr key={`schema-${i}`} className="odd:bg-white even:bg-neutral-50">
+                          <td colSpan={3} className="border-t px-2 py-2">
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <div className="text-[11px] text-neutral-600 mb-1">inputSchema</div>
+                                <div className="rounded border">
+                                  <CodeMirror value={JSON.stringify(t.inputSchema||{}, null, 2)} height="180px" theme="light" basicSetup={{ lineNumbers: false }} readOnly={true} onChange={()=>{}} />
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] text-neutral-600 mb-1">outputSchema</div>
+                                <div className="rounded border">
+                                  <CodeMirror value={JSON.stringify(t.outputSchema||{}, null, 2)} height="180px" theme="light" basicSetup={{ lineNumbers: false }} readOnly={true} onChange={()=>{}} />
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <DialogFooter>
+            <UIButton onClick={()=> setMcpDetailsOpen({ open: false })}>Close</UIButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

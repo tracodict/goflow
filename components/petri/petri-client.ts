@@ -331,6 +331,89 @@ export async function queryTokens(flowServiceUrl: string, body: any) {
   return resp.json()
 }
 
+// ---- Tool Catalog helpers ----
+export async function listTools(flowServiceUrl: string) {
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const resp = await authFetch(`${base}/api/tools/list`)
+  if (!resp.ok) throw new Error(`Failed to list tools: ${resp.status}`)
+  return resp.json()
+}
+
+export async function registerTool(flowServiceUrl: string, payload: any) {
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const resp = await authFetch(`${base}/api/tools/register`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, 
+    body: JSON.stringify({"endpoint": payload.baseUrl, "name": payload.name, "description": payload.description || "", "icon": payload.icon || "", "mcp": payload.mcp || false})
+  })
+  if (!resp.ok) {
+    let text = ''
+    try { text = await resp.text() } catch {}
+    throw new ApiError('Register tool failed', { status: resp.status, rawBody: text, context: 'registerTool' })
+  }
+  return resp.json()
+}
+
+export async function listMcpTools(flowServiceUrl: string, params: { baseUrl: string; timeoutMs?: number }) {
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const resp = await authFetch(`${base}/api/tools/list_mcp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({"endpoint": params.baseUrl, "timeoutMs": params.timeoutMs || 5000 })
+  })
+  if (!resp.ok) {
+    let text = ''
+    try { text = await resp.text() } catch {}
+    throw new ApiError('List MCP tools failed', { status: resp.status, rawBody: text, context: 'listMcpTools' })
+  }
+  const json = await resp.json().catch(() => ({}))
+  // Normalize various possible shapes to a plain array of tools
+  const arr = json?.data?.tools || json?.tools || json?.data || json
+  return Array.isArray(arr) ? arr : []
+}
+
+export async function listRegisteredMcpServers(flowServiceUrl: string) {
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const resp = await authFetch(`${base}/api/tools/registered_mcp`)
+  if (!resp.ok) {
+    let text = ''
+    try { text = await resp.text() } catch {}
+    throw new ApiError('List registered MCP servers failed', { status: resp.status, rawBody: text, context: 'listRegisteredMcpServers' })
+  }
+  const json = await resp.json().catch(() => ({}))
+  const arr = json?.data?.servers || json?.servers || json?.data || json
+  return Array.isArray(arr) ? arr : []
+}
+
+export async function registerMcpServer(flowServiceUrl: string, payload: { id?: string; name?: string; baseUrl: string; timeoutMs?: number }) {
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const resp = await authFetch(`${base}/api/tools/register_mcp`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, 
+    body: JSON.stringify({"endpoint": payload.baseUrl, 
+      "id": payload.id,
+      "name": payload.name, "timeoutMs": payload.timeoutMs || 5000 })
+  })
+  if (!resp.ok) {
+    let text = ''
+    try { text = await resp.text() } catch {}
+    throw new ApiError('Register MCP server failed', { status: resp.status, rawBody: text, context: 'registerMcpServer' })
+  }
+  return resp.json()
+}
+
+export async function deregisterMcpServer(flowServiceUrl: string, payload: { id?: string; baseUrl?: string }) {
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const resp = await authFetch(`${base}/api/tools/deregister_mcp`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, 
+    body: JSON.stringify({"endpoint": payload.baseUrl, "id": payload.id })
+  })
+  if (!resp.ok) {
+    let text = ''
+    try { text = await resp.text() } catch {}
+    throw new ApiError('Deregister MCP server failed', { status: resp.status, rawBody: text, context: 'deregisterMcpServer' })
+  }
+  return resp.json()
+}
+
 // List all cases (server-side)
 export async function fetchCaseList(flowServiceUrl: string, opts: { offset?: number; limit?: number } = {}) {
   const base = flowServiceUrl.replace(/\/$/, '')
