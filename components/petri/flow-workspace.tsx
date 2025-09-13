@@ -1408,17 +1408,11 @@ function CanvasInner() {
                       {mcpDetailsExpanded[i] && (
                         <tr key={`schema-${i}`} className="odd:bg-white even:bg-neutral-50">
                           <td colSpan={3} className="border-t px-2 py-2">
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 gap-2">
                               <div>
                                 <div className="text-[11px] text-neutral-600 mb-1">inputSchema</div>
                                 <div className="rounded border">
                                   <CodeMirror value={JSON.stringify(t.inputSchema||{}, null, 2)} height="180px" theme="light" basicSetup={{ lineNumbers: false }} readOnly={true} onChange={()=>{}} />
-                                </div>
-                              </div>
-                              <div>
-                                <div className="text-[11px] text-neutral-600 mb-1">outputSchema</div>
-                                <div className="rounded border">
-                                  <CodeMirror value={JSON.stringify(t.outputSchema||{}, null, 2)} height="180px" theme="light" basicSetup={{ lineNumbers: false }} readOnly={true} onChange={()=>{}} />
                                 </div>
                               </div>
                             </div>

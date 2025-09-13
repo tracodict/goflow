@@ -355,7 +355,7 @@ export async function registerTool(flowServiceUrl: string, payload: any) {
 
 export async function listMcpTools(flowServiceUrl: string, params: { baseUrl: string; timeoutMs?: number }) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await authFetch(`${base}/api/tools/list_mcp`, {
+  const resp = await authFetch(`${base}/api/tools/list_mcp_tools`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({"endpoint": params.baseUrl, "timeoutMs": params.timeoutMs || 5000 })
