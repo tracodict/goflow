@@ -1,27 +1,20 @@
 "use client"
-import React, { useMemo } from 'react'
-import CodeMirror from '@uiw/react-codemirror'
+import React from 'react'
+import dynamic from 'next/dynamic'
+// Use a single dynamic instance of CodeMirror to avoid multiple @codemirror/state copies
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const CodeMirror: any = dynamic(() => import('@uiw/react-codemirror'), { ssr: false })
 
 export type MsgType = 'system' | 'user' | 'assistant' | 'tool' | 'placeholder'
 export interface LlmMessage { type: MsgType; text?: string; key?: string; append?: boolean }
 export interface LlmTemplateObj { messages: LlmMessage[] }
 
-function useOptionalJinja() {
-  return useMemo(() => {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const mod = require('@codemirror/lang-jinja')
-      if (mod && typeof mod.jinja === 'function') return [mod.jinja()]
-    } catch {/* ignore */}
-    return []
-  }, [])
-}
+// Removed optional Jinja extension to prevent multiple state instances conflicts
 
 export const LlmMessagesEditor: React.FC<{
   value: LlmTemplateObj
   onChange: (v: LlmTemplateObj) => void
 }> = ({ value, onChange }) => {
-  const ext = useOptionalJinja()
   const msgs = Array.isArray(value?.messages) ? value.messages : []
 
   const updateMsg = (idx: number, patch: Partial<LlmMessage>) => {
@@ -92,11 +85,10 @@ export const LlmMessagesEditor: React.FC<{
                   value={m.text ?? ''}
                   height="100px"
                   theme="light"
-                  basicSetup={{ lineNumbers: false }}
-                  extensions={ext}
-                  onChange={(v)=>updateMsg(idx, { text: v })}
+                  basicSetup={{ lineNumbers: false, highlightActiveLine: false, foldGutter: false }}
+                  onChange={(v: string)=>updateMsg(idx, { text: v })}
                 />
-                <div className="text-[10px] text-neutral-500 mt-1">Jinja placeholders supported, e.g. <code>{"{{ role }}"}</code> or <code>{"{{ question }}"}</code>.</div>
+                <div className="text-[10px] text-neutral-500 mt-1">Jinja placeholders supported, e.g. <code>{"{{ role }}"}</code> or <code>{"{{ question }}"}</code>. Syntax highlighting disabled to avoid runtime conflicts.</div>
               </div>
             )}
           </div>
