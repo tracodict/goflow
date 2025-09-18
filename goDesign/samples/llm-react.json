@@ -1,0 +1,59 @@
+{
+	"id": "llm-react",
+	"name": "LLM ReAct Agent Demo",
+	"description": "Demonstrates LLM + Tool calls (ReAct loop) using ChatTemplate and a Tool Catalog-registered tool.",
+	"colorSets": [
+		"colset STR = string;"
+	],
+	"places": [
+		{"id": "p_q", "name": "question", "colorSet": "STR"},
+		{"id": "p_hist", "name": "history", "colorSet": "STR"},
+		{"id": "p_calls", "name": "tool_calls", "colorSet": "STR"},
+		{"id": "p_toolmsg", "name": "tool_message", "colorSet": "STR"},
+		{"id": "p_ans", "name": "answer", "colorSet": "STR"}
+	],
+	"transitions": [
+		{
+			"id": "t_llm",
+			"name": "Chat",
+			"kind": "LLM",
+			"LlmTemplate": {
+				"messages": [
+					{"type": "system", "text": "You are a research assistant. Provide concise, accurate answers."},
+					{"type": "placeholder", "key": "chat_history", "append": true},
+					{"type": "user", "text": "Question: {q}"}
+				]
+			},
+			"LlmVars": {},
+			"LlmOptions": {"temperature": 0},
+			"LlmTools": ["duckduckgo_search"],
+			"Stream": false
+		},
+		{
+			"id": "t_tools",
+			"name": "ExecuteTools",
+			"kind": "Tools",
+			"Tools": [
+				{"name": "duckduckgo"},
+				{"name": "mcp:https://data.lizhao.net/api/mcp:yahoo_quote"}
+			]
+		}
+	],
+	"arcs": [
+		{"id": "a1", "sourceId": "p_q", "targetId": "t_llm", "expression": "q", "direction": "IN"},
+		{"id": "a2", "sourceId": "t_llm", "targetId": "p_calls", "expression": "tool_calls", "direction": "OUT"},
+		{"id": "a3", "sourceId": "p_calls", "targetId": "t_tools", "expression": "x", "direction": "IN"},
+		{"id": "a4", "sourceId": "t_tools", "targetId": "p_toolmsg", "expression": "tool_result", "direction": "OUT"},
+		{"id": "a5", "sourceId": "p_toolmsg", "targetId": "t_llm", "expression": "tool", "direction": "IN"},
+		{"id": "a6", "sourceId": "t_llm", "targetId": "p_ans", "expression": "answer", "direction": "OUT"}
+	],
+	"initialMarking": {
+		"p_q": [
+			{"value": "What are the top 3 recent papers about fast inference of LLMs?", "timestamp": 0}
+		],
+		"p_hist": [],
+		"p_calls": [],
+		"p_toolmsg": [],
+		"p_ans": []
+	}
+}

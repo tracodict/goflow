@@ -53,6 +53,7 @@ import { useGraphEditing } from '@/hooks/use-graph-editing'
 import { computePetriLayout } from '@/lib/auto-layout'
 import { validateWorkflow } from './petri-client'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
 import { Button as UIButton } from '@/components/ui/button'
 import CodeMirror from '@uiw/react-codemirror'
 
@@ -120,6 +121,7 @@ function CanvasInner() {
   const [mcpAddForm, setMcpAddForm] = useState<{ baseUrl: string; name: string; id: string; timeoutMs?: number }>({ baseUrl: '', name: '', id: '' })
   const [mcpDiscovering, setMcpDiscovering] = useState(false)
   const [mcpDiscovered, setMcpDiscovered] = useState<any[] | null>(null)
+  const [mcpDeleteConfirm, setMcpDeleteConfirm] = useState<{ open: boolean; server?: McpServer }>({ open: false })
   const [monitorTabs, setMonitorTabs] = useState<string[]>([])
   const [activeMonitorTab, setActiveMonitorTab] = useState<string>('root')
   const [leftTab, setLeftTab] = useState<'property' | 'explorer'>("property")
@@ -815,8 +817,6 @@ function CanvasInner() {
 
   const handleMcpDelete = useCallback(async (srv: McpServer) => {
     if (!settings.flowServiceUrl) { toast({ title: 'Flow service URL missing', variant: 'destructive' }); return }
-    const ok = typeof window !== 'undefined' ? window.confirm(`Deregister MCP server "${srv.name || srv.baseUrl}"?`) : true
-    if (!ok) return
     try {
       await withApiErrorToast(deregisterMcpServer(settings.flowServiceUrl, { id: srv.id, baseUrl: srv.baseUrl }), toast, 'Deregister MCP server')
       toast({ title: 'MCP server removed', description: srv.baseUrl })
@@ -954,7 +954,7 @@ function CanvasInner() {
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={()=> openMcpDetails(s)}>Details</DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-red-600" onClick={()=> handleMcpDelete(s)}>Delete</DropdownMenuItem>
+                            <DropdownMenuItem className="text-red-600" onClick={()=> setMcpDeleteConfirm({ open: true, server: s })}>Delete</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
@@ -968,6 +968,26 @@ function CanvasInner() {
           </div>
         </div>
       )}
+
+      {/* MCP Delete Confirmation */}
+      <AlertDialog open={mcpDeleteConfirm.open} onOpenChange={(v)=> setMcpDeleteConfirm(prev => ({ ...prev, open: v }))}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Deregister MCP server?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {mcpDeleteConfirm.server?.name} — {mcpDeleteConfirm.server?.baseUrl}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={()=> setMcpDeleteConfirm({ open: false })}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={async ()=> {
+              const srv = mcpDeleteConfirm.server
+              if (srv) { await handleMcpDelete(srv) }
+              setMcpDeleteConfirm({ open: false })
+            }}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Canvas area */}
       <div className="relative h-full flex-1 overflow-hidden rounded-lg border bg-white">
@@ -1073,7 +1093,7 @@ function CanvasInner() {
                   Delete transition
                 </button>
                 <Separator />
-                {(["Manual", "Auto", "Message", "LLM"] as TransitionType[]).map((t) => (
+                {(["Manual", "Auto", "Message", "LLM", "Tools"] as TransitionType[]).map((t) => (
                   <button
                     key={t}
                     className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-neutral-50"

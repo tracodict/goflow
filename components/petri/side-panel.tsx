@@ -19,6 +19,8 @@ import { GripVertical, Minimize2, Maximize2, PanelRightOpen, ChevronsUpDown, Che
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import CodeMirror from '@uiw/react-codemirror'
 import { LlmMessagesEditor } from './llm-messages-editor'
+import { useSystemSettings } from './system-settings-context'
+import { listMcpTools } from './petri-client'
 import { StreamLanguage } from '@codemirror/language'
 import { lua } from '@codemirror/legacy-modes/mode/lua'
 import { EditorView } from '@codemirror/view'
@@ -668,43 +670,48 @@ function TransitionEditor({
         />
       </div>
 
-      <div ref={inscRef} className="space-y-2">
-        <Label className="text-sm">Guard Expression</Label>
-        <div className="relative rounded border bg-white" style={{ height: editorHeight }}>
-          <CodeMirror
-            value={guardText}
-            height={`${editorHeight - 8}px`}
-            theme="light"
-            extensions={[EditorView.lineWrapping, StreamLanguage.define(lua)]}
-            onChange={(val) => setGuardText(val)}
-            basicSetup={{
-              lineNumbers: true,
-              bracketMatching: true,
-              closeBrackets: true,
-              highlightActiveLine: true,
-              indentOnInput: true,
-              defaultKeymap: true,
-            }}
-          />
-          <div
-            ref={resizeRef}
-            onMouseDown={(e) => { dragState.current = { startY: e.clientY, startH: editorHeight, dragging: true } }}
-            className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize bg-gradient-to-b from-transparent to-neutral-200"
-            aria-label="Resize guard editor"
-          />
+      {tType !== 'Tools' && (
+        <div ref={inscRef} className="space-y-2">
+          <Label className="text-sm">Guard Expression</Label>
+          <div className="relative rounded border bg-white" style={{ height: editorHeight }}>
+            <CodeMirror
+              value={guardText}
+              height={`${editorHeight - 8}px`}
+              theme="light"
+              extensions={[EditorView.lineWrapping, StreamLanguage.define(lua)]}
+              onChange={(val) => setGuardText(val)}
+              basicSetup={{
+                lineNumbers: true,
+                bracketMatching: true,
+                closeBrackets: true,
+                highlightActiveLine: true,
+                indentOnInput: true,
+                defaultKeymap: true,
+              }}
+            />
+            <div
+              ref={resizeRef}
+              onMouseDown={(e) => { dragState.current = { startY: e.clientY, startH: editorHeight, dragging: true } }}
+              className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize bg-gradient-to-b from-transparent to-neutral-200"
+              aria-label="Resize guard editor"
+            />
+          </div>
+          <p className="text-xs text-neutral-500">
+            Lua-like guard expression. Example: <code>if amount &gt; 1000 then return "review" else return "auto" end</code>
+          </p>
         </div>
-        <p className="text-xs text-neutral-500">
-          Lua-like guard expression. Example: <code>if amount &gt; 1000 then return "review" else return "auto" end</code>
-        </p>
-      </div>
+      )}
 
       <div className="rounded border bg-neutral-50 px-2 py-1 text-xs text-neutral-600">
         Type: <span className="font-medium capitalize">{tType}</span> (right-click the node to change)
       </div>
 
   <TypeSpecificEditor node={node} tType={tType} onUpdate={onUpdate} />
-  <SubPageSection node={node} onUpdate={onUpdate} />
-  <ActionExpressionEditor node={node} onUpdate={onUpdate} />
+  {tType !== 'Tools' && (
+    <>
+      <SubPageSection node={node} onUpdate={onUpdate} />
+      <ActionFunctionEditor node={node} onUpdate={onUpdate} />
+      <ActionOutputsEditor node={node} onUpdate={onUpdate} />
       <div className="mt-6 space-y-2">
         <Label htmlFor="t-delay" className="text-sm">Transition Delay</Label>
         <Input
@@ -717,6 +724,8 @@ function TransitionEditor({
         />
         <p className="text-xs text-neutral-500">Delay advances global clock when this transition fires (timed nets).</p>
       </div>
+    </>
+  )}
     </div>
   )
 }
@@ -739,9 +748,100 @@ function TypeSpecificEditor({
       return <MessageEditor node={node} onUpdate={onUpdate} />
     case "LLM":
       return <LLMEditor node={node} onUpdate={onUpdate} />
+    case "Tools":
+      return <ToolsEditor node={node} onUpdate={onUpdate} />
     default:
       return null
   }
+}
+function ToolsEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
+  const tools = ((node.data as any).tools || []) as Array<{ name: string; config?: any }>
+  const [mcpEndpoints, setMcpEndpoints] = useState<string[]>([])
+  const [mcpToolsByEndpoint, setMcpToolsByEndpoint] = useState<Record<string, string[]>>({})
+  const builtins = ["duckduckgo", "wikipedia"]
+  const { settings } = useSystemSettings()
+
+  // Load registered MCP servers first to know endpoints
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const base = settings.flowServiceUrl?.replace(/\/$/, '')
+        const res = await fetch(`${base}/api/tools/registered_mcp`, { credentials: 'include' })
+        const json = await res.json().catch(()=>({}))
+        const servers: any[] = Array.isArray(json?.data?.servers) ? json.data.servers : (Array.isArray(json) ? json : [])
+        const endpoints = servers.map(s=> s.baseUrl).filter(Boolean)
+        if (!cancelled) setMcpEndpoints(endpoints)
+        // For each endpoint, fetch mcp tools list
+        const entries: Record<string, string[]> = {}
+        for (const ep of endpoints) {
+          try {
+            const list = await listMcpTools(settings.flowServiceUrl!, { baseUrl: ep })
+            entries[ep] = (Array.isArray(list) ? list : []).map((t:any)=> t?.name).filter(Boolean)
+          } catch {/* ignore per-endpoint errors */}
+        }
+        if (!cancelled) setMcpToolsByEndpoint(entries)
+      } catch {/* ignore */}
+    }
+    if (settings.flowServiceUrl) load()
+    return () => { cancelled = true }
+  }, [settings.flowServiceUrl])
+
+  const updateTools = (next: Array<{ name: string; config?: any }>) => onUpdate(node.id, { tools: next } as any)
+
+  const addTool = () => updateTools([...(tools||[]), { name: '', config: {} }])
+  const removeTool = (i: number) => updateTools(tools.filter((_,idx)=> idx!==i))
+  const setTool = (i: number, patch: Partial<{ name: string; config?: any }>) => {
+    const next = tools.slice()
+    next[i] = { ...next[i], ...patch }
+    updateTools(next)
+  }
+
+  const mcpOptions = mcpEndpoints.flatMap(ep => (mcpToolsByEndpoint[ep]||[]).map(name => `mcp:${ep}:${name}`))
+  const allOptions = [...builtins, ...mcpOptions]
+
+  return (
+    <div className="mt-4 space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="text-sm">Tools</Label>
+        <Button size="sm" variant="outline" onClick={addTool}>Add Tool</Button>
+      </div>
+      <div className="space-y-2">
+        {tools.length === 0 && (
+          <div className="text-xs text-neutral-500">No tools. Click Add Tool.</div>
+        )}
+        {tools.map((tool, i) => (
+          <details key={i} className="rounded border overflow-hidden">
+            <summary className="cursor-pointer px-2 py-1 bg-neutral-50 flex items-center justify-between">
+              <span className="text-xs">{tool.name || 'New Tool'}</span>
+              <Button size="sm" variant="ghost" className="text-red-600" onClick={(e)=>{ e.preventDefault(); removeTool(i) }}>Remove</Button>
+            </summary>
+            <div className="p-2 space-y-2">
+              <div className="grid gap-1">
+                <Label className="text-xs">Name</Label>
+                <select className="border rounded px-2 py-1 text-xs" value={tool.name} onChange={(e)=> setTool(i, { name: e.target.value })}>
+                  <optgroup label="Built-in">
+                    {builtins.map(b => (<option key={b} value={b}>{b}</option>))}
+                  </optgroup>
+                  <optgroup label="MCP">
+                    {mcpOptions.map(m => (<option key={m} value={m}>{m}</option>))}
+                  </optgroup>
+                </select>
+              </div>
+              {builtins.includes(tool.name) && (
+                <div className="grid gap-1">
+                  <Label className="text-xs">Config (JSON)</Label>
+                  <Textarea rows={4} className="font-mono text-[12px]" value={JSON.stringify(tool.config||{}, null, 2)} onChange={(e)=>{
+                    try { setTool(i, { config: JSON.parse(e.target.value) }) } catch { /* ignore until valid */ }
+                  }} />
+                </div>
+              )}
+            </div>
+          </details>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function ManualEditor({
@@ -878,9 +978,8 @@ function ManualEditor({
   )
 }
 
-function ActionExpressionEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
-  // actionExpression is now available for all transition types
-  const actionExpression = (node.data as any).actionExpression || ""
+function ActionFunctionEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
+  const actionFunction = (node.data as any).actionFunction || ""
   const [editorHeight, setEditorHeight] = useState<number>(160)
   const resizeRef = useRef<HTMLDivElement | null>(null)
   const dragState = useRef<{ startY: number; startH: number; dragging: boolean }>({ startY:0, startH:160, dragging:false })
@@ -898,14 +997,14 @@ function ActionExpressionEditor({ node, onUpdate }: { node: Node<PetriNodeData>;
   }, [])
   return (
     <div className="space-y-2 mt-6">
-      <Label htmlFor="transition-action-expression">Action Expression</Label>
+      <Label htmlFor="transition-action-function">Action Function</Label>
       <div className="relative rounded border bg-white" style={{ height: editorHeight }}>
         <CodeMirror
-          value={actionExpression}
+          value={actionFunction}
           height={`${editorHeight - 8}px`}
           theme="light"
           extensions={[EditorView.lineWrapping, StreamLanguage.define(lua)]}
-          onChange={(val) => onUpdate(node.id, { actionExpression: val } as any)}
+          onChange={(val) => onUpdate(node.id, { actionFunction: val } as any)}
           basicSetup={{
             lineNumbers: true,
             bracketMatching: true,
@@ -919,10 +1018,47 @@ function ActionExpressionEditor({ node, onUpdate }: { node: Node<PetriNodeData>;
           ref={resizeRef}
           onMouseDown={(e) => { dragState.current = { startY: e.clientY, startH: editorHeight, dragging: true } }}
           className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize bg-gradient-to-b from-transparent to-neutral-200"
-          aria-label="Resize script editor"
+          aria-label="Resize action function editor"
         />
       </div>
-      <p className="text-xs text-neutral-500">Lua-like action expression executed when this transition fires.</p>
+      <p className="text-xs text-neutral-500">Define a Lua function named <code>{`${node.id}_action`}</code>. Example: <code>{`function ${node.id}_action(a,b) return a+b end`}</code></p>
+    </div>
+  )
+}
+
+function ActionOutputsEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
+  const outputs: string[] = Array.isArray((node.data as any).actionFunctionOutput) ? (node.data as any).actionFunctionOutput : []
+  const [draft, setDraft] = useState<string>("")
+  const add = () => {
+    const name = draft.trim()
+    if (!name) return
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return
+    const next = outputs.concat(name)
+    onUpdate(node.id, { actionFunctionOutput: next } as any)
+    setDraft("")
+  }
+  const remove = (i: number) => {
+    const next = outputs.filter((_, idx) => idx !== i)
+    onUpdate(node.id, { actionFunctionOutput: next } as any)
+  }
+  return (
+    <div className="space-y-2 mt-4">
+      <Label className="text-sm">Action Outputs</Label>
+      <div className="flex flex-wrap gap-1">
+        {outputs.map((o, i) => (
+          <span key={i} className="inline-flex items-center gap-1 rounded bg-neutral-100 px-2 py-0.5 text-xs">
+            {o}
+            <button className="text-red-600" onClick={(e)=>{ e.preventDefault(); remove(i) }} aria-label={`Remove ${o}`}>
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        <Input value={draft} onChange={e=> setDraft(e.target.value)} placeholder="add output name" />
+        <Button size="sm" onClick={add}>Add</Button>
+      </div>
+      <p className="text-xs text-neutral-500">Ordered variables that receive the multiple return values of the action.</p>
     </div>
   )
 }

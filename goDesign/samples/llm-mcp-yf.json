@@ -1,0 +1,365 @@
+{
+  "tools": [
+    {
+      "name": "yahoo_search",
+      "description": "Search for symbols, companies, news, and articles",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "lang": {
+                "type": "string"
+              },
+              "region": {
+                "type": "string"
+              },
+              "quotesCount": {
+                "type": "number"
+              },
+              "newsCount": {
+                "type": "number"
+              },
+              "enableFuzzyQuery": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "yahoo_quote",
+      "description": "Get essential symbol information",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "fields": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "return": {
+                "type": "string",
+                "enum": [
+                  "object",
+                  "array"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "yahoo_historical",
+      "description": "Retrieve historical market prices",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "period1": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                ]
+              },
+              "period2": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                ]
+              },
+              "interval": {
+                "type": "string"
+              },
+              "includeAdjustedClose": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "period1"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "yahoo_chart",
+      "description": "Get advanced chart data with events",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "period1": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                ]
+              },
+              "period2": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                ]
+              },
+              "interval": {
+                "type": "string"
+              },
+              "includePrePost": {
+                "type": "boolean"
+              },
+              "events": {
+                "type": "string"
+              },
+              "return": {
+                "type": "string",
+                "enum": [
+                  "object",
+                  "array"
+                ]
+              }
+            },
+            "required": [
+              "period1"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "yahoo_quote_summary",
+      "description": "Get comprehensive symbol information",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "modules": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "yahoo_recommendations",
+      "description": "Get similar symbol recommendations",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "yahoo_trending",
+      "description": "Get trending symbols by country",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "country": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "number"
+              },
+              "lang": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "country"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "yahoo_options",
+      "description": "Retrieve options trading data",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                ]
+              },
+              "formatted": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "yahoo_insights",
+      "description": "Get insights and scores for symbols",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "lang": {
+                "type": "string"
+              },
+              "reportsCount": {
+                "type": "number"
+              },
+              "region": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    }
+  ]
+}

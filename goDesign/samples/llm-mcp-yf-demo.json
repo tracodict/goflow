@@ -1,0 +1,29 @@
+{
+  "id": "llm-mcp-yf-demo",
+  "name": "LLM MCP Yahoo Finance Demo",
+  "description": "Demonstrates a Tools transition that calls an MCP Yahoo Finance tool",
+  "colorSets": [
+    "colset JMAP = json;"
+  ],
+  "places": [
+    { "id": "p_in", "name": "p_in", "colorSet": "JMAP" },
+    { "id": "p_out", "name": "p_out", "colorSet": "JMAP" }
+  ],
+  "transitions": [
+    {
+      "id": "t_tools",
+      "name": "Yahoo Quote",
+      "kind": "Tools",
+      "Tools": [
+        { "name": "mcp:https://data.lizhao.net/api/mcp:yahoo_quote" }
+      ]
+    }
+  ],
+  "arcs": [
+    { "id": "a_in", "sourceId": "p_in", "targetId": "t_tools", "direction": "IN", "expression": "x" },
+    { "id": "a_out", "sourceId": "t_tools", "targetId": "p_out", "direction": "OUT", "expression": "tool_result" }
+  ],
+  "initialMarking": {
+    "p_in": [ { "value": { "symbol": ["AAPL", "MSFT"] }, "timestamp": 0 } ]
+  }
+}

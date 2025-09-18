@@ -371,6 +371,23 @@ export async function listMcpTools(flowServiceUrl: string, params: { baseUrl: st
   return Array.isArray(arr) ? arr : []
 }
 
+// List all registered MCP tools (across servers)
+export async function listRegisteredMcpTools(flowServiceUrl: string): Promise<string[]> {
+  const base = flowServiceUrl.replace(/\/$/, '')
+  const resp = await authFetch(`${base}/api/tools/list_mcp_tools`)
+  if (!resp.ok) {
+    let text = ''
+    try { text = await resp.text() } catch {}
+    throw new ApiError('List registered MCP tools failed', { status: resp.status, rawBody: text, context: 'listRegisteredMcpTools' })
+  }
+  const json = await resp.json().catch(() => ({}))
+  const arr = json?.data?.tools || json?.tools || json
+  if (Array.isArray(arr)) {
+    return arr.map((t:any)=> (typeof t === 'string' ? t : t?.name)).filter(Boolean)
+  }
+  return []
+}
+
 export async function listRegisteredMcpServers(flowServiceUrl: string) {
   const base = flowServiceUrl.replace(/\/$/, '')
   const resp = await authFetch(`${base}/api/tools/registered_mcp`)

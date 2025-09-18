@@ -1,0 +1,39 @@
+{
+  "id": "llm-tools",
+  "name": "LLM Tools Demo",
+  "description": "Demonstrates Tools transition with the built-in DuckDuckGo tool",
+  "colorSets": [
+    "colset JMAP = json;"
+  ],
+  "places": [
+    { "id": "p_in", "name": "p_in", "colorSet": "JMAP" },
+    { "id": "p_out", "name": "p_out", "colorSet": "JMAP" }
+  ],
+  "transitions": [
+    {
+      "id": "t_tools",
+      "name": "Search (DuckDuckGo)",
+      "kind": "Tools",
+      "Tools": [
+        {
+          "name": "duckduckgo",
+          "config": {
+            "tool_name": "duckduckgo",
+            "tool_desc": "search web for information by duckduckgo",
+            "max_results": 2,
+            "region": "WT",
+            "safe_search": "off",
+            "time_range": "all"
+          }
+        }
+      ]
+    }
+  ],
+  "arcs": [
+    { "id": "a_in", "sourceId": "p_in", "targetId": "t_tools", "direction": "IN", "expression": "x" },
+    { "id": "a_out", "sourceId": "t_tools", "targetId": "p_out", "direction": "OUT", "expression": "tool_result" }
+  ],
+  "initialMarking": {
+    "p_in": [ { "value": { "query": "Go (programming language)" }, "timestamp": 0 } ]
+  }
+}

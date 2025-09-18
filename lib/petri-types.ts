@@ -1,6 +1,6 @@
 // Petri net core types (client-side representation)
 // Transition types no longer include a dedicated SubPage kind; any transition can act as a subpage caller.
-export type TransitionType = "Manual" | "Auto" | "Message" | "LLM"
+export type TransitionType = "Manual" | "Auto" | "Message" | "LLM" | "Tools"
 
 export type Token = {
   id: string
@@ -18,7 +18,11 @@ export type TransitionData = {
   transitionDelay?: number // delay (time units) before firing completes (advances global clock)
   time?: { cron?: string; delaySec?: number }
   manual?: { assignee?: string; formSchema?: string; layoutSchema?: string }
+  // Legacy inline action expression (deprecated in UI; kept for compatibility)
   actionExpression?: string
+  // New CPN-style action function and explicit output variables
+  actionFunction?: string
+  actionFunctionOutput?: string[]
   message?: { channel?: string }
   // Generic sub-workflow (hierarchical) call configuration; applies when `subPage?.enabled` (UI flag) is true.
   subPage?: {
@@ -48,6 +52,8 @@ export type TransitionData = {
   maxRetries?: number
   retryIntervalSec?: number
   }
+  // Tools transition (built-in or MCP)
+  tools?: Array<{ name: string; config?: any }>
 }
 
 export type PlaceData = {

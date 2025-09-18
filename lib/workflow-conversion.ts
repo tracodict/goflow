@@ -40,7 +40,7 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
       data: { kind: 'place', name: p.name, colorSet: p.colorSet || '', tokens: 0, tokenList: [], isEnd }
     })
   })
-  const allowed: any[] = ['Manual','Auto','Message','LLM']
+  const allowed: any[] = ['Manual','Auto','Message','LLM','Tools']
   sw.transitions.forEach(t => {
     let tType: any = (t.kind as any) || 'Manual'
     if (!allowed.includes(tType)) tType = 'Manual'
@@ -54,7 +54,9 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
         name: t.name,
         tType,
         guardExpression: t.guardExpression,
-        actionExpression: t.actionExpression,
+  actionExpression: (t as any).actionExpression,
+  actionFunction: (t as any).actionFunction,
+  actionFunctionOutput: (t as any).actionFunctionOutput,
         transitionDelay: (t as any).transitionDelay,
         // Map LLM fields (backend may send these when kind == LLM)
         ...(tType === 'LLM' ? {
@@ -68,6 +70,9 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
             stream: !!(t as any).Stream,
             options: (t as any).LlmOptions || {},
           }
+        } : {}),
+        ...(tType === 'Tools' ? {
+          tools: Array.isArray((t as any).Tools) ? (t as any).Tools.map((x:any)=> ({ name: x.name, ...(x.config ? { config: x.config } : {}) })) : []
         } : {}),
         ...(manual ? { manual } : {})
       } as any,
@@ -137,7 +142,7 @@ export function graphToServer(
         if (manual.formSchema) base.formSchema = manual.formSchema
         if (manual.layoutSchema) base.layoutSchema = manual.layoutSchema
       }
-      if ((n.data as any).tType === 'LLM') {
+  if ((n.data as any).tType === 'LLM') {
         const llm = (n.data as any).llm || {}
   if (llm.templateObj && Array.isArray(llm.templateObj.messages)) base.LlmTemplate = { messages: llm.templateObj.messages }
   else if (llm.template) base.LlmTemplate = llm.template
@@ -145,6 +150,13 @@ export function graphToServer(
         if (llm.options && typeof llm.options === 'object') base.LlmOptions = llm.options
         if (llm.stream !== undefined) base.Stream = !!llm.stream
       }
+      if ((n.data as any).tType === 'Tools') {
+        const tools = (n.data as any).tools || []
+        base.Tools = Array.isArray(tools) ? tools.map((x:any)=> ({ name: x.name, ...(x.config ? { config: x.config } : {}) })) : []
+      }
+      // Emit new action function fields if present
+      if ((n.data as any).actionFunction) base.actionFunction = (n.data as any).actionFunction
+      if (Array.isArray((n.data as any).actionFunctionOutput)) base.actionFunctionOutput = (n.data as any).actionFunctionOutput
       return base
     })
   const arcs = graph.edges.map(e => {
