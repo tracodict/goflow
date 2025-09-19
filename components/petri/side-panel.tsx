@@ -1269,6 +1269,21 @@ function EdgeEditor({
         placeholder="Lua expression for arc (e.g., amount > 0)"
       />
       <div className="text-xs text-neutral-500 mt-1">Lua-like arc expression. Example: <code>amount &gt; 0</code></div>
+      <div className="flex items-center gap-2 mt-2">
+        <button
+          type="button"
+          onClick={() => onUpdate(edge.id, { readonly: !(edge.data as any)?.readonly } as any)}
+          className={`flex items-center gap-1 rounded border px-2 py-1 text-xs ${ (edge.data as any)?.readonly ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-white'}`}
+        >
+          <span className="inline-flex items-center gap-1">
+            {/* PenOff icon inline to avoid new import churn; could import from lucide-react if already present */}
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/><path d="m15 5 3 3"/><path d="m2 2 20 20"/></svg>
+            ReadOnly
+          </span>
+          <input type="checkbox" className="hidden" checked={!!(edge.data as any)?.readonly} readOnly />
+        </button>
+        <span className="text-[10px] text-neutral-500">{(edge.data as any)?.readonly ? 'Will not consume tokens (read arc).' : 'Mark to prevent token consumption.'}</span>
+      </div>
     </div>
   )
 }

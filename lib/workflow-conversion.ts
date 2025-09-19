@@ -80,7 +80,7 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
   })
   sw.arcs.forEach(a => {
     if (nodes.find(n => n.id === a.sourceId) && nodes.find(n => n.id === a.targetId)) {
-      edges.push({ id: a.id, source: a.sourceId, target: a.targetId, type: 'labeled', data: { label: 'arc', expression: a.expression } })
+      edges.push({ id: a.id, source: a.sourceId, target: a.targetId, type: 'labeled', data: { label: 'arc', expression: a.expression, readonly: (a as any).readonly === true || (a as any).ReadOnly === true } })
     }
   })
   // apply initial marking
@@ -167,7 +167,11 @@ export function graphToServer(
     if (sourceNode?.type === 'place' && targetNode?.type === 'transition') direction = 'IN'
     else if (sourceNode?.type === 'transition' && targetNode?.type === 'place') direction = 'OUT'
     // If invalid (place->place or transition->transition) leave empty; server likely rejects
-    return { id: e.id, sourceId: e.source, targetId: e.target, expression: (e.data as any)?.expression || '', direction }
+    const arc: any = { id: e.id, sourceId: e.source, targetId: e.target, expression: (e.data as any)?.expression || '', direction }
+    if ((e.data as any)?.readonly) {
+      arc.readonly = true
+    }
+    return arc
   })
   // derive marking using first occurrence per place name (avoid merging duplicates with same name)
   const initialMarking: Record<string, { value: any; timestamp: number }[]> = {}

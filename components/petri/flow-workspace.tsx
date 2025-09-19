@@ -1026,6 +1026,8 @@ function CanvasInner() {
               const serverBase = serverWorkflowCache[activeWorkflowId]
               try {
                 const payload = graphToServer(serverBase, activeWorkflowId, meta?.name || activeWorkflowId, { nodes, edges }, meta?.colorSets || [], meta?.description, meta?.declarations)
+                // TEMP DEBUG: log arcs to verify readonly flag emission
+                try { console.log('[debug-save] arcs payload', payload.arcs.map(a => ({ id: a.id, readonly: (a as any).readonly, ReadOnly: (a as any).ReadOnly }))) } catch(e){}
                 await withApiErrorToast(saveWorkflow(settings.flowServiceUrl, payload), toast, 'Save')
                 setServerWorkflowCache(prev => ({ ...prev, [activeWorkflowId]: payload }))
                 setEditedMap(prev => ({ ...prev, [activeWorkflowId]: false }))

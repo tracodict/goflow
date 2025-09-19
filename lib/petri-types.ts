@@ -67,7 +67,7 @@ export type PlaceData = {
 }
 
 export type PetriNodeData = PlaceData | TransitionData
-export type PetriEdgeData = { label?: string; expression?: string }
+export type PetriEdgeData = { label?: string; expression?: string; readonly?: boolean }
 
 import type { Node } from "@xyflow/react"
 export function isPlace(n: Node<PetriNodeData>) { return n.type === 'place' }
