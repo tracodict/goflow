@@ -845,8 +845,9 @@ function CanvasInner() {
     const picked = (mcpDiscovered||[]).filter((t:any)=> selectedNames.includes(t.name))
     if (picked.length===0) { toast({ title: 'Nothing selected' }); return }
     try {
-      // 1) Register/ensure MCP server exists in catalog
-      await withApiErrorToast(registerMcpServer(settings.flowServiceUrl, { baseUrl: base, name: mcpAddForm.name || undefined, id: mcpAddForm.id || undefined, timeoutMs: mcpAddForm.timeoutMs }), toast, 'Register MCP server')
+      // 1) Register/ensure MCP server exists in catalog with explicit tool enable list
+  const toolPayload = (mcpDiscovered||[]).map((t:any)=> ({ name: t.name, enabled: selectedNames.includes(t.name) }))
+      await withApiErrorToast(registerMcpServer(settings.flowServiceUrl, { baseUrl: base, name: mcpAddForm.name || undefined, id: mcpAddForm.id || undefined, timeoutMs: mcpAddForm.timeoutMs, tools: toolPayload }), toast, 'Register MCP server')
       // 2) Refresh MCP server list (authoritative) and close dialog
       toast({ title: 'MCP server registered', description: base })
       await refreshMcpServers()
@@ -930,7 +931,7 @@ function CanvasInner() {
                     value={mcpSearch}
                     onChange={e=>setMcpSearch(e.target.value)}
                   />
-                  <Button size="sm" onClick={()=> setMcpAddOpen(true)}>Add MCP Server</Button>
+                  <Button size="sm" onClick={()=> { setMcpAddForm({ baseUrl: '', name: '', id: '' }); setMcpDiscovered(null); setMcpAddOpen(true) }}>Add MCP Server</Button>
                 </div>
                 <div className="text-[11px] text-neutral-500">Registered MCP servers</div>
                 <div className="flex-1 overflow-auto space-y-2 pr-1">
@@ -1373,7 +1374,7 @@ function CanvasInner() {
                 <table className="w-full text-xs">
                   <thead className="bg-neutral-50 text-neutral-600">
                     <tr>
-                      <th className="px-2 py-1 text-left">Select</th>
+                      <th className="px-2 py-1 text-left">Enabled</th>
                       <th className="px-2 py-1 text-left">Name</th>
                       <th className="px-2 py-1 text-left">Description</th>
                     </tr>
@@ -1412,6 +1413,7 @@ function CanvasInner() {
               <table className="w-full text-xs">
                 <thead className="bg-neutral-50 text-neutral-600">
                   <tr>
+                    <th className="px-2 py-1 text-left">Enabled</th>
                     <th className="px-2 py-1 text-left">Name</th>
                     <th className="px-2 py-1 text-left">Description</th>
                     <th className="px-2 py-1 text-left" aria-label="schema" />
@@ -1421,6 +1423,15 @@ function CanvasInner() {
                   {mcpDetails.map((t:any, i:number) => (
                     <>
                       <tr key={`row-${i}`} className="odd:bg-white even:bg-neutral-50">
+                        <td className="border-t px-2 py-1 align-top">
+                          <input
+                            type="checkbox"
+                            disabled
+                            aria-label={`Tool ${t.name} enabled`}
+                            checked={!!(t.enabled ?? t.Enabled)}
+                            className="h-3 w-3 align-middle accent-emerald-600 cursor-not-allowed"
+                          />
+                        </td>
                         <td className="border-t px-2 py-1 align-top">{t.name}</td>
                         <td className="border-t px-2 py-1 align-top">{t.description || ''}</td>
                         <td className="border-t px-2 py-1 align-top text-right">
@@ -1429,7 +1440,7 @@ function CanvasInner() {
                       </tr>
                       {mcpDetailsExpanded[i] && (
                         <tr key={`schema-${i}`} className="odd:bg-white even:bg-neutral-50">
-                          <td colSpan={3} className="border-t px-2 py-2">
+                          <td colSpan={4} className="border-t px-2 py-2">
                             <div className="grid grid-cols-1 gap-2">
                               <div>
                                 <div className="text-[11px] text-neutral-600 mb-1">inputSchema</div>

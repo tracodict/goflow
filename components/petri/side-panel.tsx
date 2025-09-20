@@ -20,7 +20,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import CodeMirror from '@uiw/react-codemirror'
 import { LlmMessagesEditor } from './llm-messages-editor'
 import { useSystemSettings } from './system-settings-context'
-import { listMcpTools } from './petri-client'
+import { listMcpTools, listRegisteredMcpTools } from './petri-client'
 import { StreamLanguage } from '@codemirror/language'
 import { lua } from '@codemirror/legacy-modes/mode/lua'
 import { EditorView } from '@codemirror/view'
@@ -797,33 +797,30 @@ function TypeSpecificEditor({
 function ToolsEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
   const tools = ((node.data as any).tools || []) as Array<{ name: string; config?: any }>
   const [mcpEndpoints, setMcpEndpoints] = useState<string[]>([])
-  const [mcpToolsByEndpoint, setMcpToolsByEndpoint] = useState<Record<string, string[]>>({})
+  const [mcpToolsByEndpoint, setMcpToolsByEndpoint] = useState<Record<string, { name: string; enabled?: boolean }[]>>({})
   const builtins = ["duckduckgo", "wikipedia"]
   const { settings } = useSystemSettings()
 
-  // Load registered MCP servers first to know endpoints
+  // Load enabled MCP tools grouped by endpoint
   useEffect(() => {
     let cancelled = false
     async function load() {
+      if (!settings.flowServiceUrl) return
       try {
-        const base = settings.flowServiceUrl?.replace(/\/$/, '')
-        const res = await fetch(`${base}/api/tools/registered_mcp`, { credentials: 'include' })
-        const json = await res.json().catch(()=>({}))
-        const servers: any[] = Array.isArray(json?.data?.servers) ? json.data.servers : (Array.isArray(json) ? json : [])
-        const endpoints = servers.map(s=> s.baseUrl).filter(Boolean)
-        if (!cancelled) setMcpEndpoints(endpoints)
-        // For each endpoint, fetch mcp tools list
-        const entries: Record<string, string[]> = {}
-        for (const ep of endpoints) {
-          try {
-            const list = await listMcpTools(settings.flowServiceUrl!, { baseUrl: ep })
-            entries[ep] = (Array.isArray(list) ? list : []).map((t:any)=> t?.name).filter(Boolean)
-          } catch {/* ignore per-endpoint errors */}
+        const list = await listRegisteredMcpTools(settings.flowServiceUrl)
+        // Group by baseUrl
+        const grouped: Record<string, { name: string; enabled?: boolean }[]> = {}
+        for (const t of list) {
+          if (!grouped[t.baseUrl]) grouped[t.baseUrl] = []
+          grouped[t.baseUrl].push({ name: t.name, enabled: true })
         }
-        if (!cancelled) setMcpToolsByEndpoint(entries)
+        if (!cancelled) {
+          setMcpEndpoints(Object.keys(grouped))
+          setMcpToolsByEndpoint(grouped)
+        }
       } catch {/* ignore */}
     }
-    if (settings.flowServiceUrl) load()
+    load()
     return () => { cancelled = true }
   }, [settings.flowServiceUrl])
 
@@ -837,7 +834,7 @@ function ToolsEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: 
     updateTools(next)
   }
 
-  const mcpOptions = mcpEndpoints.flatMap(ep => (mcpToolsByEndpoint[ep]||[]).map(name => `mcp:${ep}:${name}`))
+  const mcpOptions = mcpEndpoints.flatMap(ep => (mcpToolsByEndpoint[ep]||[]).filter(t=> t.enabled !== false).map(t => `mcp:${ep}:${t.name}`))
   const allOptions = [...builtins, ...mcpOptions]
 
   return (
@@ -868,14 +865,12 @@ function ToolsEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: 
                   </optgroup>
                 </select>
               </div>
-              {builtins.includes(tool.name) && (
-                <div className="grid gap-1">
-                  <Label className="text-xs">Config (JSON)</Label>
-                  <Textarea rows={4} className="font-mono text-[12px]" value={JSON.stringify(tool.config||{}, null, 2)} onChange={(e)=>{
-                    try { setTool(i, { config: JSON.parse(e.target.value) }) } catch { /* ignore until valid */ }
-                  }} />
-                </div>
-              )}
+              <div className="grid gap-1">
+                <Label className="text-xs">Config (JSON)</Label>
+                <Textarea rows={4} className="font-mono text-[12px]" value={JSON.stringify(tool.config||{}, null, 2)} onChange={(e)=>{
+                  try { setTool(i, { config: JSON.parse(e.target.value) }) } catch { /* ignore until valid */ }
+                }} />
+              </div>
             </div>
           </details>
         ))}

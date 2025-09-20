@@ -371,21 +371,45 @@ export async function listMcpTools(flowServiceUrl: string, params: { baseUrl: st
   return Array.isArray(arr) ? arr : []
 }
 
-// List all registered MCP tools (across servers)
-export async function listRegisteredMcpTools(flowServiceUrl: string): Promise<string[]> {
+// List all registered MCP tools (across servers) returning structured entries.
+// Strategy: fetch registered servers, then for each server POST to list_mcp_tools endpoint (sample curl pattern)
+// Only enabled tools are returned by server when we include enabled=true in query OR we filter locally.
+export async function listRegisteredMcpTools(flowServiceUrl: string): Promise<{ baseUrl: string; name: string }[]> {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await authFetch(`${base}/api/tools/list_mcp_tools`)
-  if (!resp.ok) {
-    let text = ''
-    try { text = await resp.text() } catch {}
-    throw new ApiError('List registered MCP tools failed', { status: resp.status, rawBody: text, context: 'listRegisteredMcpTools' })
+  // First get registered servers
+  let servers: any[] = []
+  try {
+    const regResp = await authFetch(`${base}/api/tools/registered_mcp`)
+    if (regResp.ok) {
+      const regJson = await regResp.json().catch(()=>({}))
+      servers = Array.isArray(regJson?.data?.servers) ? regJson.data.servers : (Array.isArray(regJson) ? regJson : [])
+    }
+  } catch { /* ignore */ }
+  if (!Array.isArray(servers)) servers = []
+  const results: { baseUrl: string; name: string }[] = []
+  for (const s of servers) {
+    const ep = s?.baseUrl || s?.endpoint
+    if (!ep) continue
+    try {
+      const resp = await authFetch(`${base}/api/tools/list_mcp_tools?enabled=true`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: ep, timeoutMs: 5000 })
+      })
+      if (!resp.ok) continue
+      const json = await resp.json().catch(()=>({}))
+      const arr = json?.data?.tools || json?.tools || json?.data || json
+      if (Array.isArray(arr)) {
+        for (const t of arr) {
+          const name = typeof t === 'string' ? t : t?.name
+          const enabled = (typeof t === 'object') ? (t?.enabled ?? t?.Enabled ?? true) : true
+          if (!name || enabled === false) continue
+          results.push({ baseUrl: ep, name })
+        }
+      }
+    } catch { /* ignore per-endpoint */ }
   }
-  const json = await resp.json().catch(() => ({}))
-  const arr = json?.data?.tools || json?.tools || json
-  if (Array.isArray(arr)) {
-    return arr.map((t:any)=> (typeof t === 'string' ? t : t?.name)).filter(Boolean)
-  }
-  return []
+  return results
 }
 
 export async function listRegisteredMcpServers(flowServiceUrl: string) {
@@ -401,13 +425,14 @@ export async function listRegisteredMcpServers(flowServiceUrl: string) {
   return Array.isArray(arr) ? arr : []
 }
 
-export async function registerMcpServer(flowServiceUrl: string, payload: { id?: string; name?: string; baseUrl: string; timeoutMs?: number }) {
+export async function registerMcpServer(flowServiceUrl: string, payload: { id?: string; name?: string; baseUrl: string; timeoutMs?: number; tools?: Array<{ name: string; enabled: boolean; config?: any }> }) {
   const base = flowServiceUrl.replace(/\/$/, '')
   const resp = await authFetch(`${base}/api/tools/register_mcp`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, 
     body: JSON.stringify({"endpoint": payload.baseUrl, 
       "id": payload.id,
-      "name": payload.name, "timeoutMs": payload.timeoutMs || 5000 })
+      "name": payload.name, "timeoutMs": payload.timeoutMs || 5000,
+      ...(payload.tools ? { tools: payload.tools } : {}) })
   })
   if (!resp.ok) {
     let text = ''
