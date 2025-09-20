@@ -1,7 +1,7 @@
 # API Test Coverage: Example curl Commands
 
 ```sh
-export FLOW_SVC=https://goflow.lizhao.net/
+export FLOW_SVC=https://flow.lizhao.net/
 ```
 ## 1. Health Check
 ```sh

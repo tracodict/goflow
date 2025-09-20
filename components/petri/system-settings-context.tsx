@@ -4,8 +4,8 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 export type SystemSettings = Record<string, string>
 
 const DEFAULT_SETTINGS: SystemSettings = {
-  flowServiceUrl: 'https://goflow.lizhao.net',
-  dictionaryUrl: 'https://cdn.statically.io/gh/tracodict/jschema/main/ep299/',
+  flowServiceUrl: 'https://flow.lizhao.net',
+  dictionaryUrl: 'https://raw.githubusercontent.com/tracodict/jschema/refs/heads/main/ep299',
 }
 
 interface Ctx {

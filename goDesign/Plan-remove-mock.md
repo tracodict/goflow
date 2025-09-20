@@ -51,7 +51,7 @@ Based on first round suggestion from gpt 5:
 4th round:
 
 1. "DELETE /api/cpn/delete": "Delete a CPN by ID", is implemented at server. Update UI so that when mouse move over a row of workflow at `Explorer`, show delete button at right side. when delete button is clicked, call server delete API. Up on the delete API succeed, remove the workflow from client UI.
-2. fix error when save a diagram, by POST https://goflow.lizhao.net//api/cpn/load
+2. fix error when save a diagram, by POST https://flow.lizhao.net//api/cpn/load
 {
     "error": "invalid_cpn",
     "message": "Failed to parse CPN: failed to parse arcs: unknown arc direction '' for arc 'e-i2axo'"
