@@ -1096,7 +1096,7 @@ function CanvasInner() {
                   Delete transition
                 </button>
                 <Separator />
-                {(["Manual", "Auto", "Message", "LLM", "Tools"] as TransitionType[]).map((t) => (
+                {(["Manual", "Auto", "Message", "LLM", "Tools", "Retriever"] as TransitionType[]).map((t) => (
                   <button
                     key={t}
                     className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-neutral-50"

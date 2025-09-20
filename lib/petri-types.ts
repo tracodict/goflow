@@ -1,6 +1,6 @@
 // Petri net core types (client-side representation)
 // Transition types no longer include a dedicated SubPage kind; any transition can act as a subpage caller.
-export type TransitionType = "Manual" | "Auto" | "Message" | "LLM" | "Tools"
+export type TransitionType = "Manual" | "Auto" | "Message" | "LLM" | "Tools" | "Retriever"
 
 export type Token = {
   id: string
@@ -54,6 +54,10 @@ export type TransitionData = {
   }
   // Tools transition (built-in or MCP)
   tools?: Array<{ name: string; config?: any }>
+  // Retriever transition
+  RetrieverProvider?: string
+  RetrieverOptions?: Record<string,string>
+  RetrieverQueryVar?: string
 }
 
 export type PlaceData = {

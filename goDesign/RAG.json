@@ -1,0 +1,32 @@
+{
+  "id": "rag-sample-1",
+  "name": "Simple RAG Retrieval",
+  "description": "Minimal workflow demonstrating Retriever transition (Dify provider).",
+  "colorSets": [
+    "colset STR = string;",
+    "colset J = json;"
+  ],
+  "places": [
+    { "id": "Query", "name": "Query", "colorSet": "STR" },
+    { "id": "Results", "name": "Results", "colorSet": "J" }
+  ],
+  "transitions": [
+    {
+      "id": "t_retrieve",
+      "name": "RetrieveDocs",
+      "kind": "Retriever",
+      "guardExpression": "query ~= nil and #query > 0",
+      "RetrieverProvider": "dify",
+      "RetrieverQueryVar": "query",
+      "RetrieverOptions": { "topK": "5" }
+    }
+  ],
+  "arcs": [
+    { "id": "a_in_q", "sourceId": "Query", "targetId": "t_retrieve", "direction": "IN", "expression": "query" },
+    { "id": "a_out_res", "sourceId": "t_retrieve", "targetId": "Results", "direction": "OUT", "expression": "return retrieved" }
+  ],
+  "initialMarking": {
+    "Query": [ { "value": "What is Retrieval Augmented Generation?", "timestamp": 0 } ]
+  },
+  "endPlaces": [ "Results" ]
+}

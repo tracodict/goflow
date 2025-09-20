@@ -1,5 +1,5 @@
 "use client"
-import { Activity, Bot, Brain, Hand, MessageSquare, Wrench } from "lucide-react"
+import { Activity, Bot, Brain, Hand, MessageSquare, Wrench, Search } from "lucide-react"
 import type { TransitionType } from "@/lib/petri-types"
 
 export function TransitionIcon({ tType, className = "h-4 w-4" }: { tType: TransitionType; className?: string }) {
@@ -14,6 +14,8 @@ export function TransitionIcon({ tType, className = "h-4 w-4" }: { tType: Transi
       return <Brain className={className} aria-label="LLM" />
     case "Tools":
       return <Wrench className={className} aria-label="tools" />
+    case "Retriever":
+      return <Search className={className} aria-label="retriever" />
     default:
       return <Activity className={className} aria-label="transition" />
   }

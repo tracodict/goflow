@@ -790,9 +790,83 @@ function TypeSpecificEditor({
       return <LLMEditor node={node} onUpdate={onUpdate} />
     case "Tools":
       return <ToolsEditor node={node} onUpdate={onUpdate} />
+    case "Retriever":
+      return <RetrieverEditor node={node} onUpdate={onUpdate} />
     default:
       return null
   }
+}
+function RetrieverEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
+  const provider: string = (node.data as any).RetrieverProvider || ''
+  const queryVar: string = (node.data as any).RetrieverQueryVar || ''
+  const options: Record<string,string> = (node.data as any).RetrieverOptions || {}
+  const [optText, setOptText] = useState<string>(() => {
+    try { return JSON.stringify(options, null, 2) } catch { return '{\n  "topK": "5"\n}' }
+  })
+  const [optError, setOptError] = useState<string>('')
+
+  const applyOptions = () => {
+    try {
+      const parsed = JSON.parse(optText)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        // coerce all values to string (backend contract)
+        const coerced: Record<string,string> = {}
+        Object.entries(parsed).forEach(([k,v]) => { if (v!=null) coerced[k] = String(v) })
+        onUpdate(node.id, { RetrieverOptions: coerced } as any)
+        setOptError('')
+      } else {
+        setOptError('Options must be a JSON object')
+      }
+    } catch(e:any) {
+      setOptError(e?.message || 'Invalid JSON')
+    }
+  }
+
+  return (
+    <div className="mt-4 space-y-4">
+      <div className="grid gap-1">
+        <Label className="text-xs">Provider</Label>
+        <select
+          className="border rounded px-2 py-1 text-xs"
+          value={provider}
+          onChange={(e)=> onUpdate(node.id, { RetrieverProvider: e.target.value || undefined } as any)}
+        >
+          <option value="">(select provider)</option>
+          <option value="dify">dify</option>
+        </select>
+        <p className="text-[11px] text-neutral-500">Provider implementation (currently only dify).</p>
+      </div>
+      <div className="grid gap-1">
+        <Label className="text-xs">Query Variable</Label>
+        <Input
+          className="text-xs"
+          placeholder="e.g. query"
+          value={queryVar}
+          onChange={(e)=> onUpdate(node.id, { RetrieverQueryVar: e.target.value } as any)}
+        />
+        <p className="text-[11px] text-neutral-500">Name of input arc bound variable containing the query text. If empty defaults to first IN arc variable.</p>
+      </div>
+      <div className="grid gap-1">
+        <Label className="text-xs">Options (JSON)</Label>
+        <Textarea
+          rows={5}
+          value={optText}
+          onChange={(e)=> setOptText(e.target.value)}
+          className="font-mono text-[12px]"
+          placeholder={`{\n  "topK": "5"\n}`}
+        />
+        {optError && <div className="text-[11px] text-red-600">{optError}</div>}
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={applyOptions}>Apply</Button>
+          <Button size="sm" variant="ghost" onClick={()=> { try { setOptText(JSON.stringify((node.data as any).RetrieverOptions||{}, null, 2)); setOptError('') } catch { /* ignore */ } }}>Reset</Button>
+        </div>
+        <p className="text-[11px] text-neutral-500">Editable provider options (all values coerced to string). Common: topK.</p>
+      </div>
+      <div className="rounded border bg-neutral-50 p-2 text-[11px] text-neutral-600">
+        Outputs variable <code>retrieved</code> (array of documents) is available to OUT arc expressions.
+      </div>
+    </div>
+  )
 }
 function ToolsEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
   const tools = ((node.data as any).tools || []) as Array<{ name: string; config?: any }>

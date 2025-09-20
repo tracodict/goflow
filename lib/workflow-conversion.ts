@@ -40,7 +40,7 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
       data: { kind: 'place', name: p.name, colorSet: p.colorSet || '', tokens: 0, tokenList: [], isEnd }
     })
   })
-  const allowed: any[] = ['Manual','Auto','Message','LLM','Tools']
+  const allowed: any[] = ['Manual','Auto','Message','LLM','Tools','Retriever']
   sw.transitions.forEach(t => {
     let tType: any = (t.kind as any) || 'Manual'
     if (!allowed.includes(tType)) tType = 'Manual'
@@ -73,6 +73,11 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
         } : {}),
         ...(tType === 'Tools' ? {
           tools: Array.isArray((t as any).Tools) ? (t as any).Tools.map((x:any)=> ({ name: x.name, ...(x.config ? { config: x.config } : {}) })) : []
+        } : {}),
+        ...(tType === 'Retriever' ? {
+          RetrieverProvider: (t as any).RetrieverProvider,
+          RetrieverQueryVar: (t as any).RetrieverQueryVar,
+          RetrieverOptions: (t as any).RetrieverOptions || {},
         } : {}),
         ...(manual ? { manual } : {})
       } as any,
@@ -153,6 +158,11 @@ export function graphToServer(
       if ((n.data as any).tType === 'Tools') {
         const tools = (n.data as any).tools || []
         base.Tools = Array.isArray(tools) ? tools.map((x:any)=> ({ name: x.name, ...(x.config ? { config: x.config } : {}) })) : []
+      }
+      if ((n.data as any).tType === 'Retriever') {
+        if ((n.data as any).RetrieverProvider) base.RetrieverProvider = (n.data as any).RetrieverProvider
+        if ((n.data as any).RetrieverQueryVar) base.RetrieverQueryVar = (n.data as any).RetrieverQueryVar
+        if ((n.data as any).RetrieverOptions && typeof (n.data as any).RetrieverOptions === 'object') base.RetrieverOptions = (n.data as any).RetrieverOptions
       }
       // Emit new action function fields if present
       if ((n.data as any).actionFunction) base.actionFunction = (n.data as any).actionFunction
