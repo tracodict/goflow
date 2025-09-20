@@ -314,6 +314,20 @@ function PlaceEditor({
 
   const tokenList = useMemo<Token[]>(() => place.tokenList || [], [place.tokenList])
 
+  // Controlled open state for token accordions so first token auto-expands
+  const [openTokenItems, setOpenTokenItems] = useState<string[]>([])
+  // When switching to tokens section or token list changes, auto-open first if none open
+  useEffect(() => {
+    if (section === 'tokens' && tokenList.length > 0) {
+      // If currently none of the existing token ids are open, open the first
+      const ids = openTokenItems.filter(id => tokenList.some(t => (t.id || '').toString() === id))
+      if (ids.length === 0) {
+        const firstId = (tokenList[0].id || `tok-0`).toString()
+        setOpenTokenItems([firstId])
+      }
+    }
+  }, [section, tokenList])
+
   const syncCount = () => onUpdate(node.id, { tokens: tokenList.length })
 
   const addToken = () => {
@@ -430,7 +444,12 @@ function PlaceEditor({
           {tokenList.length === 0 ? (
             <div className="rounded border bg-neutral-50 p-3 text-xs text-neutral-500">No tokens in this place.</div>
           ) : (
-            <Accordion type="multiple" className="w-full">
+            <Accordion
+              type="multiple"
+              className="w-full"
+              value={openTokenItems}
+              onValueChange={(vals) => setOpenTokenItems(vals as string[])}
+            >
               {tokenList.map((tok, idx) => {
                 // Robust date handling: accept numeric (ms) or ISO string; fallback to '-'
                 let createdLabel = '-'
@@ -633,11 +652,32 @@ function TransitionEditor({
   const [idError, setIdError] = useState<string>("")
   const isValidIdent = (s: string) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s)
 
+  // --- Guard Expression FIX ---
+  const lastLocalEditRef = useRef<number>(0)
   const [guardText, setGuardText] = useState<string>(() => (node as any).guardExpression || (node.data as any).guardExpression || "")
+  // Only update from props if node id changes or not recently edited locally
   useEffect(() => {
     const incoming = (node as any).guardExpression || (node.data as any).guardExpression || ""
-    setGuardText((prev) => (prev !== incoming ? incoming : prev))
-  }, [node.id, (node as any).guardExpression, (node.data as any).guardExpression])
+    // Always update if node id changes
+    setGuardText(incoming)
+    lastLocalEditRef.current = 0
+  }, [node.id])
+
+  useEffect(() => {
+    const incoming = (node as any).guardExpression || (node.data as any).guardExpression || ""
+    const now = Date.now()
+    const recentlyEdited = now - lastLocalEditRef.current < 1200
+    // Only update from props if not recently edited locally and value is different
+    if (!recentlyEdited && guardText !== incoming) {
+      setGuardText(incoming)
+    }
+    // If recently edited, ignore prop churn
+  }, [(node as any).guardExpression, (node.data as any).guardExpression])
+
+  const handleGuardChange = (val: string) => {
+    lastLocalEditRef.current = Date.now()
+    setGuardText(val)
+  }
 
   useEffect(() => {
     const h = window.setTimeout(() => {
