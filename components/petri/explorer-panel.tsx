@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { FolderPlus, Trash2, Folder, ChevronRight, ChevronDown, Plus, X, RefreshCw, FileUp } from 'lucide-react';
 import { saveWorkflow } from '@/components/petri/petri-client';
@@ -308,12 +308,7 @@ function ImportWorkflowButton({ onImported }: { onImported?: () => void }) {
               <button onClick={() => !loading && setOpen(false)} aria-label="Close" style={{ display:'flex', alignItems:'center' }}><X className="h-4 w-4 text-neutral-500" /></button>
             </div>
             <div style={{ padding:12, display:'flex', flexDirection:'column', gap:10 }}>
-              <input type="file" accept="application/json,.json" onChange={e => onPick(e.target.files?.[0] || null)} />
-              {file && (
-                <div style={{ fontSize:11, color:'#555' }}>Selected: <strong>{file.name}</strong> ({Math.round(file.size/1024)} KB)</div>
-              )}
-              {text && <textarea readOnly value={text.slice(0,2000)} style={{ fontSize:11, fontFamily:'monospace', width:'100%', height:120, padding:6, border:'1px solid #ddd', borderRadius:4 }} />}
-              {error && <div style={{ color:'#b91c1c', fontSize:11 }}>{error}</div>}
+              <DragAndDropFileArea file={file} onPick={onPick} error={error} text={text} />
             </div>
             <div style={{ padding:'8px 12px', borderTop:'1px solid #eee', display:'flex', justifyContent:'flex-end', gap:8 }}>
               <button disabled={loading} onClick={() => setOpen(false)} style={{ fontSize:12, padding:'4px 10px', border:'1px solid #ccc', borderRadius:4, background:'#fff' }}>Cancel</button>
@@ -323,5 +318,43 @@ function ImportWorkflowButton({ onImported }: { onImported?: () => void }) {
         </div>
       )}
     </>
+  )
+}
+
+function DragAndDropFileArea({ file, onPick, error, text }: { file: File | null; onPick: (f: File | null)=>void; error: string; text: string }) {
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const onFiles = (files: FileList | null) => { if (files && files[0]) onPick(files[0]) }
+  const onDrop = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setDragging(false); onFiles(e.dataTransfer.files) }
+  const onDragOver = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); if (!dragging) setDragging(true) }
+  const onDragLeave = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setDragging(false) }
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+      <input ref={inputRef} type="file" accept="application/json,.json" style={{ display:'none' }} onChange={e => onFiles(e.target.files)} />
+      <div
+        onClick={() => inputRef.current?.click()}
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        style={{
+          border:'2px dashed '+(dragging? '#059669':'#ccc'),
+          borderRadius:8,
+          padding:'28px 16px',
+          textAlign:'center',
+          cursor:'pointer',
+          background: dragging? 'rgba(5,150,105,0.05)':'#fafafa',
+          transition:'border-color 120ms, background 120ms'
+        }}
+      >
+        <div style={{ fontSize:13, fontWeight:600, marginBottom:6 }}>Drop workflow JSON here</div>
+        <div style={{ fontSize:11, color:'#555', lineHeight:1.4 }}>
+          Drag & drop one JSON file<br/>or <span style={{ color:'#059669', textDecoration:'underline' }}>click to browse</span><br/>
+          Accepted: .json (workflow export)
+        </div>
+        {file && <div style={{ marginTop:10, fontSize:11 }}>Selected: <strong>{file.name}</strong> ({Math.round(file.size/1024)} KB)</div>}
+      </div>
+      {text && <textarea readOnly value={text.slice(0,2000)} style={{ fontSize:11, fontFamily:'monospace', width:'100%', height:140, padding:6, border:'1px solid #ddd', borderRadius:4, background:'#fff' }} />}
+      {error && <div style={{ color:'#b91c1c', fontSize:11 }}>{error}</div>}
+    </div>
   )
 }

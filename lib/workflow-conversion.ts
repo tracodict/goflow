@@ -91,7 +91,8 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
   // apply initial marking
   const marking = sw.initialMarking || {}
   Object.entries(marking).forEach(([placeName, tokens]) => {
-    const placeNode = nodes.find(n => n.type === 'place' && (n.data as any).name === placeName)
+    // Accept either place name or exact id (server initialMarking keys may use either)
+    const placeNode = nodes.find(n => n.type === 'place' && (n.id === placeName || (n.data as any).name === placeName))
     if (placeNode) {
       const list = tokens.map(t => ({ id: `tok-${Math.random().toString(36).slice(2,8)}`, data: t.value, createdAt: typeof t.timestamp === 'number' ? t.timestamp : 0 }))
       ;(placeNode.data as any).tokenList = list

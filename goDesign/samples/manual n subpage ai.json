@@ -1,0 +1,426 @@
+{
+  "id": "manual-n-subpage",
+  "name": "Manual RFQ → Quote → Order (with Subpage)",
+  "description": "Manual RFQ flow that calls a pricing subpage and supports ACK/REJ and multi-order placement.",
+  "colorSets": [
+    "colset STR = string;",
+    "colset J = json;",
+    "colset REAL = real;",
+    "colset INT = int;",
+    "colset RFQ = json;",
+    "colset Quote = json;",
+    "colset Order = json;"
+  ],
+  "jsonSchemas": [],
+  "places": [
+    {
+      "id": "EmptyRFQ",
+      "name": "EmptyRFQ",
+      "colorSet": "RFQ",
+      "position": {
+        "x": 346.0086,
+        "y": 411.36053
+      }
+    },
+    {
+      "id": "RFQ",
+      "name": "RFQ",
+      "colorSet": "RFQ",
+      "position": {
+        "x": 437.64835,
+        "y": 148.71881
+      }
+    },
+    {
+      "id": "NewQuote",
+      "name": "NewQuote",
+      "colorSet": "Quote",
+      "position": {
+        "x": 1061.0964,
+        "y": 249.75426
+      }
+    },
+    {
+      "id": "revquote",
+      "name": "ReviewedQuote",
+      "colorSet": "Quote",
+      "position": {
+        "x": 1334.5079,
+        "y": 228.97142
+      }
+    },
+    {
+      "id": "RejectedQuote",
+      "name": "RejectedQuote",
+      "colorSet": "Quote",
+      "position": {
+        "x": 1715.3119,
+        "y": 100.18903
+      }
+    },
+    {
+      "id": "NewOrder",
+      "name": "NewOrder",
+      "colorSet": "Order",
+      "position": {
+        "x": 1723.7808,
+        "y": 244.53687
+      }
+    },
+    {
+      "id": "p-ybw8g",
+      "name": "PV",
+      "colorSet": "RFQ",
+      "position": {
+        "x": 814.8582,
+        "y": 247.25897
+      }
+    },
+    {
+      "id": "p-63byi",
+      "name": "AckedQuote",
+      "colorSet": "Quote",
+      "position": {
+        "x": 1157.8845,
+        "y": 440.65942
+      }
+    },
+    {
+      "id": "p-vxbb9",
+      "name": "AIRfq",
+      "colorSet": "RFQ",
+      "position": {
+        "x": 842.4437,
+        "y": -102.50405
+      }
+    },
+    {
+      "id": "prfq1",
+      "name": "PxRFQ",
+      "colorSet": "J",
+      "position": {
+        "x": 335.45715,
+        "y": 34.844807
+      }
+    },
+    {
+      "id": "psymb",
+      "name": "Symbol",
+      "colorSet": "J",
+      "position": {
+        "x": 228.50954,
+        "y": -17.353472
+      }
+    }
+  ],
+  "transitions": [
+    {
+      "id": "t_fill",
+      "name": "FillRFQ",
+      "kind": "Manual",
+      "position": {
+        "x": 567.3887,
+        "y": 433.29462
+      },
+      "actionFunction": "function t_fill_action(newRfq)\n  local base = newRfq or {}\n  if formData ~= nil then\n    for k,v in pairs(formData) do base[k] = v end\n  end\n  return base\nend",
+      "actionFunctionOutput": [
+        "rfq"
+      ]
+    },
+    {
+      "id": "t_price",
+      "name": "PriceRFQ (Subpage Call)",
+      "kind": "Auto",
+      "position": {
+        "x": 591.1794,
+        "y": 114.80888
+      },
+      "actionFunction": "function t_price_action(rfq, premium)\n  if premium ~= nil then rfq.Premium = premium end\n  return rfq\nend",
+      "actionFunctionOutput": [
+        "rfq"
+      ]
+    },
+    {
+      "id": "t_build",
+      "name": "BuildQuote",
+      "kind": "Auto",
+      "position": {
+        "x": 825.2911,
+        "y": 57.172237
+      },
+      "actionFunction": "function t_build_action(rfq)\n  local S = rfq.Spot or 100\n  local K = rfq.Strike or 100\n  local r = rfq.Rate or 0.03\n  local T = rfq.Maturity or 30\n  local premium = rfq.Premium or 0\n  local quote = {\n    QuoteID = (rfq.ReqID or \"REQ-001\") .. \"-Q1\",\n    OrgReqID = rfq.ReqID,\n    Underlying = rfq.Underlying,\n    Spot = S, Strike = K,\n    KOLevel = rfq.KOLevel,\n    Vol = rfq.Vol, Rate = r, Maturity = T,\n    Premium = premium,\n    AIOpinion = rfq.AIOpinion,\n    Status = \"NEW\"\n  }\n  return quote\nend",
+      "actionFunctionOutput": [
+        "quote"
+      ]
+    },
+    {
+      "id": "t_review",
+      "name": "ReviewQuote",
+      "kind": "Manual",
+      "position": {
+        "x": 1099.9738,
+        "y": 58.245476
+      },
+      "actionFunction": "function t_review_action(q)\n  local base = {Status=\"ACK\", Premium=100, QuoteID=\"xxxxx\"}\n  if formData ~= nil then\n    for k,v in pairs(formData) do base[k] = v end\n  end\n  return base\nend",
+      "actionFunctionOutput": [
+        "revQ"
+      ]
+    },
+    {
+      "id": "t_order",
+      "name": "PlaceOrder (keeps quote)",
+      "kind": "Manual",
+      "position": {
+        "x": 1423.138,
+        "y": 458.14746
+      },
+      "actionFunction": "function t_order_action(q)\n  local ord = {}\n  if formData ~= nil then\n    for k,v in pairs(formData) do ord[k] = v end\n  end\n  local ord = {\n    OrdID = formData.OrdID or q.QuoteID,\n    OrgQuoteID = q.QuoteID,\n    Amount = formData.Amount or 1,\n    Price = q.Premium\n  }\n  return ord\nend",
+      "actionFunctionOutput": [
+        "order"
+      ]
+    },
+    {
+      "id": "t-ixbgi",
+      "name": "isRejected?",
+      "kind": "Auto",
+      "guardExpression": "rquote.Status == 'REJ'",
+      "position": {
+        "x": 1485.8538,
+        "y": 9.46244
+      }
+    },
+    {
+      "id": "t-68az1",
+      "name": "isAcked",
+      "kind": "Auto",
+      "guardExpression": "rquote.Status == 'ACK'",
+      "position": {
+        "x": 1507.0892,
+        "y": 214.14828
+      }
+    },
+    {
+      "id": "t_ai",
+      "name": "AI Assist",
+      "kind": "LLM",
+      "guardExpression": "true",
+      "position": {
+        "x": 470.40533,
+        "y": -79.41517
+      },
+      "LlmTemplate": {
+        "messages": [
+          {
+            "text": "You are an experienced financial adviser specializing in listed equity option trading. Provide a concise qualitative opinion (bullish / neutral / cautious) and one short rationale.",
+            "type": "system"
+          },
+          {
+            "text": "Based on current market environment, is the following option good to buy?\n{{rfq}}, especially give comment on current spot price info at {{quote}}",
+            "type": "user"
+          }
+        ]
+      },
+      "LlmVars": {},
+      "LlmOptions": {},
+      "Stream": false
+    },
+    {
+      "id": "t-p3vcu",
+      "name": "GetSpotPx",
+      "kind": "Tools",
+      "guardExpression": "true",
+      "position": {
+        "x": 214.99199,
+        "y": 212.65584
+      },
+      "Tools": [
+        {
+          "name": "mcp:https://data.lizhao.net/api/mcp:yahoo_quote"
+        }
+      ]
+    }
+  ],
+  "arcs": [
+    {
+      "id": "a_fill_out",
+      "sourceId": "t_fill",
+      "targetId": "RFQ",
+      "expression": "return rfq",
+      "direction": "OUT"
+    },
+    {
+      "id": "a_build_out",
+      "sourceId": "t_build",
+      "targetId": "NewQuote",
+      "expression": "return quote",
+      "direction": "OUT"
+    },
+    {
+      "id": "a_ack_in",
+      "sourceId": "NewQuote",
+      "targetId": "t_review",
+      "expression": "q",
+      "direction": "IN"
+    },
+    {
+      "id": "a_ack_out",
+      "sourceId": "t_review",
+      "targetId": "revquote",
+      "expression": "return revQ",
+      "direction": "OUT"
+    },
+    {
+      "id": "a_ord_out1",
+      "sourceId": "t_order",
+      "targetId": "NewOrder",
+      "expression": "return order",
+      "direction": "OUT"
+    },
+    {
+      "id": "e-p-ybw8g--t_build--of1se",
+      "sourceId": "p-ybw8g",
+      "targetId": "t_build",
+      "expression": "rfq",
+      "direction": "IN"
+    },
+    {
+      "id": "e-ggj78",
+      "sourceId": "revquote",
+      "targetId": "t-ixbgi",
+      "expression": "rquote",
+      "direction": "IN"
+    },
+    {
+      "id": "e-t-ixbgi--RejectedQuote--ngxfd",
+      "sourceId": "t-ixbgi",
+      "targetId": "RejectedQuote",
+      "expression": "return rquote",
+      "direction": "OUT"
+    },
+    {
+      "id": "e-e0keb",
+      "sourceId": "revquote",
+      "targetId": "t-68az1",
+      "expression": "rquote",
+      "direction": "IN"
+    },
+    {
+      "id": "e-qamkz",
+      "sourceId": "t-68az1",
+      "targetId": "p-63byi",
+      "expression": "return rquote",
+      "direction": "OUT"
+    },
+    {
+      "id": "e-p-63byi--t_order--b50ek",
+      "sourceId": "p-63byi",
+      "targetId": "t_order",
+      "expression": "q",
+      "direction": "IN",
+      "readonly": true
+    },
+    {
+      "id": "e-RFQ--t-64vlf--ge1s6",
+      "sourceId": "RFQ",
+      "targetId": "t_ai",
+      "expression": "rfq",
+      "direction": "IN"
+    },
+    {
+      "id": "e-47pxf",
+      "sourceId": "t_ai",
+      "targetId": "p-vxbb9",
+      "expression": "return (function(_t,_a) if type(_t)=='table' then local c={}; for k,v in pairs(_t) do c[k]=v end; c.AIOpinion=_a; return c else return {Original=_t, AIOpinion=_a} end end)(rfq, answer)",
+      "direction": "OUT"
+    },
+    {
+      "id": "e-p-vxbb9--t_price--s11yz",
+      "sourceId": "p-vxbb9",
+      "targetId": "t_price",
+      "expression": "rfq",
+      "direction": "IN"
+    },
+    {
+      "id": "e-y2nbr",
+      "sourceId": "t_price",
+      "targetId": "p-ybw8g",
+      "expression": "return rfq",
+      "direction": "OUT"
+    },
+    {
+      "id": "e-h5pmg",
+      "sourceId": "t-p3vcu",
+      "targetId": "prfq1",
+      "expression": "tool_result",
+      "direction": "OUT"
+    },
+    {
+      "id": "e-EmptyRFQ--t_fill--b6gpv",
+      "sourceId": "EmptyRFQ",
+      "targetId": "t_fill",
+      "expression": "newRfq",
+      "direction": "IN"
+    },
+    {
+      "id": "e-my6sn",
+      "sourceId": "psymb",
+      "targetId": "t-p3vcu",
+      "expression": "symb",
+      "direction": "IN"
+    },
+    {
+      "id": "e-prfq1--t_ai--h8kg8",
+      "sourceId": "prfq1",
+      "targetId": "t_ai",
+      "expression": "quote",
+      "direction": "IN"
+    }
+  ],
+  "endPlaces": [
+    "RejectedQuote",
+    "NewOrder"
+  ],
+  "initialMarking": {
+    "EmptyRFQ": [
+      {
+        "value": {
+          "KOLevel": 130,
+          "Maturity": 30,
+          "PathNum": 1000,
+          "Rate": 0.03,
+          "ReqID": "REQ-001",
+          "Spot": 100,
+          "Strike": 105,
+          "Underlying": "AAPL",
+          "Vol": 0.2
+        },
+        "timestamp": 0
+      }
+    ],
+    "Symbol": [
+      {
+        "value": {
+          "symbol": [
+            "AAPL"
+          ]
+        },
+        "timestamp": 0
+      }
+    ]
+  },
+  "subWorkflows": [
+    {
+      "id": "sw-price",
+      "cpnId": "mc-ko-quickstart-param",
+      "callTransitionId": "t_price",
+      "autoStart": true,
+      "propagateOnComplete": true,
+      "inputMapping": {
+        "rfq": "rfq"
+      },
+      "outputMapping": {
+        "premium": "premium"
+      }
+    }
+  ]
+}

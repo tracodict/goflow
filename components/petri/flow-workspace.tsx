@@ -46,6 +46,7 @@ import { serverToGraph, graphToServer, type ServerWorkflow } from "@/lib/workflo
 import { fetchWorkflow, fetchTransitionsStatus, fetchMarking, fireTransition as fireTransitionApi, simulationStep, saveWorkflow, deleteWorkflowApi, resetWorkflow, withApiErrorToast, listMcpTools, listRegisteredMcpServers, registerMcpServer, deregisterMcpServer } from "./petri-client"
 import { toast } from '@/hooks/use-toast'
 import { MonitorPanel } from './monitor-panel'
+import { useSimulation } from '@/hooks/use-simulation'
 import { TransitionIcon } from './transition-icon'
 import { CanvasControls } from './canvas-controls'
 import { useMonitor } from '@/hooks/use-monitor'
@@ -107,7 +108,8 @@ function CanvasInner() {
     nodeId: null,
   })
   const [showSystem, setShowSystem] = useState<boolean>(false)
-  const [systemTab, setSystemTab] = useState<'monitor' | 'settings' | 'mcp'>('monitor')
+  const [systemTab, setSystemTab] = useState<'simulation' | 'settings' | 'mcp'>('simulation')
+  // Removed workflow picker state (direct simulation start only)
   // MCP state
   type McpServer = { id: string; name: string; baseUrl: string; timeoutMs?: number; toolCount?: number; description?: string }
   const [mcpServers, setMcpServers] = useState<McpServer[]>([])
@@ -124,6 +126,31 @@ function CanvasInner() {
   const [mcpDeleteConfirm, setMcpDeleteConfirm] = useState<{ open: boolean; server?: McpServer }>({ open: false })
   const [monitorTabs, setMonitorTabs] = useState<string[]>([])
   const [activeMonitorTab, setActiveMonitorTab] = useState<string>('root')
+  // Simulation state (initialized after settings available)
+  const { settings } = useSystemSettings();
+  const { sims, activeSimId, activeSim, start: startSim, select: selectSim, step: stepSim, run: runSim, remove: deleteSim, refreshActive: refreshSim, loading: simLoading, running: simRunning } = useSimulation({ flowServiceUrl: settings.flowServiceUrl, workflowId: activeWorkflowId })
+  const [simStepLimit, setSimStepLimit] = useState(50)
+  // Sync simulation marking onto canvas place nodes
+  useEffect(() => {
+    if (!activeSim || !activeSim.marking) return
+    const mkRaw: any = activeSim.marking.places && typeof activeSim.marking.places === 'object' ? activeSim.marking.places : activeSim.marking
+    setNodes(nds => nds.map(n => {
+      if (n.type !== 'place') return n
+      const name = (n.data as any)?.name
+      const tokensServer: any[] = Array.isArray(mkRaw[n.id]) ? mkRaw[n.id] : (Array.isArray(mkRaw[name]) ? mkRaw[name] : [])
+      const list = tokensServer.map((t, idx) => {
+        const val = t?.value !== undefined ? t.value : (t?.data !== undefined ? t.data : t)
+        const ts = typeof t?.timestamp === 'number' ? t.timestamp : 0
+        return { id: t?.id || `simtok-${n.id}-${idx}`, data: val, createdAt: ts, serverTimestamp: t?.timestamp }
+      })
+      // Avoid unnecessary object churn if counts & first ids match
+      const prevList: any[] = (n.data as any).tokenList || []
+      if (prevList.length === list.length && prevList.every((p,i)=> p.data === list[i].data)) {
+        return n
+      }
+      return { ...n, data: { ...(n.data as any), tokens: list.length, tokenList: list } }
+    }))
+  }, [activeSim?.marking, activeSim?.caseId, setNodes])
   const [leftTab, setLeftTab] = useState<'property' | 'explorer'>("property")
   const [interactive, setInteractive] = useState<boolean>(true)
   const [tokensOpenForPlaceId, setTokensOpenForPlaceId] = useState<string | null>(null)
@@ -146,7 +173,6 @@ function CanvasInner() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const { screenToFlowPosition, zoomIn, zoomOut, fitView } = useReactFlow()
-  const { settings } = useSystemSettings();
   // --- Helpers to rename IDs (used by property panel) ---
   const isValidIdent = (s: string) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s)
   const renamePlaceId = useCallback((oldId: string, nextId: string): { ok: boolean; reason?: string } => {
@@ -713,7 +739,8 @@ function CanvasInner() {
   const { marking: serverMarking, enabled, loading: monitorLoading, fastForwarding: monitorFastForwarding, globalClock, currentStep, refresh: refreshMonitorData, fire: fireTransitionMon, step: doMonitorStep, fastForward: monitorFastForward, forwardToEnd: monitorForwardToEnd, rollback: monitorRollback, reset: resetMonitor } = useMonitor({ workflowId: activeWorkflowId, flowServiceUrl: settings.flowServiceUrl, setNodes })
 
   // Event (a) open Monitor tab & (b) workflow change while on Monitor
-  useEffect(() => { if (systemTab === 'monitor') { refreshMonitorData() } }, [systemTab, activeWorkflowId, refreshMonitorData])
+  // Legacy monitor refresh left intact; will be removed when MonitorPanel replaced.
+  useEffect(() => { if (systemTab === 'simulation') { refreshSim() } }, [systemTab, activeWorkflowId, refreshSim])
 
   const resetTokens = useCallback(() => {
     // TODO: implement server reset endpoint if available
@@ -874,9 +901,9 @@ function CanvasInner() {
           </div>
           <div className="flex border-b text-xs font-medium">
             <button
-              className={`px-3 py-2 ${systemTab === 'monitor' ? 'border-b-2 border-emerald-600 text-emerald-700' : 'text-neutral-500'}`}
-              onClick={() => setSystemTab('monitor')}
-            >Monitor</button>
+              className={`px-3 py-2 ${systemTab === 'simulation' ? 'border-b-2 border-emerald-600 text-emerald-700' : 'text-neutral-500'}`}
+              onClick={() => setSystemTab('simulation')}
+            >Simulation</button>
             <button
               className={`px-3 py-2 ${systemTab === 'settings' ? 'border-b-2 border-emerald-600 text-emerald-700' : 'text-neutral-500'}`}
               onClick={() => setSystemTab('settings')}
@@ -887,37 +914,59 @@ function CanvasInner() {
             >MCP</button>
           </div>
           <div className="flex-1 overflow-hidden">
-            {systemTab === 'monitor' && (
+            {systemTab === 'simulation' && (
               <div className="flex h-full flex-col">
-                <div className="flex items-center gap-1 border-b bg-neutral-50 px-2 py-1">
-                  {['root', ...monitorTabs].map(tabId => (
-                    <button
-                      key={tabId}
-                      className={`px-2 py-1 text-[11px] rounded ${activeMonitorTab===tabId ? 'bg-white border border-neutral-300' : 'text-neutral-500 hover:text-neutral-800'}`}
-                      onClick={() => setActiveMonitorTab(tabId)}
-                    >{tabId === 'root' ? (activeWorkflowId || 'root') : tabId}</button>
-                  ))}
+                <div className="flex items-center gap-2 border-b bg-neutral-50 px-2 py-1 text-xs relative">
+                  <button
+                    className="h-6 px-2 rounded bg-emerald-600 text-white text-[11px]"
+                    disabled={simLoading}
+                    onClick={() => {
+                      if (!activeWorkflowId) { toast({ title: 'Open a workflow first', description: 'Select or load a workflow before starting a simulation', variant: 'destructive' }); return }
+                      startSim()
+                    }}
+                    title="Start new simulation for current workflow"
+                  >+ Sim</button>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] text-neutral-500">Simulation:</span>
+                    <select
+                      className="h-6 rounded border px-1 text-[11px] min-w-[120px]"
+                      value={activeSimId || ''}
+                      onChange={(e)=> selectSim(e.target.value || null)}
+                      disabled={simLoading || sims.length===0}
+                    >
+                      <option value="">(none)</option>
+                      {sims.map(s => (
+                        <option key={s.caseId} value={s.caseId}>{s.caseId}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {activeSim && <span className="text-[10px] text-neutral-500">Step {activeSim.currentStep ?? 0}</span>}
                 </div>
                 <div className="flex-1 overflow-hidden">
                   <MonitorPanel
-                    open={true}
-                    loading={monitorLoading}
-                    fastForwarding={monitorFastForwarding}
-                    enabledTransitions={enabled}
-                    marking={serverMarking}
-                    globalClock={globalClock}
-                    currentStep={currentStep}
-                    onFire={(tid) => {
-                      // Tab spawning for subpages now driven by generic subPage.enabled flag (future enhancement).
-                      fireTransitionMon(tid)
+                    open={!!activeSim}
+                    loading={simLoading}
+                    running={simRunning}
+                    // Simulation case provides enabled transitions directly under activeSim.enabledTransitions
+                    enabledTransitions={activeSim?.enabledTransitions || []}
+                    // Server shape uses marking.places; fallback to object if already flattened
+                    marking={(() => { const mk = activeSim?.marking; if (!mk) return {}; if (mk.places && typeof mk.places === 'object') return mk.places; return mk; })()}
+                    currentStep={activeSim?.currentStep}
+                    stepLimit={simStepLimit}
+                    onChangeStepLimit={(n)=> setSimStepLimit(n)}
+                    onStep={() => stepSim()}
+                    onRun={() => runSim(simStepLimit)}
+                    onRefresh={() => refreshSim()}
+                    onDelete={() => activeSimId ? deleteSim(activeSimId) : undefined}
+                    onReset={async () => {
+                      if (!activeSimId) return
+                      const id = activeSimId
+                      await deleteSim(id)
+                      // slight delay to allow server cleanup; then re-start
+                      setTimeout(() => { startSim() }, 50)
                     }}
-                    onStep={() => doMonitorStep()}
-                    onFastForward={(n) => monitorFastForward(n)}
-                    onForwardToEnd={() => monitorForwardToEnd()}
-                    onRollback={() => monitorRollback()}
-                    onReset={() => resetMonitor()}
-                    onRefresh={() => refreshMonitorData()}
                   />
+                  {/* Workflow picker removed */}
                 </div>
               </div>
             )}
@@ -1039,7 +1088,7 @@ function CanvasInner() {
             interactive={interactive}
             setInteractive={setInteractive}
             showSystem={showSystem}
-            toggleSystem={() => { setShowSystem(v => !v); if (!showSystem) setSystemTab('monitor') }}
+            toggleSystem={() => { setShowSystem(v => !v); if (!showSystem) setSystemTab('simulation') }}
             openExplorer={async () => { if (panelMode === 'mini') setPanelMode('normal'); setLeftTab('explorer'); if (!serverWorkflowsFetched) { try { await withApiErrorToast(fetchServerWorkflowList(), toast, 'Fetch workflows') } catch(e){} } }}
             panelMode={panelMode}
             openProperties={() => setPanelMode('normal')}
