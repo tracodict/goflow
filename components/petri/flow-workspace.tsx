@@ -1,8 +1,8 @@
 "use client"
 
-import type React from "react"
-
-import { useCallback, useMemo, useRef, useState, useEffect } from "react"
+import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
+// @ts-ignore dynamic form shared component (run mode)
+import { DynamicForm } from '@/components/run/forms/dynamic-form'
 import "@xyflow/react/dist/style.css"
 import {
   Background,
@@ -47,6 +47,7 @@ import { fetchWorkflow, fetchTransitionsStatus, fetchMarking, fireTransition as 
 import { toast } from '@/hooks/use-toast'
 import { MonitorPanel } from './monitor-panel'
 import { useSimulation } from '@/hooks/use-simulation'
+import { safeParseJSON as safeParse, inferSchemaFromSample, extractBindingValue, computeEffectiveSchema, deriveSampleFromIncomingPlaces } from '@/components/util/manual-form-utils'
 import { TransitionIcon } from './transition-icon'
 import { CanvasControls } from './canvas-controls'
 import { useMonitor } from '@/hooks/use-monitor'
@@ -128,8 +129,9 @@ function CanvasInner() {
   const [activeMonitorTab, setActiveMonitorTab] = useState<string>('root')
   // Simulation state (initialized after settings available)
   const { settings } = useSystemSettings();
-  const { sims, activeSimId, activeSim, start: startSim, select: selectSim, step: stepSim, run: runSim, remove: deleteSim, refreshActive: refreshSim, loading: simLoading, running: simRunning } = useSimulation({ flowServiceUrl: settings.flowServiceUrl, workflowId: activeWorkflowId })
+  const { sims, activeSimId, activeSim, start: startSim, select: selectSim, step: stepSim, stepInteractive: stepSimInteractive, fire: fireSim, run: runSim, remove: deleteSim, refreshActive: refreshSim, loading: simLoading, running: simRunning } = useSimulation({ flowServiceUrl: settings.flowServiceUrl, workflowId: activeWorkflowId })
   const [simStepLimit, setSimStepLimit] = useState(50)
+  // (Moved manual sim form utilities after workflowMeta definition for ordering)
   // Sync simulation marking onto canvas place nodes
   useEffect(() => {
     if (!activeSim || !activeSim.marking) return
@@ -228,6 +230,58 @@ function CanvasInner() {
   const [serverWorkflowCache, setServerWorkflowCache] = useState<Record<string, ServerWorkflow>>({});
   const [workflowGraphCache, setWorkflowGraphCache] = useState<Record<string, { nodes: Node<PetriNodeData>[]; edges: Edge<PetriEdgeData>[] }>>({})
   const [workflowMeta, setWorkflowMeta] = useState<Record<string, { name: string; description?: string; colorSets: string[]; declarations?: { batchOrdering?: string[]; globref?: string[]; color?: string[]; var?: string[]; lua?: string[] } }>>({})
+  // Simulation manual transition dynamic form state (reinserted after workflowMeta for ordering)
+  const [simFormOpen, setSimFormOpen] = useState(false)
+  const [simFormSchema, setSimFormSchema] = useState<any>(null)
+  const [simFormUiSchema, setSimFormUiSchema] = useState<any>(null)
+  const [simFormData, setSimFormData] = useState<any>(null)
+  const [simFormEffectiveSchema, setSimFormEffectiveSchema] = useState<any>(null)
+  const [simFormTitle, setSimFormTitle] = useState<string>('Manual Task')
+  const [simFormTransitionId, setSimFormTransitionId] = useState<string | null>(null)
+  const [simFormBindingIndex, setSimFormBindingIndex] = useState<number>(0)
+  // safeParse & inference now centralized in util
+  const dictionaryUrl = (typeof window !== 'undefined'
+    ? (() => { try { const raw = window.localStorage.getItem('goflow.systemSettings'); if (raw) { const parsed = JSON.parse(raw); if (parsed?.dictionaryUrl) return parsed.dictionaryUrl } } catch{} return settings.dictionaryUrl })()
+    : settings.dictionaryUrl)
+  const getSchemaForSimTransition = useCallback((transition: any) => {
+    const tid = transition.id || transition.transitionId
+    const node = nodes.find(n => n.id === tid && n.type === 'transition') as any
+    const tData = transition.data || (node ? node.data : {}) || {}
+    const formSchemaName = tData?.formSchema || tData?.manual?.formSchema
+    const layoutSchemaRaw = tData?.manual?.layoutSchema || tData?.layoutSchema
+    if (!formSchemaName) return { name: undefined, schema: null, ui: layoutSchemaRaw ? safeParse(layoutSchemaRaw) : null }
+    const meta = activeWorkflowId ? workflowMeta[activeWorkflowId] : null
+    const decls: any = meta?.declarations || {}
+    const list = Array.isArray(decls.jsonSchemas) ? decls.jsonSchemas : []
+    const found = list.find((s: any) => s.name === formSchemaName)
+    return found ? { name: formSchemaName, schema: found.schema, ui: layoutSchemaRaw ? safeParse(layoutSchemaRaw) : null } : { name: formSchemaName, schema: null, ui: layoutSchemaRaw ? safeParse(layoutSchemaRaw) : null }
+  }, [nodes, activeWorkflowId, workflowMeta])
+  const openManualSimForm = useCallback(async (transition: any) => {
+    if (!transition) return
+    const schemaInfo = getSchemaForSimTransition(transition)
+    setSimFormSchema(schemaInfo?.schema || null)
+    setSimFormUiSchema(schemaInfo?.ui || null)
+    let sample: any = null
+    if (Array.isArray(transition.bindings) && transition.bindings.length) {
+      const firstBinding = transition.bindings[0]
+      sample = extractBindingValue(firstBinding).value
+    }
+    if (sample == null) sample = deriveSampleFromIncomingPlaces(transition, nodes, edges)
+    setSimFormData(sample)
+    setSimFormBindingIndex(0)
+    setSimFormTransitionId(transition.id || transition.transitionId)
+    const name = transition.data?.name || transition.name || transition.id
+    setSimFormTitle(name || 'Manual Task')
+    ;(async () => {
+      const eff = await computeEffectiveSchema(schemaInfo, sample, dictionaryUrl)
+      setSimFormEffectiveSchema(eff)
+    })()
+    setSimFormOpen(true)
+  }, [dictionaryUrl, getSchemaForSimTransition, edges, nodes])
+  const handleSimStep = useCallback(async () => {
+    const result = await stepSimInteractive()
+    if (result?.manualTransition) await openManualSimForm(result.manualTransition)
+  }, [stepSimInteractive, openManualSimForm])
   // Explorer-only selection (for non-canvas pseudo entities like declarations)
   const [explorerSelection, setExplorerSelection] = useState<{ kind: 'declarations'; id: string } | null>(null)
 
@@ -954,7 +1008,7 @@ function CanvasInner() {
                     currentStep={activeSim?.currentStep}
                     stepLimit={simStepLimit}
                     onChangeStepLimit={(n)=> setSimStepLimit(n)}
-                    onStep={() => stepSim()}
+                    onStep={() => handleSimStep()}
                     onRun={() => runSim(simStepLimit)}
                     onRefresh={() => refreshSim()}
                     onDelete={() => activeSimId ? deleteSim(activeSimId) : undefined}
@@ -967,6 +1021,39 @@ function CanvasInner() {
                     }}
                   />
                   {/* Workflow picker removed */}
+                  {simFormOpen && (
+                    <div className="fixed inset-0 z-[120] flex flex-col bg-white/95 backdrop-blur-sm">
+                      <div className="flex items-center justify-between border-b px-4 py-2 bg-white/80">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium">{simFormTitle}</span>
+                          {simFormTransitionId && <span className="text-[10px] text-neutral-400">{simFormTransitionId}</span>}
+                        </div>
+                        <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded hover:bg-neutral-100" onClick={()=> setSimFormOpen(false)}>✕</button>
+                      </div>
+                      <div className="flex-1 overflow-auto p-6">
+                        <DynamicForm
+                          schema={simFormEffectiveSchema || simFormSchema || { type: 'string' }}
+                          uiSchema={simFormUiSchema as any}
+                          data={simFormData ?? {}}
+                          onChange={(d: any) => setSimFormData(d)}
+                        />
+                        {!simFormSchema && !simFormUiSchema && <p className="mt-4 text-[11px] text-neutral-500">Schema inferred. Provide formSchema/layoutSchema on transition to customize.</p>}
+                      </div>
+                      <div className="border-t px-4 py-2 flex justify-end gap-2 bg-white/80">
+                        <button type="button" onClick={()=> setSimFormOpen(false)} className="px-3 py-1.5 text-xs rounded border hover:bg-neutral-50">Cancel</button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (simFormTransitionId) {
+                              await fireSim(simFormTransitionId, simFormBindingIndex, simFormData)
+                              setSimFormOpen(false)
+                            }
+                          }}
+                          className="px-3 py-1.5 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-500"
+                        >Submit</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

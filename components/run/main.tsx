@@ -14,6 +14,7 @@ import type { PetriNodeData } from '@/lib/petri-types'
 import type { Node } from '@xyflow/react'
 import { DEFAULT_SETTINGS } from '@/components/petri/system-settings-context'
 import { fetchPreSupportedSchema, usePreSupportedSchemas } from '@/components/petri/pre-supported-schemas'
+import { safeParseJSON as safeParse, inferSchemaFromSample, extractBindingValue, computeEffectiveSchema } from '@/components/util/manual-form-utils'
 import { ViaTokensPanel } from '@/components/via/via-tokens-panel'
 import { ViaTokenGrid } from '@/components/via/via-token-grid'
 
@@ -258,29 +259,6 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
     return found ? { name: formSchemaName, schema: found.schema, ui: layoutSchemaRaw ? safeParse(layoutSchemaRaw) : null } : { name: formSchemaName, schema: null, ui: layoutSchemaRaw ? safeParse(layoutSchemaRaw) : null }
   }
 
-  const safeParse = (txt: string) => { try { return JSON.parse(txt) } catch { return null } }
-
-  function inferSchemaFromData(sample: any): any {
-    if (sample == null) return { type: 'string' }
-    if (typeof sample === 'string') {
-      // Infer date format yyyy-mm-dd
-      if (/^\d{4}-\d{2}-\d{2}$/.test(sample)) return { type: 'string', format: 'date' }
-      return { type: 'string' }
-    }
-    if (typeof sample === 'number') return { type: Number.isInteger(sample) ? 'integer' : 'number' }
-    if (typeof sample === 'boolean') return { type: 'boolean' }
-    if (Array.isArray(sample)) {
-      const first = sample[0]
-      return { type: 'array', items: inferSchemaFromData(first) }
-    }
-    if (typeof sample === 'object') {
-      const props: Record<string, any> = {}
-      Object.entries(sample).forEach(([k, v]) => { props[k] = inferSchemaFromData(v) })
-      return { type: 'object', properties: props }
-    }
-    return { type: 'string' }
-  }
-
   const bindingsForHover = React.useMemo(() => {
     if (!hoverTransitionId) return [] as any[]
     const t = enabled.find(et => (et.id || et.transitionId) === hoverTransitionId)
@@ -289,41 +267,19 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
   }, [hoverTransitionId, enabled])
 
   const handleClickBinding = (transition: any, binding: any, index: number) => {
-  const schemaInfo = getSchemaForTransition(transition)
-  setFormSchema(schemaInfo?.schema || null)
+    const schemaInfo = getSchemaForTransition(transition)
+    setFormSchema(schemaInfo?.schema || null)
     setFormUiSchema(schemaInfo?.ui || null)
-    // Binding shape: { variableName: value } – extract the value
-    let value = binding
-    let variableName: string | undefined
-    if (binding && typeof binding === 'object' && !Array.isArray(binding)) {
-      const keys = Object.keys(binding)
-      if (keys.length === 1) {
-        variableName = keys[0]
-        value = (binding as any)[keys[0]]
-      }
-    }
-  setFormData(value);
-    // Determine and freeze schema once
-    // If formSchema name exists and no embedded schema body, fetch from CDN (pre-supported) and override inference.
-  (async () => {
-      let eff = schemaInfo?.schema
-      const name = schemaInfo?.name
-      if (!eff && name) {
-        const fetched = await fetchPreSupportedSchema(name, dictionaryUrl)
-        if (fetched) eff = fetched
-      }
-      if (!eff) {
-        // Fallback inference ONLY when no pre-supported schema found
-        if (value === null) eff = { type: 'string' }
-        else if (value === undefined) eff = { type: 'object', properties: {} }
-        else eff = inferSchemaFromData(value)
-      }
+    const { value, variableName } = extractBindingValue(binding)
+    setFormData(value)
+    ;(async () => {
+      const eff = await computeEffectiveSchema(schemaInfo, value, dictionaryUrl)
       setEffectiveSchema(eff)
     })()
     setFormTitle((transition.name || transition.id || 'Manual Task') + (variableName ? ` – ${variableName}` : ''))
-  setFormOpen(true)
-  setFormTransitionId(transition.id || transition.transitionId)
-  setFormBindingIndex(index)
+    setFormOpen(true)
+    setFormTransitionId(transition.id || transition.transitionId)
+    setFormBindingIndex(index)
     setMenuOpen(false)
     setHoverTransitionId(null)
   }

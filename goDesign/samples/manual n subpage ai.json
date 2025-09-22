@@ -148,7 +148,7 @@
         "x": 825.2911,
         "y": 57.172237
       },
-      "actionFunction": "function t_build_action(rfq)\n  local S = rfq.Spot or 100\n  local K = rfq.Strike or 100\n  local r = rfq.Rate or 0.03\n  local T = rfq.Maturity or 30\n  local premium = rfq.Premium or 0\n  local quote = {\n    QuoteID = (rfq.ReqID or \"REQ-001\") .. \"-Q1\",\n    OrgReqID = rfq.ReqID,\n    Underlying = rfq.Underlying,\n    Spot = S, Strike = K,\n    KOLevel = rfq.KOLevel,\n    Vol = rfq.Vol, Rate = r, Maturity = T,\n    Premium = premium,\n    AIOpinion = rfq.AIOpinion,\n    Status = \"NEW\"\n  }\n  return quote\nend",
+      "actionFunction": "function t_build_action(rfq1)\n  local S = rfq1.Spot or 100\n  local K = rfq1.Strike or 100\n  local r = rfq1.Rate or 0.03\n  local T = rfq1.Maturity or 30\n  local premium = rfq1.Premium or 0\n  local quote = {\n    QuoteID = (rfq1.ReqID or \"REQ-001\") .. \"-Q1\",\n    OrgReqID = rfq1.ReqID,\n    Underlying = rfq1.Underlying,\n    Spot = S, Strike = K,\n    KOLevel = rfq1.KOLevel,\n    Vol = rfq.Vol, Rate = r, Maturity = T,\n    Premium = premium,\n    AIOpinion = rfq1.AIOpinion,\n    Status = \"NEW\"\n  }\n  return quote\nend",
       "actionFunctionOutput": [
         "quote"
       ]
@@ -161,7 +161,7 @@
         "x": 1099.9738,
         "y": 58.245476
       },
-      "actionFunction": "function t_review_action(q)\n  local base = {Status=\"ACK\", Premium=100, QuoteID=\"xxxxx\"}\n  if formData ~= nil then\n    for k,v in pairs(formData) do base[k] = v end\n  end\n  return base\nend",
+      "actionFunction": "function t_review_action(q)\n  local base = q or {}\n  base.Status=\"ACK\"\n  base.QuoteID=\"xxxxx\"\n  if formData ~= nil then\n    for k,v in pairs(formData) do base[k] = v end\n  end\n  return base\nend",
       "actionFunctionOutput": [
         "revQ"
       ]
@@ -174,7 +174,7 @@
         "x": 1423.138,
         "y": 458.14746
       },
-      "actionFunction": "function t_order_action(q)\n  local ord = {}\n  if formData ~= nil then\n    for k,v in pairs(formData) do ord[k] = v end\n  end\n  local ord = {\n    OrdID = formData.OrdID or q.QuoteID,\n    OrgQuoteID = q.QuoteID,\n    Amount = formData.Amount or 1,\n    Price = q.Premium\n  }\n  return ord\nend",
+      "actionFunction": "function t_order_action(q)\n  local ord = q or {}\n  if formData ~= nil then\n    for k,v in pairs(formData) do ord[k] = v end\n  end\n  return ord\nend",
       "actionFunctionOutput": [
         "order"
       ]
@@ -280,7 +280,7 @@
       "id": "e-p-ybw8g--t_build--of1se",
       "sourceId": "p-ybw8g",
       "targetId": "t_build",
-      "expression": "rfq",
+      "expression": "rfq1",
       "direction": "IN"
     },
     {

@@ -87,12 +87,9 @@ export function useSimulation({ flowServiceUrl, workflowId }: UseSimulationOptio
     if (!flowServiceUrl || !activeSimId) return
     setLoading(true)
     try {
-      // Determine if a manual (non-auto) transition is currently enabled; if so, fire it explicitly.
+      // Only auto-fire manual transitions here. Other types (message, llm, tools, retriever) are left to server logic or interactive handling.
       const sim = sims.find(s => s.caseId === activeSimId)
-      const manual = sim?.enabledTransitions?.find((t: any) => {
-        const kind = (t.kind || t.type || t.tType || '').toLowerCase()
-        return kind !== 'auto' // treat any non-auto as requiring explicit fire
-      })
+      const manual = sim?.enabledTransitions?.find((t: any) => (t.kind || t.type || t.tType || '').toLowerCase() === 'manual')
       if (manual) {
         const body = { caseId: activeSimId, transitionId: manual.id, bindingIndex: 0 }
         const resp = await fetchWithAuth(`${flowServiceUrl}/api/sim/fire`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -109,6 +106,48 @@ export function useSimulation({ flowServiceUrl, workflowId }: UseSimulationOptio
         setSims(prev => prev.map(s => s.caseId === activeSimId ? { ...s, ...data, enabledTransitions: data.enabledTransitions } : s))
       }
     } catch (e:any) { setError(e?.message || 'Failed to step') } finally { setLoading(false) }
+  }, [flowServiceUrl, activeSimId, sims])
+
+  // Interactive variant: if a manual transition is enabled, DO NOT fire – instead return it so caller can collect form data.
+  // If only auto transitions are enabled, perform a normal step and return { autoStepped: true }.
+  const stepInteractive = useCallback(async (): Promise<{ manualTransition?: any; autoStepped?: boolean }> => {
+    if (!flowServiceUrl || !activeSimId) return {}
+    const sim = sims.find(s => s.caseId === activeSimId)
+    if (!sim) return {}
+    const enabled = sim.enabledTransitions || []
+    const manual = enabled.find((t: any) => (t.kind || t.type || t.tType || '').toLowerCase() === 'manual')
+    if (manual) {
+      // Let caller open form & gather data
+      return { manualTransition: manual }
+    }
+    // If there are other non-auto transitions (e.g., message, llm, tools, retriever) fire first automatically.
+    const other = enabled.find((t: any) => {
+      const k = (t.kind || t.type || t.tType || '').toLowerCase()
+      return k && k !== 'auto'
+    })
+    if (other) {
+      setLoading(true)
+      try {
+        const body = { caseId: activeSimId, transitionId: other.id, bindingIndex: 0 }
+        const resp = await fetchWithAuth(`${flowServiceUrl}/api/sim/fire`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        if (resp.status === 401) throw new Error('Unauthorized (401) – please log in')
+        if (!resp.ok) throw new Error(`fire failed ${resp.status}`)
+        const json = await resp.json(); const data = json?.data || json
+        setSims(prev => prev.map(s => s.caseId === activeSimId ? { ...s, ...data, enabledTransitions: data.enabledTransitions } : s))
+      } catch (e:any) { setError(e?.message || 'Failed to fire transition') } finally { setLoading(false) }
+      return {}
+    }
+    // Otherwise perform automatic step
+    setLoading(true)
+    try {
+      const resp = await fetchWithAuth(`${flowServiceUrl}/api/sim/step`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ caseId: activeSimId }) })
+      if (resp.status === 401) throw new Error('Unauthorized (401) – please log in')
+      if (!resp.ok) throw new Error(`step failed ${resp.status}`)
+      const json = await resp.json(); const data = json?.data || json
+      setSims(prev => prev.map(s => s.caseId === activeSimId ? { ...s, ...data, enabledTransitions: data.enabledTransitions } : s))
+      return { autoStepped: true }
+    } catch (e:any) { setError(e?.message || 'Failed to step') } finally { setLoading(false) }
+    return {}
   }, [flowServiceUrl, activeSimId, sims])
 
   const fire = useCallback(async (transitionId: string, bindingIndex = 0, formData?: any) => {
@@ -161,6 +200,7 @@ export function useSimulation({ flowServiceUrl, workflowId }: UseSimulationOptio
     error,
     start,
   step,
+  stepInteractive,
   fire,
     run,
     remove,
