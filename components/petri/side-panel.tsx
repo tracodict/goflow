@@ -510,22 +510,18 @@ function TokenEditor({
   onRemove: () => void
   scrollContainerRef: React.RefObject<HTMLElement | null>
 }) {
-  const [text, setText] = useState<string>(() => {
-    try {
-      return JSON.stringify(token.data ?? {}, null, 2)
-    } catch {
-      return "{}"
-    }
-  })
+  const [text, setText] = useState<string>(() => { try { return JSON.stringify(token.data ?? {}, null, 2) } catch { return "{}" } })
   const [error, setError] = useState<string | null>(null)
-  // Start with a deterministic height for SSR; adjust after mount via effect if needed
   const [editorHeight, setEditorHeight] = useState<number>(180)
   const dragState = useRef<{ startY: number; startH: number; dragging: boolean }>({ startY:0, startH:180, dragging:false })
+  const lastLocalEditRef = useRef<number>(0)
+  const lastIncomingRef = useRef<string>(text)
+
   useEffect(() => {
     function onMove(e: MouseEvent){
       if(!dragState.current.dragging) return
       const dy = e.clientY - dragState.current.startY
-  const next = Math.min(Math.max(100, dragState.current.startH + dy), 600)
+      const next = Math.min(Math.max(100, dragState.current.startH + dy), 600)
       setEditorHeight(next)
     }
     function onUp(){ dragState.current.dragging = false }
@@ -535,19 +531,21 @@ function TokenEditor({
   }, [])
 
   useEffect(() => {
-    try {
-      const newText = JSON.stringify(token.data ?? {}, null, 2)
-      setText((prev) => (prev !== newText ? newText : prev))
+    const recentlyEdited = Date.now() - lastLocalEditRef.current < 1500
+    let newText = "{}"
+    try { newText = JSON.stringify(token.data ?? {}, null, 2) } catch { /* ignore */ }
+    if (!recentlyEdited && newText !== lastIncomingRef.current) {
+      setText(prev => prev !== newText ? newText : prev)
+      lastIncomingRef.current = newText
       setError(null)
-    } catch {
-      // ignore
     }
-  }, [token])
+  }, [token.data])
 
   const tryApply = () => {
     try {
       const parsed = text.trim() === "" ? {} : JSON.parse(text)
       onChange(parsed)
+      lastLocalEditRef.current = 0
       setError(null)
     } catch (e: any) {
       setError(e?.message || "Invalid JSON")
@@ -563,7 +561,7 @@ function TokenEditor({
           height={`${editorHeight - 8}px`}
           theme="light"
           extensions={[EditorView.lineWrapping, json()]}
-          onChange={(val: string) => setText(val)}
+          onChange={(val: string) => { lastLocalEditRef.current = Date.now(); setText(val) }}
           basicSetup={{
             lineNumbers: true,
             bracketMatching: true,
@@ -962,18 +960,60 @@ function ManualEditor({
 }) {
   const manual = ((node.data as any).manual || {}) as { assignee?: string; formSchema?: string; layoutSchema?: string }
   const [open, setOpen] = useState(false)
+  // Raw categorized sources
+  const [jsonSchemaNames, setJsonSchemaNames] = useState<string[]>([])
+  const [declaredColorNames, setDeclaredColorNames] = useState<string[]>([])
+  // Legacy flattened union (kept for backward compatibility / selected value presence)
   const [availableSchemas, setAvailableSchemas] = useState<string[]>([])
+  const [colorSets, setColorSets] = useState<string[]>([])
+  const BUILT_IN_PRIMITIVES = ['INT','REAL','STRING','BOOL','UNIT']
   // Pre-supported schemas (lazy from CDN dictionaryUrl)
   const { names: preSupportedNames, loaded: preSupportedLoaded, load: loadPreSupported } = usePreSupportedSchemas()
 
   // Listen for declarations updates dispatched from DeclarationsPanel apply
   useEffect(() => {
     function sync(e: any) {
-      const list: string[] = (e.detail?.next?.jsonSchemas || []).map((s: any) => s.name).filter(Boolean)
-      setAvailableSchemas(list)
+      const jsonList: string[] = (e.detail?.next?.jsonSchemas || []).map((s: any) => s.name).filter(Boolean)
+      const colorLines: string[] = Array.isArray(e.detail?.next?.color) ? e.detail.next.color : []
+      const nameRegex = /\bcolset\s+([A-Za-z_][A-Za-z0-9_]*)/i
+      const declColorNames = colorLines.map(l => { const m = l.match(nameRegex); return m? m[1] : undefined }).filter(Boolean) as string[]
+      setJsonSchemaNames(jsonList)
+      setDeclaredColorNames(declColorNames)
     }
     window.addEventListener('updateDeclarationsInternal', sync as EventListener)
     return () => window.removeEventListener('updateDeclarationsInternal', sync as EventListener)
+  }, [])
+
+  // Seed from workflow meta broadcast (fired when selecting workflow) so schemas appear even before editing declarations.
+  useEffect(() => {
+    function seedMeta(e: any) {
+      const jsonList: string[] = (e.detail?.jsonSchemas || []).map((s: any) => s.name).filter(Boolean)
+      if (jsonList.length) setJsonSchemaNames(jsonList)
+    }
+    window.addEventListener('goflow-workflowMeta', seedMeta as EventListener)
+    try {
+      const cached = (window as any).__goflowLastWorkflowMeta
+      if (cached?.jsonSchemas) {
+        const list: string[] = cached.jsonSchemas.map((s: any)=> s.name).filter(Boolean)
+        if (list.length) setJsonSchemaNames(list)
+      }
+    } catch {/* ignore */}
+    return () => window.removeEventListener('goflow-workflowMeta', seedMeta as EventListener)
+  }, [])
+
+  // Listen for merged color sets (includes declarations-derived colset names)
+  useEffect(() => {
+    function handleColors(e: any) {
+      const next: string[] = e.detail?.colorSets || []
+      setColorSets(next.filter(Boolean))
+    }
+    window.addEventListener('goflow-colorSets', handleColors as EventListener)
+    // Attempt immediate seed from cached global if present
+    try {
+      const cached = (window as any).__goflowLastColorSets
+      if (Array.isArray(cached)) setColorSets(cached.filter(Boolean))
+    } catch {/* ignore */}
+    return () => window.removeEventListener('goflow-colorSets', handleColors as EventListener)
   }, [])
 
   // Initial load: try read from current workflow meta via global event (emitted elsewhere when workflow selected)
@@ -1000,15 +1040,14 @@ function ManualEditor({
   // Merge logic: built-in color sets + workflow jsonSchemas + pre-supported (once loaded) de-duplicated
   useEffect(() => {
     const merged = new Set<string>()
-    // Existing availableSchemas already seeded from workflow events (jsonSchemas). We'll rebuild to include color sets & pre-supported.
-    availableSchemas.forEach(s => merged.add(s))
-    // Built-in color sets (treated as potential form schema names for quick templates)
-    try { ['INT','REAL','STRING','BOOL','UNIT'].forEach(c => merged.add(c)) } catch {/* ignore */}
+    jsonSchemaNames.forEach(s => merged.add(s))
+    declaredColorNames.forEach(c => merged.add(c))
+    colorSets.forEach(c => merged.add(c))
+    BUILT_IN_PRIMITIVES.forEach(p => merged.add(p))
     if (preSupportedLoaded) preSupportedNames.forEach(n => merged.add(n))
     setAvailableSchemas(Array.from(merged))
-  // We intentionally ignore setAvailableSchemas in deps
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preSupportedLoaded, preSupportedNames.join('|')])
+  }, [jsonSchemaNames.join('|'), declaredColorNames.join('|'), preSupportedLoaded, preSupportedNames.join('|'), colorSets.join('|')])
 
   // When popover first opens, trigger load if not yet
   useEffect(() => {
@@ -1048,25 +1087,86 @@ function ManualEditor({
               <CommandInput placeholder="Search form schemas..." />
               <CommandList>
                 <CommandEmpty>No schema found.</CommandEmpty>
-                <CommandGroup>
-                  {availableSchemas.map((name) => (
-                    <CommandItem
-                      key={name}
-                      value={name}
-                      onSelect={() => {
-                        onUpdate(node.id, { manual: { ...manual, formSchema: name } as any })
-                        setOpen(false)
-                      }}
-                      className="flex items-center justify-between"
-                    >
-                      <span>{name}</span>
-                      {name === manual.formSchema ? <Check className="h-4 w-4 text-emerald-600" /> : null}
-                    </CommandItem>
-                  ))}
-                  {!preSupportedLoaded && (
-                    <div className="px-2 py-1 text-xs text-neutral-500">Loading pre-supported schemas...</div>
-                  )}
-                </CommandGroup>
+                {/* JSON Schemas Group */}
+                {jsonSchemaNames.length > 0 && (
+                  <CommandGroup heading="JSON Schemas">
+                    {jsonSchemaNames.map(name => (
+                      <CommandItem
+                        key={'js-'+name}
+                        value={name}
+                        onSelect={() => { onUpdate(node.id, { manual: { ...manual, formSchema: name } as any }); setOpen(false) }}
+                        className="flex items-center justify-between"
+                      >
+                        <span className="flex items-center gap-1">
+                          {name}
+                        </span>
+                        {name === manual.formSchema && <Check className="h-4 w-4 text-emerald-600" />}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
+                {/* Declared Colors Group */}
+                {declaredColorNames.filter(c => !jsonSchemaNames.includes(c)).length > 0 && (
+                  <CommandGroup heading="Declared Colors">
+                    {declaredColorNames.filter(c => !jsonSchemaNames.includes(c)).map(name => (
+                      <CommandItem
+                        key={'color-'+name}
+                        value={name}
+                        onSelect={() => { onUpdate(node.id, { manual: { ...manual, formSchema: name } as any }); setOpen(false) }}
+                        className="flex items-center justify-between"
+                      >
+                        <span className="flex items-center gap-1">
+                          <span className="inline-block h-2 w-2 rounded-full bg-amber-500" aria-hidden />
+                          {name}
+                          <span className="ml-1 rounded bg-amber-100 text-amber-700 px-1 py-px text-[10px] font-medium">color</span>
+                        </span>
+                        {name === manual.formSchema && <Check className="h-4 w-4 text-emerald-600" />}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
+                {/* Primitives Group */}
+                {BUILT_IN_PRIMITIVES.filter(n => !jsonSchemaNames.includes(n) && !declaredColorNames.includes(n)).length > 0 && (
+                  <CommandGroup heading="Primitives">
+                    {BUILT_IN_PRIMITIVES.filter(n => !jsonSchemaNames.includes(n) && !declaredColorNames.includes(n)).map(name => (
+                      <CommandItem
+                        key={'prim-'+name}
+                        value={name}
+                        onSelect={() => { onUpdate(node.id, { manual: { ...manual, formSchema: name } as any }); setOpen(false) }}
+                        className="flex items-center justify-between"
+                      >
+                        <span className="flex items-center gap-1">
+                          <span className="inline-block h-2 w-2 rounded-full bg-indigo-500" aria-hidden />
+                          {name}
+                          <span className="ml-1 rounded bg-indigo-100 text-indigo-700 px-1 py-px text-[10px] font-medium">primitive</span>
+                        </span>
+                        {name === manual.formSchema && <Check className="h-4 w-4 text-emerald-600" />}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
+                {/* Pre-Supported Group */}
+                {preSupportedLoaded && preSupportedNames.filter(n => !jsonSchemaNames.includes(n) && !declaredColorNames.includes(n)).length > 0 && (
+                  <CommandGroup heading="Pre-Supported">
+                    {preSupportedNames.filter(n => !jsonSchemaNames.includes(n) && !declaredColorNames.includes(n)).map(name => (
+                      <CommandItem
+                        key={'pre-'+name}
+                        value={name}
+                        onSelect={() => { onUpdate(node.id, { manual: { ...manual, formSchema: name } as any }); setOpen(false) }}
+                        className="flex items-center justify-between"
+                      >
+                        <span className="flex items-center gap-1">
+                          {name}
+                          <span className="ml-1 rounded bg-neutral-100 text-neutral-600 px-1 py-px text-[10px] font-medium">remote</span>
+                        </span>
+                        {name === manual.formSchema && <Check className="h-4 w-4 text-emerald-600" />}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
+                {!preSupportedLoaded && (
+                  <div className="px-2 py-1 text-xs text-neutral-500">Loading pre-supported schemas...</div>
+                )}
               </CommandList>
             </Command>
           </PopoverContent>

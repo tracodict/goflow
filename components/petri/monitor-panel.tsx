@@ -117,7 +117,7 @@ export function MonitorPanel({ open, loading, running, enabledTransitions, marki
             </div>
           </section>
         </div>
-  </ScrollArea>
+      </ScrollArea>
     </div>
   )
 }

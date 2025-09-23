@@ -1,20 +1,25 @@
 "use client"
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { json as jsonLang } from '@codemirror/lang-json'
 import { Button } from '@/components/ui/button'
+import { Trash2, MoveUp, MoveDown, SquarePen, X, Wand2 } from 'lucide-react'
+// Import the visual schema editor (pure builder) from jsonjoy-builder
+// Adjust path if a different entrypoint is preferred later.
+import SchemaVisualEditor from '@/jsonjoy-builder/src/components/SchemaEditor/SchemaVisualEditor'
+import { SchemaInferencer } from '@/jsonjoy-builder/src/components/features/SchemaInferencer'
+import type { JSONSchema } from '@/jsonjoy-builder/src/types/jsonSchema'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 
 export interface DeclarationsValue {
-  batchOrdering?: string[]
   globref?: string[]
   color?: string[]
-  var?: string[]
   lua?: string[]
   jsonSchemas?: { name: string; schema: any }[]
+  // NOTE: batchOrdering / var removed from active use & emission (legacy fields retired)
 }
 
 interface DeclarationsPanelProps {
@@ -26,94 +31,172 @@ interface DeclarationsPanelProps {
 
 // Order: place jsonSchemas immediately after color per UX request
 const CATEGORIES: { key: keyof DeclarationsValue; label: string; placeholder: string }[] = [
-  { key: 'batchOrdering', label: 'BatchOrdering', placeholder: 'batch rule...' },
   { key: 'globref', label: 'Globref', placeholder: 'refVar = value' },
   { key: 'color', label: 'Color', placeholder: 'colset MYCOLOR = ...;' },
   { key: 'jsonSchemas', label: 'jsonSchema', placeholder: 'NewSchemaName' },
-  { key: 'var', label: 'Var', placeholder: 'x' },
   { key: 'lua', label: 'Lua', placeholder: 'function f(x) return x end' },
 ]
 
 export function DeclarationsPanel({ value, onApply, builtInColorSets, disabled }: DeclarationsPanelProps) {
-  const [category, setCategory] = useState<keyof DeclarationsValue>('batchOrdering')
+  const [category, setCategory] = useState<keyof DeclarationsValue>('globref')
   const [filter, setFilter] = useState('')
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [lines, setLines] = useState<DeclarationsValue>(() => ({
-    batchOrdering: value?.batchOrdering ? [...value.batchOrdering] : [],
     globref: value?.globref ? [...value.globref] : [],
     color: value?.color ? [...value.color] : [],
-    var: value?.var ? [...value.var] : [],
-  lua: value?.lua ? [...value.lua] : [],
-  jsonSchemas: value?.jsonSchemas ? value.jsonSchemas.map(js => ({ ...js })) : [],
+    lua: value?.lua ? [...value.lua] : [],
+    jsonSchemas: value?.jsonSchemas ? value.jsonSchemas.map(js => ({ ...js })) : [],
   }))
   const [luaDraft, setLuaDraft] = useState('')
   const [showLuaEditor, setShowLuaEditor] = useState(false)
   // Per-schema JSON parse errors (index keyed)
   const [schemaErrors, setSchemaErrors] = useState<Record<number, string | undefined>>({})
+  // Visual schema editor modal state
+  const [schemaEditorIndex, setSchemaEditorIndex] = useState<number | null>(null)
+  const [schemaDraft, setSchemaDraft] = useState<JSONSchema | null>(null)
+  const [showInferencer, setShowInferencer] = useState(false)
+  const [flashIndex, setFlashIndex] = useState<number | null>(null)
+  const applyImmediateRef = useRef(false)
+  const preserveEditRef = useRef(false)
 
   const currentList = category === 'jsonSchemas' ? (lines.jsonSchemas || []).map(js => js.name) : (lines[category] || [])
-  const filtered = useMemo(() => filter.trim() === '' ? currentList : currentList.filter((l: any) => (''+l).toLowerCase().includes(filter.toLowerCase())), [currentList, filter])
+  // Preserve original indices even when values duplicate (e.g., empty new entries) so operations map correctly
+  const filtered = useMemo(() => {
+    const base = currentList.map((v, i) => ({ v, i }))
+    if (filter.trim() === '') return base
+    const lower = filter.toLowerCase()
+    return base.filter(item => ('' + item.v).toLowerCase().includes(lower))
+  }, [currentList, filter])
 
   function updateDraft(idx: number, text: string) {
     if (category === 'jsonSchemas') {
+      preserveEditRef.current = true
       setLines(prev => ({ ...prev, jsonSchemas: (prev.jsonSchemas||[]).map((js,i)=> i===idx? { ...js, name: text }: js) }))
     } else {
+      preserveEditRef.current = true
       setLines(prev => ({ ...prev, [category]: (prev as any)[category]?.map((l: any, i: number) => i===idx ? text : l) }))
     }
   }
   function finishEdit() { setEditingIndex(null) }
 
-  // Sync with external value when it changes (e.g., reopening panel or workflow change)
+  // Helper shallow equality compare to avoid unnecessary focus loss
+  function eqArray(a?: any[], b?: any[]) {
+    if (a===b) return true
+    if (!a || !b) return (!a || a.length===0) && (!b || b.length===0)
+    if (a.length !== b.length) return false
+    for (let i=0;i<a.length;i++) if (a[i]!==b[i]) return false
+    return true
+  }
+  function eqSchemas(a?: {name:string; schema:any}[], b?: {name:string; schema:any}[]) {
+    if (a===b) return true
+    if (!a || !b) return (!a || a.length===0) && (!b || b.length===0)
+    if (a.length !== b.length) return false
+    for (let i=0;i<a.length;i++) {
+      if (a[i].name !== b[i].name) return false
+      // schema reference compare first; fallback to JSON if needed
+      if (a[i].schema !== b[i].schema) {
+        try { if (JSON.stringify(a[i].schema) !== JSON.stringify(b[i].schema)) return false } catch { return false }
+      }
+    }
+    return true
+  }
+  // Sync with external value when parent changes; preserve current edit if local mutation in progress
   useEffect(() => {
-    setLines({
-      batchOrdering: value?.batchOrdering ? [...value.batchOrdering] : [],
+    const next = {
       globref: value?.globref ? [...value.globref] : [],
       color: value?.color ? [...value.color] : [],
-      var: value?.var ? [...value.var] : [],
       lua: value?.lua ? [...value.lua] : [],
       jsonSchemas: value?.jsonSchemas ? value.jsonSchemas.map(js => ({ ...js })) : [],
+    }
+    setLines(prev => {
+      if (eqArray(prev.globref, next.globref) && eqArray(prev.color, next.color) && eqArray(prev.lua, next.lua) && eqSchemas(prev.jsonSchemas, next.jsonSchemas)) {
+        return prev
+      }
+      return next
     })
-    setEditingIndex(null)
-  }, [value?.batchOrdering?.join('\n'), value?.globref?.join('\n'), value?.color?.join('\n'), value?.var?.join('\n'), value?.lua?.join('\n')])
+    if (!preserveEditRef.current) {
+      setEditingIndex(null)
+    }
+    preserveEditRef.current = false
+  }, [value?.globref?.join('\n'), value?.color?.join('\n'), value?.lua?.join('\n'), value?.jsonSchemas?.length])
+
+  // Auto-apply (debounced) after any lines mutation
+  const firstRender = useRef(true)
+  useEffect(() => {
+    if (firstRender.current) { firstRender.current = false; return }
+    const push = () => {
+      const cleaned: DeclarationsValue = {
+        globref: [...(lines.globref||[])],
+        color: [...(lines.color||[])],
+        lua: [...(lines.lua||[])],
+        jsonSchemas: (lines.jsonSchemas||[]).map(js => ({ ...js })),
+      }
+      onApply(cleaned)
+    }
+    if (applyImmediateRef.current) {
+      applyImmediateRef.current = false
+      push()
+      return
+    }
+    const handle = setTimeout(push, 280)
+    return () => clearTimeout(handle)
+  }, [lines, onApply])
+
+  // Clear flash highlight after short delay
+  useEffect(() => {
+    if (flashIndex==null) return
+    const t = setTimeout(()=> setFlashIndex(null), 900)
+    return () => clearTimeout(t)
+  }, [flashIndex])
   function addLine() {
     if (category === 'jsonSchemas') {
+      preserveEditRef.current = true
       setLines(prev => ({ ...prev, jsonSchemas: [...(prev.jsonSchemas||[]), { name: 'NewSchema', schema: { type: 'object' } }] }))
       setEditingIndex(currentList.length)
     } else {
+      preserveEditRef.current = true
       setLines(prev => ({ ...prev, [category]: [...((prev as any)[category]||[]), ''] }))
       setEditingIndex(currentList.length)
     }
   }
-  function deleteSelected() {
-    if (editingIndex==null) return
+  function deleteSelected(idxOverride?: number) {
+    const idx = idxOverride ?? editingIndex
+    if (idx==null) return
     if (category === 'jsonSchemas') {
-      setLines(prev => ({ ...prev, jsonSchemas: (prev.jsonSchemas||[]).filter((_,i)=>i!==editingIndex) }))
+      preserveEditRef.current = true
+      setLines(prev => ({ ...prev, jsonSchemas: (prev.jsonSchemas||[]).filter((_,i)=>i!==idx) }))
     } else {
-      setLines(prev => ({ ...prev, [category]: ((prev as any)[category]||[]).filter((_: any,i: number)=>i!==editingIndex) }))
+      preserveEditRef.current = true
+      setLines(prev => ({ ...prev, [category]: ((prev as any)[category]||[]).filter((_: any,i: number)=>i!==idx) }))
     }
-    setEditingIndex(null)
+    setFlashIndex(idx)
+    if (editingIndex === idx) setEditingIndex(null)
+    applyImmediateRef.current = true
   }
-  function move(delta: number) {
-    if (editingIndex==null) return
-    const idx = editingIndex
-  const arr = [...(category==='jsonSchemas' ? (lines.jsonSchemas||[]).map(js=>js.name) : (lines as any)[category]||[])]
+  function move(delta: number, idxOverride?: number) {
+    const idx = idxOverride ?? editingIndex
+    if (idx==null) return
+    const arr = [...(category==='jsonSchemas' ? (lines.jsonSchemas||[]).map(js=>js.name) : (lines as any)[category]||[])]
     const target = idx + delta
     if (target < 0 || target >= arr.length) return
     const tmp = arr[idx]; arr[idx] = arr[target]; arr[target] = tmp
     if (category === 'jsonSchemas') {
+      preserveEditRef.current = true
       setLines(prev => ({ ...prev, jsonSchemas: arr.map(name => (prev.jsonSchemas||[]).find(js=>js.name===name)!).filter(Boolean) }))
     } else {
+      preserveEditRef.current = true
       setLines(prev => ({ ...prev, [category]: arr }))
     }
     setEditingIndex(target)
+    setFlashIndex(target)
+    applyImmediateRef.current = true
   }
-  function apply() {
-    onApply(lines)
-  }
+  // apply() removed – changes are auto-applied
 
   function updateSchema(idx: number, text: string) {
     try {
       const parsed = JSON.parse(text)
+      preserveEditRef.current = true
       setLines(prev => ({ ...prev, jsonSchemas: (prev.jsonSchemas||[]).map((js,i)=> i===idx ? { ...js, schema: parsed } : js) }))
       setSchemaErrors(prev => { const next = { ...prev }; delete next[idx]; return next })
     } catch(e:any) {
@@ -122,7 +205,9 @@ export function DeclarationsPanel({ value, onApply, builtInColorSets, disabled }
   }
 
   function deleteSchema(idx: number) {
+    preserveEditRef.current = true
     setLines(prev => ({ ...prev, jsonSchemas: (prev.jsonSchemas||[]).filter((_,i)=>i!==idx) }))
+    setFlashIndex(idx)
     setSchemaErrors(prev => {
       const next = { ...prev }
       // Re-index errors after removal
@@ -134,6 +219,7 @@ export function DeclarationsPanel({ value, onApply, builtInColorSets, disabled }
       })
       return reordered
     })
+    applyImmediateRef.current = true
   }
 
   function reorderSchema(from: number, to: number) {
@@ -143,8 +229,10 @@ export function DeclarationsPanel({ value, onApply, builtInColorSets, disabled }
       if (to >= arr.length) return prev
       const [item] = arr.splice(from,1)
       arr.splice(to,0,item)
+      preserveEditRef.current = true
       return { ...prev, jsonSchemas: arr }
     })
+    setFlashIndex(to)
     setSchemaErrors(prev => {
       // best-effort move error association
       const next: Record<number,string|undefined> = {}
@@ -157,6 +245,7 @@ export function DeclarationsPanel({ value, onApply, builtInColorSets, disabled }
       })
       return next
     })
+    applyImmediateRef.current = true
   }
 
   return (
@@ -167,15 +256,23 @@ export function DeclarationsPanel({ value, onApply, builtInColorSets, disabled }
         ))}
         <div className="ml-auto flex items-center gap-1">
           <Button size="sm" variant="secondary" onClick={addLine} disabled={disabled}>+ New</Button>
-          {category !== 'jsonSchemas' && (<>
-            <Button size="sm" variant="outline" onClick={deleteSelected} disabled={disabled || editingIndex==null}>- Delete</Button>
-            <Button size="sm" variant="outline" onClick={()=>move(-1)} disabled={disabled || editingIndex==null}>Up</Button>
-            <Button size="sm" variant="outline" onClick={()=>move(1)} disabled={disabled || editingIndex==null}>Down</Button>
-          </>)}
+          {category !== 'jsonSchemas' && (
+            <>
+              <Button size="icon" variant="ghost" aria-label="Delete" onMouseDown={(e)=>{ e.preventDefault(); deleteSelected(editingIndex!=null? editingIndex: undefined) }} disabled={disabled || editingIndex==null} className="h-7 w-7 text-red-600 disabled:opacity-40">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+              <Button size="icon" variant="ghost" aria-label="Move up" onMouseDown={(e)=>{ e.preventDefault(); move(-1, editingIndex!=null? editingIndex: undefined) }} disabled={disabled || editingIndex==null} className="h-7 w-7 disabled:opacity-40">
+                <MoveUp className="h-4 w-4" />
+              </Button>
+              <Button size="icon" variant="ghost" aria-label="Move down" onMouseDown={(e)=>{ e.preventDefault(); move(1, editingIndex!=null? editingIndex: undefined) }} disabled={disabled || editingIndex==null} className="h-7 w-7 disabled:opacity-40">
+                <MoveDown className="h-4 w-4" />
+              </Button>
+            </>
+          )}
           {category==='lua' && (
             <Button size="sm" variant="outline" onClick={() => { setLuaDraft(editingIndex!=null ? (currentList[editingIndex]||'') : ''); setShowLuaEditor(true) }}>Lua Editor</Button>
           )}
-          <Button size="sm" onClick={apply} disabled={disabled}>Apply</Button>
+          {/* Apply button removed: auto-save in effect */}
         </div>
       </div>
       {category !== 'jsonSchemas' && (
@@ -188,32 +285,41 @@ export function DeclarationsPanel({ value, onApply, builtInColorSets, disabled }
             {filtered.length===0 && (
               <div className="p-2 text-xs text-neutral-400">No entries</div>
             )}
-            {filtered.map((line: any) => {
-              const realIdx = currentList.indexOf(line)
-              const isEditing = editingIndex===realIdx
+            {filtered.map(({ v: line, i: realIdx }) => {
+              const isEditing = editingIndex === realIdx
               return (
-                <div key={realIdx} role="option" aria-selected={isEditing} className={cn("px-2 py-1 text-xs cursor-pointer hover:bg-neutral-50", isEditing && 'bg-emerald-50')} onClick={() => setEditingIndex(realIdx)}>
+                <div
+                  key={realIdx}
+                  role="option"
+                  aria-selected={isEditing}
+                  className={cn(
+                    "px-2 py-1 text-xs cursor-pointer hover:bg-neutral-50 transition-colors",
+                    isEditing && 'bg-emerald-50',
+                    flashIndex===realIdx && 'bg-amber-50'
+                  )}
+                  onClick={() => setEditingIndex(realIdx)}
+                >
                   {isEditing ? (
-                    category==='lua' ? (
+                    category === 'lua' ? (
                       <Textarea
                         autoFocus
                         rows={2}
                         className="text-xs"
-                        value={line}
-                        placeholder={CATEGORIES.find(c=>c.key===category)?.placeholder}
-                        onChange={e=>updateDraft(realIdx, e.target.value)}
+                        value={line as any}
+                        placeholder={CATEGORIES.find(c => c.key === category)?.placeholder}
+                        onChange={e => updateDraft(realIdx, e.target.value)}
                         onBlur={finishEdit}
-                        onKeyDown={e=>{ if (e.key==='Enter' && (e.metaKey||e.ctrlKey)) { finishEdit() } }}
+                        onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { finishEdit() } }}
                       />
                     ) : (
                       <Input
                         autoFocus
                         className="h-6 text-xs"
-                        value={line}
-                        placeholder={CATEGORIES.find(c=>c.key===category)?.placeholder}
-                        onChange={e=>updateDraft(realIdx, e.target.value)}
+                        value={line as any}
+                        placeholder={CATEGORIES.find(c => c.key === category)?.placeholder}
+                        onChange={e => updateDraft(realIdx, e.target.value)}
                         onBlur={finishEdit}
-                        onKeyDown={e=>{ if (e.key==='Enter') finishEdit(); if (e.key==='Escape') finishEdit() }}
+                        onKeyDown={e => { if (e.key === 'Enter') finishEdit(); if (e.key === 'Escape') finishEdit() }}
                       />
                     )
                   ) : (
@@ -235,7 +341,7 @@ export function DeclarationsPanel({ value, onApply, builtInColorSets, disabled }
             <div className="text-xs text-neutral-400">No schemas</div>
           )}
           {(lines.jsonSchemas||[]).filter(s=>s.name.toLowerCase().includes(filter.toLowerCase())).map((js, i, arr) => (
-            <div key={i} className="border rounded p-2 space-y-2 bg-neutral-50">
+            <div key={i} className={cn("border rounded p-2 space-y-2 bg-neutral-50 transition-colors", flashIndex===i && 'ring-2 ring-amber-300')}> 
               <div className="flex items-center gap-2">
                 <Input
                   className="h-7 text-xs w-48"
@@ -243,9 +349,25 @@ export function DeclarationsPanel({ value, onApply, builtInColorSets, disabled }
                   onChange={e=> setLines(prev => ({ ...prev, jsonSchemas: (prev.jsonSchemas||[]).map((o,idx)=> idx===i? { ...o, name: e.target.value }: o) }))}
                   placeholder="Schema name"
                 />
-                <Button size="sm" variant="outline" onClick={()=>deleteSchema(i)}>Delete</Button>
-                <Button size="sm" variant="outline" disabled={i===0} onClick={()=>reorderSchema(i, i-1)}>Up</Button>
-                <Button size="sm" variant="outline" disabled={i===arr.length-1} onClick={()=>reorderSchema(i, i+1)}>Down</Button>
+                <Button size="icon" variant="ghost" onClick={()=>deleteSchema(i)} aria-label="Delete schema" className="h-7 w-7 text-red-600 hover:text-red-700">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+                <Button size="icon" variant="ghost" disabled={i===0} onClick={()=>reorderSchema(i, i-1)} aria-label="Move schema up" className="h-7 w-7">
+                  <MoveUp className="h-4 w-4" />
+                </Button>
+                <Button size="icon" variant="ghost" disabled={i===arr.length-1} onClick={()=>reorderSchema(i, i+1)} aria-label="Move schema down" className="h-7 w-7">
+                  <MoveDown className="h-4 w-4" />
+                </Button>
+                <Button size="icon" variant="ghost" aria-label="Edit schema visually" className="h-7 w-7" onClick={()=>{
+                  setSchemaEditorIndex(i)
+                  try {
+                    setSchemaDraft(js.schema as JSONSchema)
+                  } catch {
+                    setSchemaDraft({})
+                  }
+                }}>
+                  <SquarePen className="h-4 w-4" />
+                </Button>
               </div>
               <CodeMirror
                 value={JSON.stringify(js.schema, null, 2)}
@@ -286,9 +408,46 @@ export function DeclarationsPanel({ value, onApply, builtInColorSets, disabled }
       {category==='color' && (
         <div className="text-[10px] text-neutral-500">Built-ins: {builtInColorSets.join(', ')} (not persisted)</div>
       )}
+      {schemaEditorIndex!=null && schemaDraft && (
+        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/40">
+          <div className="w-[780px] max-h-[85vh] rounded-md border bg-white shadow-lg flex flex-col">
+            <div className="flex items-center justify-between border-b px-3 py-2 text-sm font-medium">
+              <div className="flex items-center gap-3">
+                <span>Edit Schema: {(lines.jsonSchemas||[])[schemaEditorIndex]?.name || 'Unnamed'}</span>
+                <Button size="sm" variant="outline" onClick={()=> setShowInferencer(true)} className="flex items-center gap-1" aria-label="Infer from JSON sample">
+                  <Wand2 className="h-4 w-4" /> Infer
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={()=>{ setSchemaEditorIndex(null); setSchemaDraft(null); setShowInferencer(false) }}>Cancel</Button>
+                <Button size="sm" onClick={()=>{
+                  setLines(prev => ({ ...prev, jsonSchemas: (prev.jsonSchemas||[]).map((o,i)=> i===schemaEditorIndex ? { ...o, schema: schemaDraft }: o) }))
+                  setSchemaEditorIndex(null); setSchemaDraft(null); setShowInferencer(false)
+                  applyImmediateRef.current = true
+                }}>Apply</Button>
+                <Button size="icon" variant="ghost" aria-label="Close" onClick={()=>{ setSchemaEditorIndex(null); setSchemaDraft(null); setShowInferencer(false) }}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto">
+              <SchemaVisualEditor schema={schemaDraft as any} onChange={(next)=> setSchemaDraft(next as any)} />
+            </div>
+          </div>
+        </div>
+      )}
+      {showInferencer && schemaEditorIndex!=null && (
+        <SchemaInferencer
+          open={showInferencer}
+            onOpenChange={(open)=> setShowInferencer(open)}
+            onSchemaInferred={(s)=> {
+              setSchemaDraft(s as any)
+            }}
+        />
+      )}
       <Separator />
       <div className="text-[10px] text-neutral-400 leading-relaxed">
-        Tip: Use Apply to stage changes locally. Use existing Save Workflow button to persist to server.
+        Changes are auto-applied locally. Use the main Save Workflow button to persist to the server.
       </div>
     </div>
   )

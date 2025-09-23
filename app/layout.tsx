@@ -21,10 +21,11 @@ export default function RootLayout({
   <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
       <head>
         <style>{`
+/* Prefer system-ui stack; Geist provides metrics & variable hooks as fallback */
 html {
-  font-family: ${GeistSans.style.fontFamily};
-  --font-sans: ${GeistSans.variable};
-  --font-mono: ${GeistMono.variable};
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", ${GeistSans.style.fontFamily};
+  --font-sans: ${GeistSans.variable}, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-mono: ${GeistMono.variable}, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
         `}</style>
       </head>
