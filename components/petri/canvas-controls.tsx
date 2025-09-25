@@ -9,8 +9,7 @@ interface CanvasControlsProps {
   setInteractive: React.Dispatch<React.SetStateAction<boolean>>
   showSystem: boolean
   toggleSystem: () => void
-  openExplorer: () => void | Promise<void>
-  panelMode: 'mini' | 'normal' | 'full'
+  openExplorer?: () => void | Promise<void>
   openProperties: () => void
   addPlace: () => void
   addTransition: () => void
@@ -19,14 +18,13 @@ interface CanvasControlsProps {
   zoomIn?: (opts?: any) => void
   zoomOut?: (opts?: any) => void
   fitView?: (opts?: any) => void
-  controlsRight: number
   onOpenRun?: () => void | Promise<void>
 }
 
-export function CanvasControls({ onSave, edited, interactive, setInteractive, showSystem, toggleSystem, openExplorer, panelMode, openProperties, addPlace, addTransition, zoomIn, zoomOut, fitView, controlsRight, onAutoLayout, onValidate, onOpenRun }: CanvasControlsProps) {
+export function CanvasControls({ onSave, edited, interactive, setInteractive, showSystem, toggleSystem, openExplorer, openProperties, addPlace, addTransition, zoomIn, zoomOut, fitView, onAutoLayout, onValidate, onOpenRun }: CanvasControlsProps) {
   return (
     <div
-      style={{ position: 'absolute', right: controlsRight, bottom: 12, zIndex: 10, pointerEvents: 'auto' }}
+      style={{ position: 'absolute', left: 50, bottom: 12, zIndex: 10, pointerEvents: 'auto' }}
       aria-label="Canvas toolbar"
     >
       <Controls position="bottom-right" showZoom={false} showFitView={false} showInteractive={false}>
@@ -50,12 +48,7 @@ export function CanvasControls({ onSave, edited, interactive, setInteractive, sh
         >
           <Eye className="h-4 w-4" aria-hidden />
         </ControlButton>
-        <ControlButton
-          onClick={openExplorer}
-          title="Open Explorer"
-        >
-          <Folder className="h-4 w-4" aria-hidden />
-        </ControlButton>
+        {/* Open Explorer removed - left panel controls no longer toggled here */}
         <ControlButton onClick={() => zoomIn?.({ duration: 200 })} title="Zoom in" aria-label="Zoom in">
           <ZoomIn className="h-5 w-5" aria-hidden />
         </ControlButton>
@@ -65,11 +58,10 @@ export function CanvasControls({ onSave, edited, interactive, setInteractive, sh
         <ControlButton onClick={() => fitView?.({ padding: 0.2, duration: 300 })} title="Fit view">
           <Maximize2 className="h-4 w-4" aria-hidden />
         </ControlButton>
-        {panelMode === 'mini' && (
-          <ControlButton onClick={openProperties} title="Open Properties">
-            <SlidersHorizontal className="h-4 w-4" aria-hidden />
-          </ControlButton>
-        )}
+        {/* properties open control kept as explicit action */}
+        <ControlButton onClick={openProperties} title="Open Properties">
+          <SlidersHorizontal className="h-4 w-4" aria-hidden />
+        </ControlButton>
         <ControlButton onClick={addPlace} title="Add Place">
           <CirclePlus className="h-4 w-4" aria-hidden />
         </ControlButton>

@@ -12,7 +12,7 @@ import { rankWith, isStringControl, isNumberControl, isBooleanControl } from '@j
 import { fetchWorkflowList, fetchWorkflow, createCase, startCase, fetchCaseEnabledTransitions, fireCaseTransition, fetchCaseList, suspendCase, resumeCase, abortCase, deleteCase } from '@/components/petri/petri-client'
 import type { PetriNodeData } from '@/lib/petri-types'
 import type { Node } from '@xyflow/react'
-import { DEFAULT_SETTINGS } from '@/components/petri/system-settings-context'
+import { DEFAULT_SETTINGS, useSystemSettings } from '@/components/petri/system-settings-context'
 import { fetchPreSupportedSchema, usePreSupportedSchemas } from '@/components/petri/pre-supported-schemas'
 import { safeParseJSON as safeParse, inferSchemaFromSample, extractBindingValue, computeEffectiveSchema } from '@/components/util/manual-form-utils'
 import { ViaTokensPanel } from '@/components/via/via-tokens-panel'
@@ -80,23 +80,27 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
   // User menu dropdown removed; no outside click logic needed.
   // Effective (frozen) schema determined once when form opens (avoid re-inferring on each keystroke)
   const [effectiveSchema, setEffectiveSchema] = useState<any>(null)
-  // Resolve flowServiceUrl with fallbacks: env -> global -> persisted settings -> default
-  const flowServiceUrl = process.env.NEXT_PUBLIC_FLOW_SERVICE_URL
+  // Resolve flowServiceUrl with fallbacks: env -> global -> settings -> default
+  let flowServiceUrl = process.env.NEXT_PUBLIC_FLOW_SERVICE_URL
     || (typeof window !== 'undefined' ? (window as any).__goflowServiceBase : undefined)
-    || (typeof window !== 'undefined'
-        ? (() => {
-            try {
-              const raw = window.localStorage.getItem('goflow.systemSettings')
-              if (raw) {
-                const parsed = JSON.parse(raw)
-                if (parsed && typeof parsed.flowServiceUrl === 'string' && parsed.flowServiceUrl.trim()) {
-                  return parsed.flowServiceUrl as string
-                }
-              }
-            } catch {/* ignore */}
-            return DEFAULT_SETTINGS.flowServiceUrl
-          })()
-        : undefined)
+  try {
+    const { settings } = useSystemSettings()
+    if (settings?.flowServiceUrl) flowServiceUrl = settings.flowServiceUrl
+  } catch {
+    // provider not mounted, fall back to localStorage/default
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem('goflow.systemSettings')
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          if (parsed && typeof parsed.flowServiceUrl === 'string' && parsed.flowServiceUrl.trim()) {
+            flowServiceUrl = parsed.flowServiceUrl
+          }
+        }
+      } catch {/* ignore */}
+    }
+    if (!flowServiceUrl) flowServiceUrl = DEFAULT_SETTINGS.flowServiceUrl
+  }
 
   // Case-based polling of enabled transitions (simple interval)
   const [enabled, setEnabled] = useState<any[]>([])

@@ -28,17 +28,14 @@ import { json } from '@codemirror/lang-json'
 import { usePreSupportedSchemas } from './pre-supported-schemas'
 
 type SelectedResolved = { type: "node"; node: Node<PetriNodeData> } | { type: "edge"; edge: Edge<PetriEdgeData> } | null
-type PanelMode = "mini" | "normal" | "full"
 
 export function SidePanel({
   open,
-  mode,
   width = 360,
   onResizeStart,
   selected,
   onUpdateNode,
   onUpdateEdge,
-  onModeChange,
   onRenamePlaceId,
   onRenameTransitionId,
   onRenameEdgeId,
@@ -70,13 +67,12 @@ export function SidePanel({
   onDeclarationsApply,
 }: {
   open: boolean
-  mode: PanelMode
   width?: number
   onResizeStart: () => void
   selected: SelectedResolved
   onUpdateNode: (id: string, patch: Partial<PetriNodeData>) => void
   onUpdateEdge: (id: string, patch: Partial<PetriEdgeData>) => void
-  onModeChange: (m: PanelMode) => void
+  // onModeChange removed; panel is always rendered inline/resizable when mounted
   onRenamePlaceId?: (oldId: string, nextId: string) => { ok: boolean; reason?: string }
   onRenameTransitionId?: (oldId: string, nextId: string) => { ok: boolean; reason?: string }
   onRenameEdgeId?: (oldId: string, nextId: string) => { ok: boolean; reason?: string }
@@ -108,45 +104,8 @@ export function SidePanel({
   onDeclarationsApply?: (next: DeclarationsValue) => void
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null)
-  // New: split state between explorer (top) and property (bottom)
-  // Start with a fixed value for SSR to avoid hydration mismatch; hydrate actual saved height after mount
-  const [explorerHeight, setExplorerHeight] = useState<number>(240)
-  useEffect(() => {
-    try {
-      const saved = typeof window !== 'undefined' ? window.localStorage.getItem('goflow.explorerHeight') : null
-      if (saved) {
-        const num = parseInt(saved, 10)
-        if (!isNaN(num) && num !== explorerHeight) setExplorerHeight(num)
-      }
-    } catch {/* ignore */}
-  // run once
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  const splitterRef = useRef<HTMLDivElement | null>(null)
-  const dragState = useRef<{ startY: number; startHeight: number; dragging: boolean }>({ startY:0, startHeight:0, dragging:false })
   const [, forceRerender] = useState(0)
   const [externalSelection, setExternalSelection] = useState<{ kind: 'place'|'transition'|'arc'; id: string } | null>(null)
-
-  // Drag handlers for vertical splitter
-  useEffect(() => {
-    function onMove(e: MouseEvent) {
-      if (!dragState.current.dragging) return
-      const dy = e.clientY - dragState.current.startY
-      const next = Math.min(Math.max(120, dragState.current.startHeight + dy), 600)
-  setExplorerHeight(next)
-    }
-    function onUp() { dragState.current.dragging = false }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-  }, [])
-
-  // Persist splitter height
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('goflow.explorerHeight', String(explorerHeight))
-    }
-  }, [explorerHeight])
   // Emit current workflow meta (jsonSchemas) so ManualEditor can seed available form schemas
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -160,87 +119,32 @@ export function SidePanel({
   }, [activeWorkflowId, workflowMeta && activeWorkflowId ? JSON.stringify((workflowMeta as any)[activeWorkflowId]?.declarations?.jsonSchemas?.map((s: any)=>s.name)||[]) : null])
   
 
-  if (!open || mode === "mini") {
+  if (!open) {
     return null
   }
 
-  const baseStyle: React.CSSProperties =
-    mode === "full"
-      ? { position: "fixed", inset: 0, zIndex: 50 }
-      : { position: "fixed", right: 0, top: 0, bottom: 0, width, zIndex: 50 }
+  // When used inside the `RightPanel`, SidePanel should render as an inline
+  // element sized by its parent rather than a fixed-position drawer. For the
+  // 'full' mode we still render a full-size overlay-like container, but by
+  // default (mode === 'normal') we render an inline aside that fills the
+  // available height/width of the parent `RightPanel` container.
+
+  const inlineStyle: React.CSSProperties = { position: "relative", width: '100%', zIndex: 50, height: '100%', boxSizing: 'border-box', flex: `0 0 ${typeof width === 'number' ? `${width}px` : width}`, maxWidth: '100vw' }
 
   return (
     <aside
-      className="flex flex-col border-l bg-white shadow-lg transform-none overflow-x-visible"
-      style={baseStyle}
-      role="dialog"
-      aria-modal="true"
+      className="flex flex-col border-l bg-white shadow-none overflow-x-visible h-full w-full"
+      style={{ ...inlineStyle}}
+      // keep role for accessibility but remove modal semantics when inline
+      role="region"
       aria-label="Side Panel"
     >
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <div className="text-sm font-semibold">Explorer / Properties</div>
-        <div className="flex items-center gap-1">
-          <Button size="icon" variant="ghost" aria-label="Mini mode" onClick={() => onModeChange("mini")}> 
-            <Minimize2 className="h-4 w-4" />
-          </Button>
-          <Button size="icon" variant="ghost" aria-label="Normal mode" onClick={() => onModeChange("normal")}> 
-            <PanelRightOpen className="h-4 w-4" />
-          </Button>
-          <Button size="icon" variant="ghost" aria-label="Full mode" onClick={() => onModeChange("full")}> 
-            <Maximize2 className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
 
-      {mode === "normal" && (
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          title="Drag to resize"
-          className="absolute left-[-6px] top-0 z-50 h-full w-2 cursor-col-resize"
-          onMouseDown={onResizeStart}
-        >
-          <div className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 rounded-full bg-neutral-200 p-0.5">
-            <GripVertical className="h-3 w-3 text-neutral-500" />
-          </div>
-        </div>
-      )}
 
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Explorer section */}
-        <div style={{ height: explorerHeight }} className="overflow-auto border-b">
-          <ExplorerPanel
-            workflows={explorerWorkflows}
-            onWorkflowSelect={onExplorerSelect}
-            onCreateWorkflow={onCreateWorkflow}
-            onDeleteWorkflow={onDeleteWorkflow}
-            onRenameWorkflow={onRenameWorkflow}
-            activeWorkflowId={activeWorkflowId}
-            nodes={explorerNodes}
-            edges={explorerEdges}
-            workflowMeta={workflowMeta}
-            onAddPlace={onAddPlace}
-            onRenamePlace={onRenamePlace}
-            onDeletePlace={onDeletePlace}
-            onAddTransition={onAddTransition}
-            onRenameTransition={onRenameTransition}
-            onDeleteTransition={onDeleteTransition}
-            onDeleteArc={onDeleteArc}
-            onSelectEntity={onSelectEntity}
-            selectedEntity={selectedEntity}
-            onRefreshWorkflows={onRefreshWorkflows}
-          />
-        </div>
-        {/* Splitter */}
-        <div
-          ref={splitterRef}
-          onMouseDown={(e) => { dragState.current = { startY: e.clientY, startHeight: explorerHeight, dragging: true } }}
-          className="h-2 cursor-row-resize flex items-center justify-center bg-neutral-50 hover:bg-neutral-100 select-none"
-        >
-          <div className="h-1 w-10 rounded-full bg-neutral-300" />
-        </div>
+      <div className="flex-1 flex flex-col overflow-hidden" style={{ width: '100%' }}>
+        {/* Explorer migrated to left panel; removed inline explorer section and splitter */}
         {/* Property section */}
-        <div ref={contentRef} className="flex-1 overflow-y-auto overflow-x-visible p-3">
+        <div ref={contentRef} className="flex-1 overflow-y-auto overflow-x-visible p-3" style={{ width: '100%' }}>
           {(() => {
             // If colorSets pseudo-entity selected, render its editor immediately
             if (selectedEntity?.kind === 'declarations' && activeWorkflowId) {

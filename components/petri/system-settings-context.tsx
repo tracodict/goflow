@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 export type SystemSettings = Record<string, string>
 
 const DEFAULT_SETTINGS: SystemSettings = {
-  flowServiceUrl: 'https://flow.lizhao.net',
+  flowServiceUrl: 'https://goflow.lizhao.net',
   dictionaryUrl: 'https://raw.githubusercontent.com/tracodict/jschema/refs/heads/main/ep299',
 }
 

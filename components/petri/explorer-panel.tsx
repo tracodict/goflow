@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { FolderPlus, Trash2, Folder, ChevronRight, ChevronDown, Plus, X, RefreshCw, FileUp } from 'lucide-react';
 import { saveWorkflow } from '@/components/petri/petri-client';
-import { DEFAULT_SETTINGS } from '@/components/petri/system-settings-context';
+import { useSystemSettings } from '@/components/petri/system-settings-context';
 
 function RenameableText({ label, onRename, className, inputStyle, onAfterRename }: {
   label: string;
@@ -45,8 +45,10 @@ function RenameableText({ label, onRename, className, inputStyle, onAfterRename 
 interface ExplorerPanelProps {
   workflows?: { id: string; name: string }[]
   workflowMeta?: Record<string, { name: string; description?: string; colorSets: string[] }>
+  // nodes/edges kept for backward compatibility; prefer workflowGraphs for per-workflow data
   nodes?: any[]
   edges?: any[]
+  workflowGraphs?: Record<string, { nodes: any[]; edges: any[] }>
   activeWorkflowId?: string | null
   onWorkflowSelect?: (id: string) => void
   onCreateWorkflow?: () => void
@@ -71,6 +73,8 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
   const [expandedWf, setExpandedWf] = useState<Record<string, boolean>>({})
   const [groupExpanded, setGroupExpanded] = useState<Record<string, boolean>>({})
   const [hoverId, setHoverId] = useState<string|null>(null)
+  const [localSelection, setLocalSelection] = useState<{ kind: string; id: string } | null>(null)
+  const [groupHover, setGroupHover] = useState<Record<string, boolean>>({})
   const toggleWf = (id: string) => setExpandedWf(e => {
     const next = { ...e, [id]: !e[id] }
     // when expanding, also select workflow so its nodes/edges/colorSets show
@@ -79,10 +83,7 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
   })
   const toggleGroup = (wfId: string, group: string) => setGroupExpanded(e => ({ ...e, [wfId+':'+group]: !e[wfId+':'+group] }))
 
-  // Derive workflow-local items
-  const wfPlaces = nodes.filter(n => n.type === 'place')
-  const wfTransitions = nodes.filter(n => n.type === 'transition')
-  const wfArcs = edges
+  // Note: Explorer renders many workflows; use per-workflow graphs when available.
 
   // colorSets editing removed; declarations panel supersedes it
 
@@ -102,6 +103,12 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
         {workflows?.map(w => {
           const isActive = activeWorkflowId === w.id
           const isExpanded = !!expandedWf[w.id]
+          // pick the appropriate graph for this workflow id
+          const graph = (props.workflowGraphs && props.workflowGraphs[w.id]) || (isActive ? { nodes, edges } : { nodes: [], edges: [] })
+          const wfPlaces = (graph.nodes || []).filter((n: any) => n.type === 'place')
+          const wfTransitions = (graph.nodes || []).filter((n: any) => n.type === 'transition')
+          const wfArcs = (graph.edges || [])
+
           return (
             <div key={w.id} style={{ paddingLeft: 2 }}>
               <div
@@ -140,28 +147,37 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
                   </div>
                   {/* Places */}
                   <div>
-                    <div style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', padding:'2px 0' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', padding:'2px 0' }}
+                      onMouseEnter={() => setGroupHover(h => ({ ...h, [w.id+':places']: true }))}
+                      onMouseLeave={() => setGroupHover(h => ({ ...h, [w.id+':places']: false }))}
+                    >
                       <button onClick={() => toggleGroup(w.id,'places')} style={{ width:16, height:16, display:'flex', alignItems:'center', justifyContent:'center' }}>
                         {groupExpanded[w.id+':places'] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                       </button>
                       <span style={{ fontWeight:500 }}>places</span>
-                      {onAddPlace && <button title="Add place" onClick={(e) => { e.stopPropagation(); onAddPlace() }}><Plus className="h-3 w-3" /></button>}
+                      {onAddPlace && groupHover[w.id+':places'] && <button title="Add place" onClick={(e) => { e.stopPropagation(); onAddPlace() }}><Plus className="h-3 w-3" /></button>}
                     </div>
                     {groupExpanded[w.id+':places'] && (
                       <ul style={{ marginLeft: 16 }}>
                         {wfPlaces.length === 0 && <li style={{ color:'#888' }}>empty</li>}
                         {wfPlaces.map(p => {
                           const sel = selectedEntity?.kind==='place' && selectedEntity.id===p.id
+                          const localSel = localSelection?.kind === 'place' && localSelection.id === p.id
+                          const showDelete = sel || localSel
                           return (
-                            <li key={p.id} className="group" style={{ display:'flex', alignItems:'center', gap:4, background: sel? '#e3f2fd':'transparent', borderRadius:4, padding:'1px 4px' }}
-                              onClick={() => onSelectEntity?.('place', p.id)}
-                              onMouseEnter={() => setHoverId(p.id)} onMouseLeave={() => setHoverId(h => h===p.id? null : h)}
+                            <li key={p.id} className="group" style={{ display:'flex', alignItems:'center', gap:4, background: (sel||localSel)? '#e3f2fd':'transparent', borderRadius:4, padding:'1px 4px' }}
+                              onClick={() => { setLocalSelection({ kind: 'place', id: p.id }); onSelectEntity?.('place', p.id) }}
+                              onMouseEnter={() => { setHoverId(p.id); setLocalSelection({ kind: 'place', id: p.id }) }} onMouseLeave={() => setHoverId(h => h===p.id? null : h)}
                             >
                               <RenameableText label={(p.data?.name)||p.id} onRename={(next)=> onRenamePlace?.(p.id,next)} />
                               {onDeletePlace && (
-                                <button onClick={(e)=> { e.stopPropagation(); onDeletePlace(p.id) }} style={{ marginLeft:'auto', opacity: hoverId===p.id ? 1 : 0, transition:'opacity 120ms' }}>
-                                  <Trash2 className="h-3 w-3 text-neutral-500 hover:text-red-600" />
-                                </button>
+                                showDelete ? (
+                                  <button onClick={(e)=> { e.stopPropagation(); onDeletePlace(p.id) }} style={{ marginLeft:'auto', opacity: 1, transition:'opacity 120ms' }}>
+                                    <Trash2 className="h-3 w-3 text-neutral-500 hover:text-red-600" />
+                                  </button>
+                                ) : (
+                                  <div style={{ marginLeft:'auto', width:20 }} />
+                                )
                               )}
                             </li>
                           )
@@ -171,30 +187,39 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
                   </div>
                   {/* Transitions */}
                   <div>
-                    <div style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', padding:'2px 0' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', padding:'2px 0' }}
+                      onMouseEnter={() => setGroupHover(h => ({ ...h, [w.id+':transitions']: true }))}
+                      onMouseLeave={() => setGroupHover(h => ({ ...h, [w.id+':transitions']: false }))}
+                    >
                       <button onClick={() => toggleGroup(w.id,'transitions')} style={{ width:16, height:16, display:'flex', alignItems:'center', justifyContent:'center' }}>
                         {groupExpanded[w.id+':transitions'] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                       </button>
                       <span style={{ fontWeight:500 }}>transitions</span>
-                      {onAddTransition && <button title="Add transition" onClick={(e) => { e.stopPropagation(); onAddTransition() }}><Plus className="h-3 w-3" /></button>}
+                      {onAddTransition && groupHover[w.id+':transitions'] && <button title="Add transition" onClick={(e) => { e.stopPropagation(); onAddTransition() }}><Plus className="h-3 w-3" /></button>}
                     </div>
                     {groupExpanded[w.id+':transitions'] && (
                       <ul style={{ marginLeft: 16 }}>
                         {wfTransitions.length === 0 && <li style={{ color:'#888' }}>empty</li>}
                         {wfTransitions.map(t => {
                           const sel = selectedEntity?.kind==='transition' && selectedEntity.id===t.id
+                          const localSel = localSelection?.kind === 'transition' && localSelection.id === t.id
                           const tType = (t.data?.tType) || 'Manual'
+                          const showDelete = sel || localSel
                           return (
-                            <li key={t.id} className="group" style={{ display:'flex', alignItems:'center', gap:4, background: sel? '#e3f2fd':'transparent', borderRadius:4, padding:'1px 4px' }}
-                              onClick={() => onSelectEntity?.('transition', t.id)}
-                              onMouseEnter={() => setHoverId(t.id)} onMouseLeave={() => setHoverId(h => h===t.id? null : h)}
+                            <li key={t.id} className="group" style={{ display:'flex', alignItems:'center', gap:4, background: (sel||localSel)? '#e3f2fd':'transparent', borderRadius:4, padding:'1px 4px' }}
+                              onClick={() => { setLocalSelection({ kind: 'transition', id: t.id }); onSelectEntity?.('transition', t.id) }}
+                              onMouseEnter={() => { setHoverId(t.id); setLocalSelection({ kind: 'transition', id: t.id }) }} onMouseLeave={() => setHoverId(h => h===t.id? null : h)}
                             >
                               <RenameableText label={(t.data?.name)||t.id} onRename={(next)=> onRenameTransition?.(t.id,next)} />
                               <span style={{ fontSize:10, color:'#555', background:'#f5f5f5', padding:'0 4px', borderRadius:3 }}>{tType}</span>
                               {onDeleteTransition && (
-                                <button onClick={(e)=> { e.stopPropagation(); onDeleteTransition(t.id) }} style={{ marginLeft:'auto', opacity: hoverId===t.id ? 1 : 0, transition:'opacity 120ms' }}>
-                                  <Trash2 className="h-3 w-3 text-neutral-500 hover:text-red-600" />
-                                </button>
+                                showDelete ? (
+                                  <button onClick={(e)=> { e.stopPropagation(); onDeleteTransition(t.id) }} style={{ marginLeft:'auto', opacity: 1, transition:'opacity 120ms' }}>
+                                    <Trash2 className="h-3 w-3 text-neutral-500 hover:text-red-600" />
+                                  </button>
+                                ) : (
+                                  <div style={{ marginLeft:'auto', width:20 }} />
+                                )
                               )}
                             </li>
                           )
@@ -204,7 +229,10 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
                   </div>
                   {/* Arcs */}
                   <div>
-                    <div style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', padding:'2px 0' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', padding:'2px 0' }}
+                      onMouseEnter={() => setGroupHover(h => ({ ...h, [w.id+':arcs']: true }))}
+                      onMouseLeave={() => setGroupHover(h => ({ ...h, [w.id+':arcs']: false }))}
+                    >
                       <button onClick={() => toggleGroup(w.id,'arcs')} style={{ width:16, height:16, display:'flex', alignItems:'center', justifyContent:'center' }}>
                         {groupExpanded[w.id+':arcs'] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                       </button>
@@ -216,16 +244,22 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
                         {wfArcs.length === 0 && <li style={{ color:'#888' }}>empty</li>}
                         {wfArcs.map(a => {
                           const sel = selectedEntity?.kind==='arc' && selectedEntity.id===a.id
+                          const localSel = localSelection?.kind === 'arc' && localSelection.id === a.id
+                          const showDelete = sel || localSel
                           return (
-                            <li key={a.id} className="group" style={{ display:'flex', alignItems:'center', gap:4, background: sel? '#e3f2fd':'transparent', borderRadius:4, padding:'1px 4px' }}
-                              onClick={() => onSelectEntity?.('arc', a.id)}
-                              onMouseEnter={() => setHoverId(a.id)} onMouseLeave={() => setHoverId(h => h===a.id? null : h)}
+                            <li key={a.id} className="group" style={{ display:'flex', alignItems:'center', gap:4, background: (sel||localSel)? '#e3f2fd':'transparent', borderRadius:4, padding:'1px 4px' }}
+                              onClick={() => { setLocalSelection({ kind: 'arc', id: a.id }); onSelectEntity?.('arc', a.id) }}
+                              onMouseEnter={() => { setHoverId(a.id); setLocalSelection({ kind: 'arc', id: a.id }) }} onMouseLeave={() => setHoverId(h => h===a.id? null : h)}
                             >
                               <span>{a.source} → {a.target}</span>
                               {onDeleteArc && (
-                                <button onClick={(e)=> { e.stopPropagation(); onDeleteArc(a.id) }} style={{ marginLeft:'auto', opacity: hoverId===a.id ? 1 : 0, transition:'opacity 120ms' }}>
-                                  <Trash2 className="h-3 w-3 text-neutral-500 hover:text-red-600" />
-                                </button>
+                                showDelete ? (
+                                  <button onClick={(e)=> { e.stopPropagation(); onDeleteArc(a.id) }} style={{ marginLeft:'auto', opacity: 1, transition:'opacity 120ms' }}>
+                                    <Trash2 className="h-3 w-3 text-neutral-500 hover:text-red-600" />
+                                  </button>
+                                ) : (
+                                  <div style={{ marginLeft:'auto', width:20 }} />
+                                )
                               )}
                             </li>
                           )
@@ -251,16 +285,18 @@ function ImportWorkflowButton({ onImported }: { onImported?: () => void }) {
   const [loading, setLoading] = useState(false)
 
   const resolveServiceUrl = () => {
+    try {
+      const { settings } = useSystemSettings()
+      if (settings?.flowServiceUrl) return settings.flowServiceUrl
+    } catch {
+      // ignore if provider not present
+    }
     if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_FLOW_SERVICE_URL) return process.env.NEXT_PUBLIC_FLOW_SERVICE_URL
     if (typeof window !== 'undefined') {
       const g = (window as any).__goflowServiceBase
       if (g) return g
-      try {
-        const raw = window.localStorage.getItem('goflow.systemSettings')
-        if (raw) { const parsed = JSON.parse(raw); if (parsed?.flowServiceUrl) return parsed.flowServiceUrl }
-      } catch {/* ignore */}
     }
-    return DEFAULT_SETTINGS.flowServiceUrl
+    return ''
   }
 
   const onPick = (f: File | null) => {

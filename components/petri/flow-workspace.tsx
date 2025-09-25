@@ -68,7 +68,6 @@ const DEFAULT_COLOR_SETS = ['INT','REAL','STRING','BOOL','UNIT']
 type SelectedRef = { type: "node"; id: string } | { type: "edge"; id: string } | null
 type SelectedResolved = { type: "node"; node: Node<PetriNodeData> } | { type: "edge"; edge: Edge<PetriEdgeData> } | null
 
-type PanelMode = "mini" | "normal" | "full"
 
 export function FlowWorkspace() {
   return (
@@ -86,13 +85,18 @@ function CanvasInner() {
   // All state/hooks used in onExplorerSelect and throughout CanvasInner
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<PetriNodeData>>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<PetriEdgeData>>([])
+  // keep refs to the latest nodes/edges so event handlers can read current state
+  const nodesRef = useRef<Node<PetriNodeData>[]>([])
+  const edgesRef = useRef<Edge<PetriEdgeData>[]>([])
+  useEffect(() => { nodesRef.current = nodes }, [nodes])
+  useEffect(() => { edgesRef.current = edges }, [edges])
   // History management (present/past/future) to support reliable undo/redo
   type Snapshot = { nodes: Node<PetriNodeData>[]; edges: Edge<PetriEdgeData>[] }
   const historyRef = useRef<{ past: Snapshot[]; present: Snapshot | null; future: Snapshot[] }>({ past: [], present: null, future: [] })
   const isRestoringRef = useRef(false)
   const isLoadingWorkflowRef = useRef(false)
   const [selectedRef, setSelectedRef] = useState<SelectedRef>(null)
-  const [panelMode, setPanelMode] = useState<PanelMode>("normal")
+  // panelMode removed: side panel resize is controlled externally now
   const [panelWidth, setPanelWidth] = useState<number>(360)
   const [resizing, setResizing] = useState(false)
   const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null)
@@ -353,18 +357,67 @@ function CanvasInner() {
       setSelectedRef(null); setTokensOpenForPlaceId(null); setGuardOpenForTransitionId(null)
       setActiveWorkflowId(workflowId)
       setEditedMap(prev => ({ ...prev, [workflowId]: false }))
-      if (panelMode === 'mini') setPanelMode('normal')
+  // previously would auto-open panel when tokens/guard opened; now just ensure leftTab set appropriately
     })
-  }, [settings.flowServiceUrl, serverWorkflowCache, workflowGraphCache, workflowMeta, panelMode])
+  }, [settings.flowServiceUrl, serverWorkflowCache, workflowGraphCache, workflowMeta])
+
+  // Listen to explorer selection events dispatched from other panels
+  useEffect(() => {
+    const handler = (e: any) => {
+      const id = e?.detail?.id
+      if (id) onExplorerSelect(id)
+    }
+    const delHandler = (e: any) => {
+      const id = e?.detail?.id
+      if (id && id === activeWorkflowId) {
+        // workflow deleted externally -> clear canvas
+        setActiveWorkflowId(null)
+        setNodes([])
+        setEdges([])
+      }
+    }
+    window.addEventListener('goflow-explorer-select', handler as EventListener)
+    window.addEventListener('goflow-workflow-deleted', delHandler as EventListener)
+    // Listen for entity selection events from explorer (left panel)
+    const entityHandler = (e: any) => {
+      const { kind, id } = e?.detail || {}
+      if (!kind || !id) return
+      // mirror the same selection behavior as the side-panel's onSelectEntity prop
+      if (kind === 'place' || kind === 'transition') {
+        setExplorerSelection(null)
+        setSelectedRef({ type: 'node', id })
+        setNodes(nds => nds.map(n => n.id===id ? { ...n, selected: true } : { ...n, selected: false }))
+        setEdges(eds => eds.map(e => ({ ...e, selected: false })))
+      } else if (kind === 'arc') {
+        setExplorerSelection(null)
+        setSelectedRef({ type: 'edge', id })
+        setEdges(eds => eds.map(e => e.id===id ? { ...e, selected: true } : { ...e, selected: false }))
+        setNodes(nds => nds.map(n => ({ ...n, selected: false })))
+      } else if (kind === 'declarations') {
+        setSelectedRef(null)
+        setExplorerSelection({ kind: 'declarations', id })
+        setNodes(nds => nds.map(n => ({ ...n, selected: false })))
+        setEdges(eds => eds.map(e => ({ ...e, selected: false })))
+      }
+    }
+    window.addEventListener('goflow-explorer-entity-select', entityHandler as EventListener)
+    return () => {
+      window.removeEventListener('goflow-explorer-select', handler as EventListener)
+      window.removeEventListener('goflow-workflow-deleted', delHandler as EventListener)
+      window.removeEventListener('goflow-explorer-entity-select', entityHandler as EventListener)
+    }
+  }, [onExplorerSelect, activeWorkflowId])
+
+  
 
   // Auto-fetch workflow list when side panel is visible (no need to press button)
   useEffect(() => {
-    if (panelMode !== 'mini' && !serverWorkflowsFetched && settings.flowServiceUrl) {
+    if (!serverWorkflowsFetched && settings.flowServiceUrl) {
       (async () => {
         try { await withApiErrorToast(fetchServerWorkflowList(), toast, 'Fetch workflows') } catch(e) { /* toasted */ }
       })()
     }
-  }, [panelMode, serverWorkflowsFetched, settings.flowServiceUrl, fetchServerWorkflowList])
+  }, [serverWorkflowsFetched, settings.flowServiceUrl, fetchServerWorkflowList])
 
   const edited = activeWorkflowId ? editedMap[activeWorkflowId] ?? false : false;
 
@@ -378,8 +431,6 @@ function CanvasInner() {
       return e ? { type: "edge", edge: e } : null
     }
   }, [selectedRef, nodes, edges])
-
-  const controlsRight = useMemo(() => (panelMode === "normal" ? panelWidth + 12 : 12), [panelMode, panelWidth])
 
   useEffect(() => {
     function onDocClick() {
@@ -417,7 +468,7 @@ function CanvasInner() {
       setSelectedRef({ type: "node", id: pid })
       setTokensOpenForPlaceId(pid)
   setGuardOpenForTransitionId(null)
-      if (panelMode === "mini") setPanelMode("normal")
+      // panel mode removed; no-op
     }
     function onOpenGuard(ev: Event) {
       const ce = ev as CustomEvent<{ transitionId: string }>
@@ -425,7 +476,7 @@ function CanvasInner() {
       if (!tid) return
       setSelectedRef({ type: "node", id: tid })
   setGuardOpenForTransitionId(tid)
-      if (panelMode === "mini") setPanelMode("normal")
+      // panel mode removed; no-op
     }
     document.addEventListener("click", onDocClick)
     document.addEventListener("keydown", onKey)
@@ -438,7 +489,7 @@ function CanvasInner() {
       window.removeEventListener("openTransitionGuard", onOpenGuard as EventListener)
       setGuardOpenForTransitionId(null)
     }
-  }, [panelMode])
+  }, [])
 
   // Listen to workflow selection from Explorer and load its graph
   // Remove legacy listener relying on mock store
@@ -504,7 +555,9 @@ function CanvasInner() {
     prevNodes.current = nodes
     prevEdges.current = edges
     const t = setTimeout(() => {
-      setWorkflowGraphCache(prev => ({ ...prev, [activeWorkflowId]: { nodes: [...nodes], edges: [...edges] } }))
+      const next = { nodes: [...nodes], edges: [...edges] }
+      setWorkflowGraphCache(prev => ({ ...prev, [activeWorkflowId]: next }))
+      try { window.dispatchEvent(new CustomEvent('goflow-explorer-graph-updated', { detail: { workflowId: activeWorkflowId, graph: next } })) } catch {}
     }, 200)
     return () => clearTimeout(t)
   }, [nodes, edges, activeWorkflowId, setWorkflowGraphCache, setEditedMap])
@@ -579,15 +632,27 @@ function CanvasInner() {
       })
       setEditedMap(m => ({ ...m, [activeWorkflowId]: true }))
     }
-    window.addEventListener("mousemove", onMove)
-    window.addEventListener("mouseup", onUp)
+  // Support both pointer and mouse events so pointer capture from SidePanel works
+  window.addEventListener("mousemove", onMove)
+  window.addEventListener("mouseup", onUp)
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
   window.addEventListener('updateColorSetsInternal', onUpdateColorSets as EventListener)
   window.addEventListener('updateDeclarationsInternal', onUpdateDeclarations as EventListener)
+  const onOpenMcp = (e: Event) => {
+    console.debug('[FlowWorkspace] received goflow-open-mcp', e)
+    try { fetch('/api/debug/mcp-received', { method: 'POST', body: JSON.stringify({ ts: Date.now() }), headers: { 'Content-Type': 'application/json' } }).catch(()=>{}) } catch {}
+    setMcpAddOpen(true)
+  }
+  window.addEventListener('goflow-open-mcp', onOpenMcp as EventListener)
     return () => {
-      window.removeEventListener("mousemove", onMove)
-      window.removeEventListener("mouseup", onUp)
+  window.removeEventListener("mousemove", onMove)
+  window.removeEventListener("mouseup", onUp)
+  window.removeEventListener('pointermove', onMove)
+  window.removeEventListener('pointerup', onUp)
   window.removeEventListener('updateColorSetsInternal', onUpdateColorSets as EventListener)
-  window.removeEventListener('updateDeclarationsInternal', onUpdateDeclarations as EventListener)
+    window.removeEventListener('updateDeclarationsInternal', onUpdateDeclarations as EventListener)
+    window.removeEventListener('goflow-open-mcp', onOpenMcp as EventListener)
     }
   }, [resizing, activeWorkflowId])
 
@@ -762,6 +827,7 @@ function CanvasInner() {
     setSelectedRef({ type: "node", id })
   }, [screenToFlowPosition, setNodes])
 
+
   const addTransition = useCallback(() => {
     const id = `t-${Math.random().toString(36).slice(2, 7)}`
     const pos = screenToFlowPosition ? screenToFlowPosition({ x: 420, y: 150 }) : { x: 420, y: 150 }
@@ -770,16 +836,108 @@ function CanvasInner() {
     setSelectedRef({ type: "node", id })
   }, [screenToFlowPosition, setNodes])
 
+  // Register explorer-originated Add actions after both addPlace and addTransition
+  // exist to avoid block-scoped usage-before-declaration errors.
+  useEffect(() => {
+    const onAddPlace = (ev: Event) => {
+      try { addPlace() } catch (e) { /* ignore */ }
+    }
+    const onAddTransition = (ev: Event) => {
+      try { addTransition() } catch (e) { /* ignore */ }
+    }
+    window.addEventListener('goflow-explorer-add-place', onAddPlace as EventListener)
+    window.addEventListener('goflow-explorer-add-transition', onAddTransition as EventListener)
+    return () => {
+      window.removeEventListener('goflow-explorer-add-place', onAddPlace as EventListener)
+      window.removeEventListener('goflow-explorer-add-transition', onAddTransition as EventListener)
+    }
+  }, [addPlace, addTransition])
+
   const deleteNodeById = useCallback(
     (id: string) => {
-      setNodes((nds) => nds.filter((n) => n.id !== id))
-      setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id))
+      // compute next state from current refs to ensure we can broadcast the exact new graph
+      const nextNodes = nodesRef.current.filter((n) => n.id !== id)
+      const nextEdges = edgesRef.current.filter((e) => e.source !== id && e.target !== id)
+      setNodes(() => nextNodes)
+      setEdges(() => nextEdges)
       setSelectedRef(null)
       setTokensOpenForPlaceId(null)
-  setGuardOpenForTransitionId(null)
+      setGuardOpenForTransitionId(null)
+      // broadcast updated graph for explorer cache sync
+      try {
+        window.dispatchEvent(new CustomEvent('goflow-explorer-graph-updated', { detail: { workflowId: activeWorkflowId, graph: { nodes: nextNodes, edges: nextEdges } } }))
+      } catch {}
     },
-    [setNodes, setEdges],
+    [setNodes, setEdges, activeWorkflowId],
   )
+
+  const deleteEdgeById = useCallback((id: string) => {
+    const nextEdges = edgesRef.current.filter((e) => e.id !== id)
+    setEdges(() => nextEdges)
+    setSelectedRef(null)
+    try {
+      window.dispatchEvent(new CustomEvent('goflow-explorer-graph-updated', { detail: { workflowId: activeWorkflowId, graph: { nodes: nodesRef.current, edges: nextEdges } } }))
+    } catch {}
+  }, [setEdges, activeWorkflowId])
+
+  // Register explorer-originated Delete actions
+  useEffect(() => {
+    const onDeletePlace = (ev: Event) => {
+      const ce = ev as CustomEvent<{ id?: string; workflowId?: string }>
+      const id = ce.detail?.id
+      const wfId = ce.detail?.workflowId
+      if (!id) return
+      // only apply to current canvas when workflow matches (or workflowId not provided)
+      if (wfId && wfId !== activeWorkflowId) return
+      const nextNodes = nodesRef.current.filter(n => n.id !== id)
+      const nextEdges = edgesRef.current.filter(e => e.source !== id && e.target !== id)
+      console.debug('[goflow] deletePlace', { id, activeWorkflowId, before: nodesRef.current.length, after: nextNodes.length })
+      setNodes(() => nextNodes)
+      console.debug('[goflow] deletePlace edges', { id, before: edgesRef.current.length, after: nextEdges.length })
+      setEdges(() => nextEdges)
+      setSelectedRef(null)
+      setTokensOpenForPlaceId(null)
+      setGuardOpenForTransitionId(null)
+      try { window.dispatchEvent(new CustomEvent('goflow-explorer-graph-updated', { detail: { workflowId: activeWorkflowId, graph: { nodes: nextNodes, edges: nextEdges } } })) } catch {}
+    }
+    const onDeleteTransition = (ev: Event) => {
+      const ce = ev as CustomEvent<{ id?: string; workflowId?: string }>
+      const id = ce.detail?.id
+      const wfId = ce.detail?.workflowId
+      if (!id) return
+      if (wfId && wfId !== activeWorkflowId) return
+      const nextNodes = nodesRef.current.filter(n => n.id !== id)
+      const nextEdges = edgesRef.current.filter(e => e.source !== id && e.target !== id)
+      console.debug('[goflow] deleteTransition', { id, activeWorkflowId, before: nodesRef.current.length, after: nextNodes.length })
+      setNodes(() => nextNodes)
+      console.debug('[goflow] deleteTransition edges', { id, before: edgesRef.current.length, after: nextEdges.length })
+      setEdges(() => nextEdges)
+      setSelectedRef(null)
+      setTokensOpenForPlaceId(null)
+      setGuardOpenForTransitionId(null)
+      try { window.dispatchEvent(new CustomEvent('goflow-explorer-graph-updated', { detail: { workflowId: activeWorkflowId, graph: { nodes: nextNodes, edges: nextEdges } } })) } catch {}
+    }
+    const onDeleteArc = (ev: Event) => {
+      const ce = ev as CustomEvent<{ id?: string; workflowId?: string }>
+      const id = ce.detail?.id
+      const wfId = ce.detail?.workflowId
+      if (!id) return
+      if (wfId && wfId !== activeWorkflowId) return
+      const nextEdges = edgesRef.current.filter(e => e.id !== id)
+      console.debug('[goflow] deleteArc', { id, activeWorkflowId, before: edgesRef.current.length, after: nextEdges.length })
+      setEdges(() => nextEdges)
+      setSelectedRef(null)
+      try { window.dispatchEvent(new CustomEvent('goflow-explorer-graph-updated', { detail: { workflowId: activeWorkflowId, graph: { nodes: nodesRef.current, edges: nextEdges } } })) } catch {}
+    }
+    window.addEventListener('goflow-explorer-delete-place', onDeletePlace as EventListener)
+    window.addEventListener('goflow-explorer-delete-transition', onDeleteTransition as EventListener)
+    window.addEventListener('goflow-explorer-delete-arc', onDeleteArc as EventListener)
+    return () => {
+      window.removeEventListener('goflow-explorer-delete-place', onDeletePlace as EventListener)
+      window.removeEventListener('goflow-explorer-delete-transition', onDeleteTransition as EventListener)
+      window.removeEventListener('goflow-explorer-delete-arc', onDeleteArc as EventListener)
+    }
+  }, [deleteNodeById, deleteEdgeById, activeWorkflowId])
 
   const setTransitionType = useCallback(
     (id: string, tType: TransitionType) => {
@@ -947,25 +1105,11 @@ function CanvasInner() {
           <div className="flex items-center justify-between border-b px-3 py-2">
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-emerald-600" aria-hidden />
-              <h2 className="text-sm font-medium">System</h2>
+              <h2 className="text-sm font-medium">Simulation</h2>
             </div>
             <Button size="icon" variant="ghost" onClick={() => setShowSystem(false)} aria-label="Close system panel">
               <X className="h-4 w-4" />
             </Button>
-          </div>
-          <div className="flex border-b text-xs font-medium">
-            <button
-              className={`px-3 py-2 ${systemTab === 'simulation' ? 'border-b-2 border-emerald-600 text-emerald-700' : 'text-neutral-500'}`}
-              onClick={() => setSystemTab('simulation')}
-            >Simulation</button>
-            <button
-              className={`px-3 py-2 ${systemTab === 'settings' ? 'border-b-2 border-emerald-600 text-emerald-700' : 'text-neutral-500'}`}
-              onClick={() => setSystemTab('settings')}
-            >Settings</button>
-            <button
-              className={`px-3 py-2 ${systemTab === 'mcp' ? 'border-b-2 border-emerald-600 text-emerald-700' : 'text-neutral-500'}`}
-              onClick={() => setSystemTab('mcp')}
-            >MCP</button>
           </div>
           <div className="flex-1 overflow-hidden">
             {systemTab === 'simulation' && (
@@ -1057,51 +1201,8 @@ function CanvasInner() {
                 </div>
               </div>
             )}
-            {systemTab === 'settings' && <SystemSettingsTab />}
-            {systemTab === 'mcp' && (
-              <div className="flex h-full flex-col p-2 gap-2">
-                <div className="flex items-center gap-2">
-                  <input
-                    className="flex-1 rounded border px-2 py-1 text-xs"
-                    placeholder="Search MCP servers…"
-                    value={mcpSearch}
-                    onChange={e=>setMcpSearch(e.target.value)}
-                  />
-                  <Button size="sm" onClick={()=> { setMcpAddForm({ baseUrl: '', name: '', id: '' }); setMcpDiscovered(null); setMcpAddOpen(true) }}>Add MCP Server</Button>
-                </div>
-                <div className="text-[11px] text-neutral-500">Registered MCP servers</div>
-                <div className="flex-1 overflow-auto space-y-2 pr-1">
-                  {mcpLoading ? <div className="text-xs text-neutral-500">Loading…</div> : null}
-                  {mcpError ? <div className="text-xs text-red-600">{mcpError}</div> : null}
-                  {mcpServers.filter(s => {
-                    const q = mcpSearch.trim().toLowerCase()
-                    if (!q) return true
-                    return (s.name?.toLowerCase().includes(q) || s.baseUrl?.toLowerCase().includes(q) || s.description?.toLowerCase().includes(q))
-                  }).map(s => (
-                    <div key={s.id} className="rounded border px-2 py-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{s.name}</span>
-                          <span className="text-[11px] text-neutral-500">{s.baseUrl}</span>
-                        </div>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button className="h-6 w-6 rounded hover:bg-neutral-100 text-neutral-600">⋯</button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={()=> openMcpDetails(s)}>Details</DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-red-600" onClick={()=> setMcpDeleteConfirm({ open: true, server: s })}>Delete</DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                      <div className="text-[11px] text-neutral-600 mt-1">Tools: {s.toolCount ?? '-'}</div>
-                    </div>
-                  ))}
-                  {(!mcpLoading && mcpServers.length === 0) && <div className="text-xs text-neutral-500">No MCP servers.</div>}
-                </div>
-              </div>
-            )}
+            {/* settings tab moved to system settings dialog/menu; removed inline settings tab */}
+            {/* MCP moved to the new 'MCP Tools' left panel tab. Inline MCP list removed from the system panel. */}
           </div>
         </div>
       )}
@@ -1176,9 +1277,8 @@ function CanvasInner() {
             setInteractive={setInteractive}
             showSystem={showSystem}
             toggleSystem={() => { setShowSystem(v => !v); if (!showSystem) setSystemTab('simulation') }}
-            openExplorer={async () => { if (panelMode === 'mini') setPanelMode('normal'); setLeftTab('explorer'); if (!serverWorkflowsFetched) { try { await withApiErrorToast(fetchServerWorkflowList(), toast, 'Fetch workflows') } catch(e){} } }}
-            panelMode={panelMode}
-            openProperties={() => setPanelMode('normal')}
+            openExplorer={async () => { setLeftTab('explorer'); if (!serverWorkflowsFetched) { try { await withApiErrorToast(fetchServerWorkflowList(), toast, 'Fetch workflows') } catch(e){} } }}
+            openProperties={() => setLeftTab('property')}
             addPlace={addPlace}
             addTransition={addTransition}
             onAutoLayout={() => autoLayout()}
@@ -1200,11 +1300,10 @@ function CanvasInner() {
             zoomIn={zoomIn}
             zoomOut={zoomOut}
             fitView={fitView}
-            controlsRight={controlsRight}
             onOpenRun={() => {
               // navigate to run mode keeping current workflow id
               const wf = activeWorkflowId ? `&workflow=${encodeURIComponent(activeWorkflowId)}` : ''
-              window.location.href = `/?mode=run${wf}`
+              window.location.href = `/wfBuilder?mode=run${wf}`
             }}
           />
         </ReactFlow>
@@ -1320,130 +1419,134 @@ function CanvasInner() {
         )}
       </div>
 
-  <SidePanel
-        open={panelMode !== "mini"}
-        mode={panelMode}
-        width={panelWidth}
-        onResizeStart={() => setResizing(true)}
-        selected={selected}
-        onUpdateNode={updateNode}
-        onUpdateEdge={updateEdge}
-  onModeChange={setPanelMode}
-  onRenamePlaceId={(oldId: string, nextId: string) => renamePlaceId(oldId, nextId)}
-  onRenameTransitionId={(oldId: string, nextId: string) => renameTransitionId(oldId, nextId)}
-  onRenameEdgeId={(oldId: string, nextId: string) => renameEdgeId(oldId, nextId)}
-        tokensOpenForPlaceId={tokensOpenForPlaceId || undefined}
-        guardOpenForTransitionId={guardOpenForTransitionId || undefined}
-        tab={leftTab}
-        setTab={setLeftTab}
-        explorerWorkflows={serverWorkflows}
-        onExplorerSelect={onExplorerSelect}
-  // Refresh list handler
-  onRefreshWorkflows={() => fetchServerWorkflowList()}
-  onDeclarationsApply={onDeclarationsApply}
-        onCreateWorkflow={async () => {
-          if (!settings.flowServiceUrl) return
+      {/* SidePanel props are emitted to the outer RightPanel via a global event so RightPanel can render Flow side panel UI */}
+      {/* Emit registration event with the props object so RightPanel can consume them */}
+      {
+        (() => {
           try {
-            const newId = `wf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`
-            const name = `Workflow ${newId.slice(-4)}`
-            const empty = { id: newId, name, description: '', colorSets: [], places: [], transitions: [], arcs: [], initialMarking: {}, declarations: {} }
-            await withApiErrorToast(saveWorkflow(settings.flowServiceUrl, empty), toast, 'Create workflow')
-            // optimistic add
-            setServerWorkflows(wfs => ([...(Array.isArray(wfs) ? wfs : []), { id: newId, name }]))
-            setWorkflowMeta(meta => ({ ...meta, [newId]: { name, description: '', colorSets: [] } }))
-            onExplorerSelect(newId)
-            toast({ title: 'Created', description: name })
-          } catch(e:any){ /* already toasted */ }
-        }}
-        onDeleteWorkflow={async (id) => {
-          if (!settings.flowServiceUrl) return
-          if (!confirm('Delete workflow ' + id + '?')) return
-          try {
-            await withApiErrorToast(deleteWorkflowApi(settings.flowServiceUrl, id), toast, 'Delete workflow')
-            setServerWorkflows(list => list.filter(w => w.id !== id))
-            if (activeWorkflowId === id) { setActiveWorkflowId(null); setNodes([]); setEdges([]) }
-            toast({ title: 'Deleted', description: id })
-          } catch(e:any) { /* toasted */ }
-        }}
-  onRenameWorkflow={(id, name) => { setWorkflowMeta(prev => ({ ...prev, [id]: { ...(prev[id]||{ colorSets: [] }), name } })); setEditedMap(prev => ({ ...prev, [id]: true })); setServerWorkflows(list => list.map(w => w.id===id?{...w,name}:w)) }}
-        workflowMeta={workflowMeta}
-        activeWorkflowId={activeWorkflowId}
-        explorerNodes={nodes}
-        explorerEdges={edges}
-        onAddPlace={() => {
-          const id = `p-${Math.random().toString(36).slice(2,7)}`
-          setNodes(nds => [...nds, { id, type:'place', position:{ x: 120, y: 120 }, data:{ kind:'place', name:`Place ${id.slice(-3)}`, colorSet:'', tokens:0, tokenList:[] } } as any])
-          setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
-        }}
-        onRenamePlace={(pid, name) => setNodes(nds => nds.map(n => n.id===pid && n.type==='place'? { ...n, data:{ ...(n.data as any), name } } : n))}
-        onDeletePlace={(pid) => {
-          setNodes(nds => nds.filter(n => n.id !== pid))
-          setEdges(eds => eds.filter(e => e.source !== pid && e.target !== pid))
-          setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
-        }}
-        onAddTransition={() => {
-          const id = `t-${Math.random().toString(36).slice(2,7)}`
-          setNodes(nds => [...nds, { id, type:'transition', position:{ x: 360, y: 240 }, data:{ kind:'transition', name:`Transition ${id.slice(-3)}`, tType:'Manual', guardExpression:'true' } } as any])
-          setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
-        }}
-        onRenameTransition={(tid, name) => setNodes(nds => nds.map(n => n.id===tid && n.type==='transition'? { ...n, data:{ ...(n.data as any), name } } : n))}
-        onDeleteTransition={(tid) => {
-          setNodes(nds => nds.filter(n => n.id !== tid))
-          setEdges(eds => eds.filter(e => e.source !== tid && e.target !== tid))
-          setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
-        }}
-        onAddArc={() => {
-          // naive: connect first place to first transition if exists
-          const place = nodes.find(n => n.type==='place')
-          const trans = nodes.find(n => n.type==='transition')
-            if (!place || !trans) return
-          const id = `e-${Math.random().toString(36).slice(2,7)}`
-          setEdges(eds => [...eds, { id, source: place.id, target: trans.id, type:'labeled', data:{ label:'arc', expression:'' } } as any])
-          setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
-        }}
-        onDeleteArc={(aid) => {
-          setEdges(eds => eds.filter(e => e.id !== aid))
-          setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
-        }}
-        onColorSetsChange={(next) => {
-          if (!activeWorkflowId) return
-            setWorkflowMeta(meta => ({ ...meta, [activeWorkflowId]: { ...(meta[activeWorkflowId]||{ name: activeWorkflowId, description:'', colorSets: [] }), colorSets: next } }))
-            setEditedMap(m => ({ ...m, [activeWorkflowId]: true }))
-        }}
-        // Selection sync (Explorer -> Canvas)
-        onSelectEntity={(kind, id) => {
-          if (kind === 'place' || kind === 'transition') {
-            setExplorerSelection(null)
-            setSelectedRef({ type: 'node', id })
-            setNodes(nds => nds.map(n => n.id===id ? { ...n, selected: true } : { ...n, selected: false }))
-            setEdges(eds => eds.map(e => ({ ...e, selected: false })))
-          } else if (kind === 'arc') {
-            setExplorerSelection(null)
-            setSelectedRef({ type: 'edge', id })
-            setEdges(eds => eds.map(e => e.id===id ? { ...e, selected: true } : { ...e, selected: false }))
-            setNodes(nds => nds.map(n => ({ ...n, selected: false })))
-          } else if (kind === 'declarations') {
-            setSelectedRef(null)
-            setExplorerSelection({ kind: 'declarations', id })
-            setNodes(nds => nds.map(n => ({ ...n, selected: false })))
-            setEdges(eds => eds.map(e => ({ ...e, selected: false })))
-          }
-        }}
-        selectedEntity={(() => {
-          if (explorerSelection) return explorerSelection
-          if (!selectedRef) return null
-          if (selectedRef.type === 'node') {
-            const n = nodes.find(n => n.id === selectedRef.id)
-            if (!n) return null
-            if (n.type === 'place') return { kind: 'place' as const, id: n.id }
-            if (n.type === 'transition') return { kind: 'transition' as const, id: n.id }
-            return null
-          } else {
-            const e = edges.find(e => e.id === selectedRef.id)
-            return e ? { kind: 'arc' as const, id: e.id } : null
-          }
-        })()}
-      />
+              const detail = {
+              open: true,
+              width: panelWidth,
+              onResizeStart: () => setResizing(true),
+              selected: selected,
+              onUpdateNode: updateNode,
+              onUpdateEdge: updateEdge,
+              onRenamePlaceId: (oldId: string, nextId: string) => renamePlaceId(oldId, nextId),
+              onRenameTransitionId: (oldId: string, nextId: string) => renameTransitionId(oldId, nextId),
+              onRenameEdgeId: (oldId: string, nextId: string) => renameEdgeId(oldId, nextId),
+              tokensOpenForPlaceId: tokensOpenForPlaceId || undefined,
+              guardOpenForTransitionId: guardOpenForTransitionId || undefined,
+              tab: leftTab,
+              setTab: setLeftTab,
+              explorerWorkflows: serverWorkflows,
+              onExplorerSelect: onExplorerSelect,
+              onRefreshWorkflows: () => fetchServerWorkflowList(),
+              onDeclarationsApply: onDeclarationsApply,
+              onCreateWorkflow: async () => {
+                if (!settings.flowServiceUrl) return
+                try {
+                  const newId = `wf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`
+                  const name = `Workflow ${newId.slice(-4)}`
+                  const empty = { id: newId, name, description: '', colorSets: [], places: [], transitions: [], arcs: [], initialMarking: {}, declarations: {} }
+                  await withApiErrorToast(saveWorkflow(settings.flowServiceUrl, empty), toast, 'Create workflow')
+                  setServerWorkflows(wfs => ([...(Array.isArray(wfs) ? wfs : []), { id: newId, name }]))
+                  setWorkflowMeta(meta => ({ ...meta, [newId]: { name, description: '', colorSets: [] } }))
+                  onExplorerSelect(newId)
+                  toast({ title: 'Created', description: name })
+                } catch(e:any){ /* already toasted */ }
+              },
+              onDeleteWorkflow: async (id: string) => {
+                if (!settings.flowServiceUrl) return
+                if (!confirm('Delete workflow ' + id + '?')) return
+                try {
+                  await withApiErrorToast(deleteWorkflowApi(settings.flowServiceUrl, id), toast, 'Delete workflow')
+                  setServerWorkflows(list => list.filter(w => w.id !== id))
+                  if (activeWorkflowId === id) { setActiveWorkflowId(null); setNodes([]); setEdges([]) }
+                  toast({ title: 'Deleted', description: id })
+                } catch(e:any) { /* toasted */ }
+              },
+              onRenameWorkflow: (id: string, name: string) => { setWorkflowMeta(prev => ({ ...prev, [id]: { ...(prev[id]||{ colorSets: [] }), name } })); setEditedMap(prev => ({ ...prev, [id]: true })); setServerWorkflows(list => list.map(w => w.id===id?{...w,name}:w)) },
+              workflowMeta: workflowMeta,
+              activeWorkflowId: activeWorkflowId,
+              explorerNodes: nodes,
+              explorerEdges: edges,
+              onAddPlace: () => {
+                const id = `p-${Math.random().toString(36).slice(2,7)}`
+                setNodes(nds => [...nds, { id, type:'place', position:{ x: 120, y: 120 }, data:{ kind:'place', name:`Place ${id.slice(-3)}`, colorSet:'', tokens:0, tokenList:[] } } as any])
+                setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
+              },
+              onRenamePlace: (pid: string, name: string) => setNodes(nds => nds.map(n => n.id===pid && n.type==='place'? { ...n, data:{ ...(n.data as any), name } } : n)),
+              onDeletePlace: (pid: string) => {
+                setNodes(nds => nds.filter(n => n.id !== pid))
+                setEdges(eds => eds.filter(e => e.source !== pid && e.target !== pid))
+                setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
+              },
+              onAddTransition: () => {
+                const id = `t-${Math.random().toString(36).slice(2,7)}`
+                setNodes(nds => [...nds, { id, type:'transition', position:{ x: 360, y: 240 }, data:{ kind:'transition', name:`Transition ${id.slice(-3)}`, tType:'Manual', guardExpression:'true' } } as any])
+                setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
+              },
+              onRenameTransition: (tid: string, name: string) => setNodes(nds => nds.map(n => n.id===tid && n.type==='transition'? { ...n, data:{ ...(n.data as any), name } } : n)),
+              onDeleteTransition: (tid: string) => {
+                setNodes(nds => nds.filter(n => n.id !== tid))
+                setEdges(eds => eds.filter(e => e.source !== tid && e.target !== tid))
+                setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
+              },
+              onAddArc: () => {
+                const place = nodes.find(n => n.type==='place')
+                const trans = nodes.find(n => n.type==='transition')
+                if (!place || !trans) return
+                const id = `e-${Math.random().toString(36).slice(2,7)}`
+                setEdges(eds => [...eds, { id, source: place.id, target: trans.id, type:'labeled', data:{ label:'arc', expression:'' } } as any])
+                setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
+              },
+              onDeleteArc: (aid: string) => {
+                setEdges(eds => eds.filter(e => e.id !== aid))
+                setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
+              },
+              onColorSetsChange: (next: string[]) => {
+                if (!activeWorkflowId) return
+                setWorkflowMeta(meta => ({ ...meta, [activeWorkflowId]: { ...(meta[activeWorkflowId]||{ name: activeWorkflowId, description:'', colorSets: [] }), colorSets: next } }))
+                setEditedMap(m => ({ ...m, [activeWorkflowId]: true }))
+              },
+              onSelectEntity: (kind: any, id: string) => {
+                if (kind === 'place' || kind === 'transition') {
+                  setExplorerSelection(null)
+                  setSelectedRef({ type: 'node', id })
+                  setNodes(nds => nds.map(n => n.id===id ? { ...n, selected: true } : { ...n, selected: false }))
+                  setEdges(eds => eds.map(e => ({ ...e, selected: false })))
+                } else if (kind === 'arc') {
+                  setExplorerSelection(null)
+                  setSelectedRef({ type: 'edge', id })
+                  setEdges(eds => eds.map(e => e.id===id ? { ...e, selected: true } : { ...e, selected: false }))
+                  setNodes(nds => nds.map(n => ({ ...n, selected: false })))
+                } else if (kind === 'declarations') {
+                  setSelectedRef(null)
+                  setExplorerSelection({ kind: 'declarations', id })
+                  setNodes(nds => nds.map(n => ({ ...n, selected: false })))
+                  setEdges(eds => eds.map(e => ({ ...e, selected: false })))
+                }
+              },
+              selectedEntity: (() => {
+                if (explorerSelection) return explorerSelection
+                if (!selectedRef) return null
+                if (selectedRef.type === 'node') {
+                  const n = nodes.find(n => n.id === selectedRef.id)
+                  if (!n) return null
+                  if (n.type === 'place') return { kind: 'place' as const, id: n.id }
+                  if (n.type === 'transition') return { kind: 'transition' as const, id: n.id }
+                  return null
+                } else {
+                  const e = edges.find(e => e.id === selectedRef.id)
+                  return e ? { kind: 'arc' as const, id: e.id } : null
+                }
+              })(),
+            }
+            window.dispatchEvent(new CustomEvent('goflow-sidepanel-props', { detail }))
+          } catch (e) { /* best-effort */ }
+          return null
+        })()
+      }
       <Dialog open={validationOpen} onOpenChange={setValidationOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
