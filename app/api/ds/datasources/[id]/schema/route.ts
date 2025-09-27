@@ -140,6 +140,137 @@ export async function GET(
         }
       }
       
+      if (datasource.type === 's3') {
+        // Handle mock S3 datasources
+        if (!datasource.secret && datasource.id.includes('mock')) {
+          if (process.env.GOFLOW_DEBUG) {
+            console.log('[schema:s3] returning mock files for', { id: datasource.id })
+          }
+          return Response.json({ 
+            files: ['documents/report.pdf', 'images/logo.png', 'data/users.csv', 'backup/database.sql'] 
+          })
+        }
+        
+        try {
+          if (!datasource.secret) {
+            return Response.json({ files: [], error: 'no credentials configured for datasource' }, { status: 400 })
+          }
+          
+          const bucket = datasource.configPublic?.bucket
+          const pathPrefix = datasource.configPublic?.pathPrefix || ''
+          const provider = datasource.secret.provider
+          
+          if (!bucket) {
+            return Response.json({ files: [], error: 'no bucket specified' }, { status: 400 })
+          }
+          
+          if (provider === 'amazon' && datasource.secret.accessKey && datasource.secret.secretKey && datasource.secret.region) {
+            // Use real AWS S3 API
+            try {
+              const { S3Client, ListObjectsV2Command } = await import('@aws-sdk/client-s3')
+              
+              const s3Client = new S3Client({
+                region: datasource.secret.region!,
+                credentials: {
+                  accessKeyId: datasource.secret.accessKey!,
+                  secretAccessKey: datasource.secret.secretKey!,
+                },
+                ...(datasource.secret.endpoint ? { endpoint: datasource.secret.endpoint } : {}),
+              })
+              
+              const listCommand = new ListObjectsV2Command({
+                Bucket: bucket,
+                Prefix: pathPrefix,
+                MaxKeys: 200, // Limit results
+              })
+              
+              const result = await s3Client.send(listCommand)
+              const files = result.Contents?.map(obj => obj.Key || '') || []
+              
+              if (process.env.GOFLOW_DEBUG) {
+                console.log('[schema:s3] real S3 file listing for', { id: datasource.id, bucket, fileCount: files.length })
+              }
+              
+              return Response.json({ 
+                files: files.filter(f => f.trim()),
+                bucket,
+                pathPrefix,
+                totalObjects: result.KeyCount || 0,
+                isTruncated: result.IsTruncated || false
+              })
+            } catch (s3Error: any) {
+              console.error('[schema:s3] AWS S3 error:', s3Error)
+              return Response.json({ 
+                files: [], 
+                error: `S3 error: ${s3Error.message || 'Failed to list objects'}`,
+                bucket
+              })
+            }
+          } else if (provider === 'google') {
+            // Google Cloud Storage implementation
+            if (process.env.GOFLOW_DEBUG) {
+              console.log('[schema:s3] Using real Google Cloud Storage for', { id: datasource.id, bucket })
+            }
+            
+            try {
+              const { Storage } = await import('@google-cloud/storage')
+              
+              // Parse service account key from secret
+              const serviceAccountKey = JSON.parse(datasource.secret.serviceAccountKey as string)
+              const projectId = datasource.secret.projectId || serviceAccountKey.project_id
+              
+              const storage = new Storage({
+                projectId,
+                credentials: serviceAccountKey,
+              })
+              
+              const bucket_obj = storage.bucket(bucket)
+              
+              // List files with optional prefix
+              const [files] = await bucket_obj.getFiles({
+                prefix: pathPrefix || undefined,
+                maxResults: 200,
+              })
+              
+              const fileNames = files.map(file => file.name)
+              
+              if (process.env.GOFLOW_DEBUG) {
+                console.log('[schema:s3] real GCS file listing for', { id: datasource.id, bucket, fileCount: fileNames.length })
+              }
+              
+              return Response.json({ 
+                files: fileNames,
+                bucket,
+                pathPrefix,
+                totalObjects: fileNames.length,
+                provider: 'google'
+              })
+              
+            } catch (gcsError: any) {
+              console.error('[schema:s3] Google Cloud Storage error:', gcsError)
+              return Response.json({ 
+                files: [], 
+                error: `GCS error: ${gcsError.message || 'Failed to list objects'}`,
+                bucket
+              })
+            }
+          } else {
+            return Response.json({ 
+              files: [], 
+              error: 'Missing S3 credentials or unsupported provider' 
+            })
+          }
+        } catch (e: any) {
+          if (process.env.GOFLOW_DEBUG) {
+            console.error('[schema:s3] error', e?.message)
+          }
+          return Response.json({ 
+            files: [], 
+            error: sanitizeError(e?.message || 'S3 introspection failed') 
+          })
+        }
+      }
+      
       return new Response(JSON.stringify({ error: 'Unsupported type' }), { status: 400 })
     } catch (e: any) {
       // Fallback unexpected error; keep 200 so UI doesn't treat it as fatal

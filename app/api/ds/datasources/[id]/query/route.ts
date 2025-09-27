@@ -146,6 +146,161 @@ export async function POST(
           }
           await conn.end()
         }
+      } else if (datasource.type === 's3') {
+        const { key, format } = body
+        if (typeof key !== 'string' || !key.trim()) {
+          return new Response(JSON.stringify({ error: 'key (file path) required for S3 queries' }), { status: 400 })
+        }
+
+        if (!datasource.secret) {
+          return new Response(JSON.stringify({ error: 'no credentials configured for S3 datasource' }), { status: 400 })
+        }
+
+        const provider = datasource.secret.provider
+        if (provider === 'amazon') {
+          const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3')
+          
+          const s3Client = new S3Client({
+            region: datasource.secret.region || 'us-east-1',
+            credentials: {
+              accessKeyId: datasource.secret.accessKey as string,
+              secretAccessKey: datasource.secret.secretKey as string,
+            },
+            ...(datasource.secret.endpoint && { endpoint: datasource.secret.endpoint as string }),
+          })
+
+          try {
+            const command = new GetObjectCommand({
+              Bucket: datasource.configPublic?.bucket,
+              Key: key,
+            })
+
+            const response = await s3Client.send(command)
+            
+            if (!response.Body) {
+              return new Response(JSON.stringify({ error: 'File not found or empty' }), { status: 404 })
+            }
+
+            // Convert stream to string
+            const chunks: Uint8Array[] = []
+            const stream = response.Body as any
+            for await (const chunk of stream) {
+              chunks.push(chunk)
+            }
+            const content = Buffer.concat(chunks).toString('utf-8')
+
+            // Parse content based on format
+            if (format === 'json' || key.endsWith('.json')) {
+              try {
+                const jsonData = JSON.parse(content)
+                if (Array.isArray(jsonData)) {
+                  rows = jsonData.slice(0, maxRows)
+                  if (rows[0]) columns = Object.keys(rows[0]).map(k => ({ name: k }))
+                } else {
+                  rows = [jsonData]
+                  columns = Object.keys(jsonData).map(k => ({ name: k }))
+                }
+              } catch (parseError) {
+                return new Response(JSON.stringify({ error: 'Invalid JSON format' }), { status: 400 })
+              }
+            } else if (format === 'csv' || key.endsWith('.csv')) {
+              const lines = content.split('\n').filter(line => line.trim())
+              if (lines.length > 0) {
+                const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
+                columns = headers.map(h => ({ name: h }))
+                
+                rows = lines.slice(1, maxRows + 1).map(line => {
+                  const values = line.split(',').map(v => v.trim().replace(/"/g, ''))
+                  const row: any = {}
+                  headers.forEach((header, index) => {
+                    row[header] = values[index] || null
+                  })
+                  return row
+                })
+              }
+            } else {
+              // Return raw text content
+              rows = [{ content, filename: key, size: content.length }]
+              columns = [{ name: 'content' }, { name: 'filename' }, { name: 'size' }]
+            }
+
+          } catch (error: any) {
+            if (process.env.GOFLOW_DEBUG) {
+              console.error('[query:s3] AWS error:', error)
+            }
+            return new Response(JSON.stringify({ 
+              error: error.name === 'NoSuchKey' ? 'File not found' : 'Failed to retrieve S3 object' 
+            }), { status: error.name === 'NoSuchKey' ? 404 : 500 })
+          }
+        } else {
+          // Google Cloud Storage implementation
+          if (process.env.GOFLOW_DEBUG) {
+            console.log('[query:s3] Using real Google Cloud Storage for', { key, format })
+          }
+          
+          try {
+            const { Storage } = await import('@google-cloud/storage')
+            
+            // Parse service account key from secret
+            const serviceAccountKey = JSON.parse(datasource.secret.serviceAccountKey as string)
+            const projectId = datasource.secret.projectId || serviceAccountKey.project_id
+            
+            const storage = new Storage({
+              projectId,
+              credentials: serviceAccountKey,
+            })
+            
+            const bucket_obj = storage.bucket(datasource.configPublic?.bucket)
+            const file = bucket_obj.file(key)
+            
+            // Download file content
+            const [content] = await file.download()
+            const contentString = content.toString('utf-8')
+
+            // Parse content based on format
+            if (format === 'json' || key.endsWith('.json')) {
+              try {
+                const jsonData = JSON.parse(contentString)
+                if (Array.isArray(jsonData)) {
+                  rows = jsonData.slice(0, maxRows)
+                  if (rows[0]) columns = Object.keys(rows[0]).map(k => ({ name: k }))
+                } else {
+                  rows = [jsonData]
+                  columns = Object.keys(jsonData).map(k => ({ name: k }))
+                }
+              } catch (parseError) {
+                return new Response(JSON.stringify({ error: 'Invalid JSON format' }), { status: 400 })
+              }
+            } else if (format === 'csv' || key.endsWith('.csv')) {
+              const lines = contentString.split('\n').filter(line => line.trim())
+              if (lines.length > 0) {
+                const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
+                columns = headers.map(h => ({ name: h }))
+                
+                rows = lines.slice(1, maxRows + 1).map(line => {
+                  const values = line.split(',').map(v => v.trim().replace(/"/g, ''))
+                  const row: any = {}
+                  headers.forEach((header, index) => {
+                    row[header] = values[index] || null
+                  })
+                  return row
+                })
+              }
+            } else {
+              // Return raw text content
+              rows = [{ content: contentString, filename: key, size: contentString.length }]
+              columns = [{ name: 'content' }, { name: 'filename' }, { name: 'size' }]
+            }
+
+          } catch (gcsError: any) {
+            if (process.env.GOFLOW_DEBUG) {
+              console.error('[query:s3] GCS error:', gcsError)
+            }
+            return new Response(JSON.stringify({ 
+              error: gcsError.code === 404 ? 'File not found' : 'Failed to retrieve GCS object' 
+            }), { status: gcsError.code === 404 ? 404 : 500 })
+          }
+        }
       } else {
         return new Response(JSON.stringify({ error: 'Unsupported datasource type' }), { status: 400 })
       }

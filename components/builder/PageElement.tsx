@@ -4,6 +4,7 @@
 import React from "react"
 import { useBuilderStore } from "../../stores/pagebuilder/editor"
 import { DataGrid } from "./DataGrid"
+import { S3Explorer } from "./S3Explorer"
 
 type PageElementProps = {
   elementId: string
@@ -178,8 +179,20 @@ export const PageElement: React.FC<PageElementProps> = ({ elementId, onElementCl
         queryName={element.attributes?.["data-query-name"]}
         autoRefresh={element.attributes?.["data-auto-refresh"] === "true"}
         style={finalStyles}
-        onClick={handleClick}
-        onMouseEnter={handleMouseEnter}
+        onClick={() => handleClick({} as React.MouseEvent)}
+        onMouseEnter={() => handleMouseEnter({} as React.MouseEvent)}
+      />
+    )
+  }
+
+  // Special handling for s3-explorer elements
+  if (element.attributes?.["data-type"] === "s3-explorer") {
+    return (
+      <S3Explorer
+        queryName={element.attributes?.["data-query-name"]}
+        style={finalStyles}
+        onClick={() => handleClick({} as React.MouseEvent)}
+        onMouseEnter={() => handleMouseEnter({} as React.MouseEvent)}
       />
     )
   }

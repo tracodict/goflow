@@ -492,13 +492,19 @@ const DataSidebar: React.FC = () => {
 	const [adding, setAdding] = useState(false)
 	const [creating, setCreating] = useState(false)
 	const [newName, setNewName] = useState('')
-	const [newType, setNewType] = useState<'mongo'|'postgres'|'mysql'>('mongo')
+	const [newType, setNewType] = useState<'mongo'|'postgres'|'mysql'|'s3'>('mongo')
 	const [expanded, setExpanded] = useState<{ [k:string]: boolean }>({ ds: true, queries: true, history: true })
 	const [testingId, setTestingId] = useState<string | null>(null)
 	// legacy local latency removed; rely on store persistence
 		const [configOpen, setConfigOpen] = useState(false)
 		const [configDsId, setConfigDsId] = useState<string | null>(null)
-		interface ConfigForm { uri?: string; host?: string; port?: string; database?: string; user?: string; password?: string; __name?: string; __err?: string; __hosts?: string[] }
+		interface ConfigForm { 
+			uri?: string; host?: string; port?: string; database?: string; user?: string; password?: string; 
+			__name?: string; __err?: string; __hosts?: string[];
+			// S3 specific fields
+			provider?: string; accessKey?: string; secretKey?: string; region?: string; bucket?: string; 
+			endpoint?: string; serviceAccountKey?: string; projectId?: string; pathPrefix?: string;
+		}
 		const [configForm, setConfigForm] = useState<ConfigForm>({})
 		const [savingConfig, setSavingConfig] = useState(false)
 
@@ -506,7 +512,46 @@ const DataSidebar: React.FC = () => {
 			if (!configDsId) return
 			setSavingConfig(true)
 			try {
-				await patchDatasource(configDsId, { name: configForm.__name, config: { database: configForm.database }, secret: { uri: configForm.uri, host: configForm.host, port: configForm.port? Number(configForm.port): undefined, user: configForm.user, password: configForm.password, database: configForm.database } })
+				const current = datasources.find(d=> d.id===configDsId)
+				const engine = current?.type || 'mongo'
+				
+				if (engine === 's3') {
+					// S3 configuration
+					const config = {
+						provider: configForm.provider || 'amazon',
+						bucket: configForm.bucket,
+						pathPrefix: configForm.pathPrefix
+					}
+					const secret = {
+						provider: configForm.provider || 'amazon', // Include provider in secret for backend validation
+						...(configForm.provider === 'amazon' ? {
+							accessKey: configForm.accessKey,
+							secretKey: configForm.secretKey,
+							region: configForm.region,
+							endpoint: configForm.endpoint
+						} : {}),
+						...(configForm.provider === 'google' ? {
+							serviceAccountKey: configForm.serviceAccountKey,
+							projectId: configForm.projectId
+						} : {})
+					}
+					await patchDatasource(configDsId, { name: configForm.__name, config, secret })
+				} else {
+					// SQL database configuration
+					await patchDatasource(configDsId, { 
+						name: configForm.__name, 
+						config: { database: configForm.database }, 
+						secret: { 
+							uri: configForm.uri, 
+							host: configForm.host, 
+							port: configForm.port? Number(configForm.port): undefined, 
+							user: configForm.user, 
+							password: configForm.password, 
+							database: configForm.database 
+						} 
+					})
+				}
+				
 				fetchDatasources()
 				toast({ title: 'Saved' })
 			} catch(e:any) {
@@ -597,17 +642,17 @@ const DataSidebar: React.FC = () => {
 				</div>
 				{adding && (
 					<div className="mt-2 p-2 border rounded space-y-2 bg-background/80">
-						<div className="flex items-center gap-2">
-							<input autoFocus onKeyDown={e=> { e.stopPropagation() }} className="flex-1 px-2 py-1 rounded border text-xs" placeholder="Datasource name" value={newName} onChange={e=> setNewName(e.target.value)} />
-							<select className="px-2 py-1 rounded border text-xs" value={newType} onChange={e=> setNewType(e.target.value as any)}>
+						<div>
+							<input autoFocus onKeyDown={e=> { e.stopPropagation() }} className="w-full px-2 py-1 rounded border text-xs" placeholder="Datasource name" value={newName} onChange={e=> setNewName(e.target.value)} />
+						</div>
+						<div className="flex items-center gap-2 justify-between">
+							<select className="px-2 py-1 rounded border text-xs relative z-50" value={newType} onChange={e=> setNewType(e.target.value as any)}>
 								<option value="mongo">Mongo</option>
 								<option value="postgres">Postgres</option>
 								<option value="mysql">MySQL</option>
+								<option value="s3">S3</option>
 							</select>
-						</div>
-						<div className="flex items-center gap-2 justify-end">
-							<Button size="sm" variant="ghost" onClick={()=> { setAdding(false); setNewName('') }} disabled={creating}>Cancel</Button>
-							<Button size="sm" onClick={handleCreate} disabled={creating || !newName.trim()}>{creating ? 'Creating…' : 'Create'}</Button>
+							<Button size="sm" onClick={handleCreate} disabled={creating || !newName.trim()}>{creating ? 'Saving…' : 'Save'}</Button>
 						</div>
 					</div>
 				)}
@@ -624,34 +669,111 @@ const DataSidebar: React.FC = () => {
 				</DialogHeader>
 				{(() => {
 					const current = datasources.find(d=> d.id===configDsId)
-							const engine = current?.type || 'mongo'
-							const disableIndividual = !!configForm.uri
-							const [uriError, setUriError] = [configForm['__err'] as any, (msg: string | null)=> setConfigForm(f=> ({ ...f, ['__err']: msg || undefined }))]
-							const [hostsParsed, setHostsParsed] = [configForm['__hosts'] as any[] | undefined, (hosts: string[] | undefined)=> setConfigForm(f=> ({ ...f, ['__hosts']: hosts }))]
-							const parseAndSet = (val:string) => {
-								if (!val) { setConfigForm(f=> ({ ...f, uri: '', host: '', port: '', user: '', password: '', database: f.database, __err: undefined, __hosts: undefined })) ; return }
-								try {
-									let original = val.trim()
-									let protoAdjusted = original
-									const isMongo = /^mongodb(\+srv)?:\/\//i.test(original)
-									if (isMongo && protoAdjusted.startsWith('mongodb+srv://')) protoAdjusted = protoAdjusted.replace('mongodb+srv://', 'mongodb://')
-									// Custom multi-host extraction for mongo before URL (URL only keeps first host)
-									let multiHosts: string[] | undefined
-									if (isMongo) {
-										const noProto = original.replace(/^mongodb(?:\+srv)?:\/\//,'')
-										const credsAndRest = noProto.split('@')
-										const afterCreds = credsAndRest.length>1 ? credsAndRest.slice(1).join('@') : credsAndRest[0]
-										const pathIdx = afterCreds.indexOf('/')
-										const hostSegment = pathIdx === -1 ? afterCreds : afterCreds.slice(0, pathIdx)
-										multiHosts = hostSegment.split(',').map(h=> h.trim()).filter(Boolean)
-									}
-									const u = new URL(protoAdjusted)
-									const db = u.pathname && u.pathname !== '/' ? decodeURIComponent(u.pathname.slice(1)) : ''
-									setHostsParsed(multiHosts)
-									setConfigForm({ uri: original, host: u.hostname, port: u.port, user: u.username, password: u.password, database: db, __name: configForm.__name })
-									setUriError(null)
-								} catch (err:any) { setUriError('Invalid connection string'); setConfigForm(f=> ({ ...f, uri: val })) }
+					const engine = current?.type || 'mongo'
+					
+					if (engine === 's3') {
+						// S3 Configuration UI
+						return (
+							<div className="space-y-4 text-xs">
+								<div className="space-y-2">
+									<label className="text-[11px] font-semibold">Datasource Name</label>
+									<input className="px-2 py-1 rounded border" value={configForm['__name'] ?? current?.name ?? ''} onChange={e=> setConfigForm(f=> ({ ...f, ['__name']: e.target.value }))} placeholder="Name" />
+								</div>
+								<div className="space-y-2">
+									<label className="text-[11px] font-semibold">Provider</label>
+									<select className="px-2 py-1 rounded border w-full" value={configForm.provider || 'amazon'} onChange={e=> setConfigForm(f=> ({ ...f, provider: e.target.value }))}>
+										<option value="amazon">Amazon S3</option>
+										<option value="google">Google Cloud Storage</option>
+									</select>
+								</div>
+								
+								{configForm.provider === 'amazon' && (
+									<>
+										<div className="space-y-2">
+											<label className="text-[11px] font-semibold">Access Key ID</label>
+											<input className="px-2 py-1 rounded border" value={configForm.accessKey||''} onChange={e=> setConfigForm(f=>({...f, accessKey: e.target.value }))} placeholder="AKIAIOSFODNN7EXAMPLE" />
+										</div>
+										<div className="space-y-2">
+											<label className="text-[11px] font-semibold">Secret Access Key</label>
+											<input type="password" className="px-2 py-1 rounded border" value={configForm.secretKey||''} onChange={e=> setConfigForm(f=>({...f, secretKey: e.target.value }))} placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" />
+										</div>
+										<div className="grid grid-cols-2 gap-2">
+											<div className="space-y-1">
+												<label className="text-[11px] font-semibold">Region</label>
+												<input className="px-2 py-1 rounded border" value={configForm.region||''} onChange={e=> setConfigForm(f=>({...f, region: e.target.value }))} placeholder="us-east-1" />
+											</div>
+											<div className="space-y-1">
+												<label className="text-[11px] font-semibold">Bucket</label>
+												<input className="px-2 py-1 rounded border" value={configForm.bucket||''} onChange={e=> setConfigForm(f=>({...f, bucket: e.target.value }))} placeholder="my-bucket" />
+											</div>
+										</div>
+										<div className="space-y-2">
+											<label className="text-[11px] font-semibold">Endpoint (optional)</label>
+											<input className="px-2 py-1 rounded border" value={configForm.endpoint||''} onChange={e=> setConfigForm(f=>({...f, endpoint: e.target.value }))} placeholder="https://s3.amazonaws.com" />
+											<p className="text-[10px] text-muted-foreground">Leave empty for standard AWS S3. Use for S3-compatible services.</p>
+										</div>
+									</>
+								)}
+								
+								{configForm.provider === 'google' && (
+									<>
+										<div className="space-y-2">
+											<label className="text-[11px] font-semibold">Service Account Key (JSON)</label>
+											<textarea className="px-2 py-1 rounded border resize-none" rows={4} value={configForm.serviceAccountKey||''} onChange={e=> setConfigForm(f=>({...f, serviceAccountKey: e.target.value }))} placeholder='{"type": "service_account", "project_id": "..."}' />
+										</div>
+										<div className="grid grid-cols-2 gap-2">
+											<div className="space-y-1">
+												<label className="text-[11px] font-semibold">Project ID</label>
+												<input className="px-2 py-1 rounded border" value={configForm.projectId||''} onChange={e=> setConfigForm(f=>({...f, projectId: e.target.value }))} placeholder="my-project-123" />
+											</div>
+											<div className="space-y-1">
+												<label className="text-[11px] font-semibold">Bucket</label>
+												<input className="px-2 py-1 rounded border" value={configForm.bucket||''} onChange={e=> setConfigForm(f=>({...f, bucket: e.target.value }))} placeholder="my-bucket" />
+											</div>
+										</div>
+									</>
+								)}
+								
+								<div className="space-y-2">
+									<label className="text-[11px] font-semibold">Path Prefix (optional)</label>
+									<input className="px-2 py-1 rounded border" value={configForm.pathPrefix||''} onChange={e=> setConfigForm(f=>({...f, pathPrefix: e.target.value }))} placeholder="data/" />
+									<p className="text-[10px] text-muted-foreground">Filter files to a specific folder path within the bucket.</p>
+								</div>
+								
+								<p className="text-[10px] text-muted-foreground">Press Save to persist (in-memory for now). Connection credentials never echoed back.</p>
+							</div>
+						)
+					}
+					
+					// SQL Database Configuration UI (existing logic)
+					const disableIndividual = !!configForm.uri
+					const [uriError, setUriError] = [configForm['__err'] as any, (msg: string | null)=> setConfigForm(f=> ({ ...f, ['__err']: msg || undefined }))]
+					const [hostsParsed, setHostsParsed] = [configForm['__hosts'] as any[] | undefined, (hosts: string[] | undefined)=> setConfigForm(f=> ({ ...f, ['__hosts']: hosts }))]
+					const parseAndSet = (val:string) => {
+						if (!val) { setConfigForm(f=> ({ ...f, uri: '', host: '', port: '', user: '', password: '', database: f.database, __err: undefined, __hosts: undefined })) ; return }
+						try {
+							let original = val.trim()
+							let protoAdjusted = original
+							const isMongo = /^mongodb(\+srv)?:\/\//i.test(original)
+							if (isMongo && protoAdjusted.startsWith('mongodb+srv://')) protoAdjusted = protoAdjusted.replace('mongodb+srv://', 'mongodb://')
+							// Custom multi-host extraction for mongo before URL (URL only keeps first host)
+							let multiHosts: string[] | undefined
+							if (isMongo) {
+								const noProto = original.replace(/^mongodb(?:\+srv)?:\/\//,'')
+								const credsAndRest = noProto.split('@')
+								const afterCreds = credsAndRest.length>1 ? credsAndRest.slice(1).join('@') : credsAndRest[0]
+								const pathIdx = afterCreds.indexOf('/')
+								const hostSegment = pathIdx === -1 ? afterCreds : afterCreds.slice(0, pathIdx)
+								multiHosts = hostSegment.split(',').map(h=> h.trim()).filter(Boolean)
 							}
+							const u = new URL(protoAdjusted)
+							const db = u.pathname && u.pathname !== '/' ? decodeURIComponent(u.pathname.slice(1)) : ''
+							setHostsParsed(multiHosts)
+							setConfigForm({ uri: original, host: u.hostname, port: u.port, user: u.username, password: u.password, database: db, __name: configForm.__name })
+							setUriError(null)
+						} catch (err:any) { setUriError('Invalid connection string'); setConfigForm(f=> ({ ...f, uri: val })) }
+					}
+					
 					return (
 						<div className="space-y-4 text-xs">
 							<div className="space-y-2">

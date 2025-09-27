@@ -35,6 +35,7 @@ import {
 	Menu,
 	Tags as Tabs,
 	ChevronsUpDown,
+	Folder,
 } from "lucide-react"
 
 const generateUniqueId = () => Math.random().toString(36).substr(2, 9)
@@ -352,6 +353,29 @@ const componentCategories = [
 						margin: "8px 0",
 					},
 					content: "Search...",
+				},
+			},
+			{
+				icon: Folder,
+				name: "S3 Explorer",
+				description: "S3 file browser",
+				template: {
+					tagName: "div",
+					attributes: { 
+						"data-type": "s3-explorer",
+						"data-query-name": ""
+					},
+					styles: {
+						width: "100%",
+						minHeight: "400px",
+						border: "1px solid #e5e7eb",
+						borderRadius: "8px",
+						overflow: "hidden",
+						margin: "16px 0",
+						backgroundColor: "white",
+						position: "relative",
+					},
+					content: "S3 Explorer - Select an S3 query to browse files",
 				},
 			},
 		],

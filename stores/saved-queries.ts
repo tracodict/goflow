@@ -3,11 +3,12 @@ import { useQueryStore } from './query'
 
 export interface SavedQuery {
   name: string // Primary key - query name must be unique
-  type: 'mongo' | 'sql'
+  type: 'mongo' | 'sql' | 's3'
   datasourceId: string
-  content: string // JSON for mongo pipeline, SQL for others
+  content: string // JSON for mongo pipeline, SQL for others, S3 prefix/path for S3
   collection?: string
   table?: string
+  s3Prefix?: string
   createdAt: string
   updatedAt: string
 }
@@ -125,6 +126,11 @@ export const useSavedQueriesStore = create<SavedQueriesState>((set, get) => {
         queryState.setMongoInput(query.content)
         if (query.collection) {
           queryState.setCollection(query.collection)
+        }
+      } else if (query.type === 's3') {
+        queryState.setS3Input(query.content)
+        if (query.s3Prefix) {
+          queryState.setS3Prefix(query.s3Prefix)
         }
       } else {
         queryState.setSqlInput(query.content)

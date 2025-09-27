@@ -185,7 +185,7 @@ export const PropertiesTab: React.FC = () => {
 								className="w-full p-2 border border-input rounded text-xs bg-background text-foreground"
 							>
 								<option value="">Select a query...</option>
-								{queries.map((query) => (
+								{queries.filter(q => q.type !== 's3').map((query) => (
 									<option key={query.name} value={query.name}>
 										{query.name} ({query.type})
 									</option>
@@ -204,6 +204,25 @@ export const PropertiesTab: React.FC = () => {
 							</select>
 						</div>
 					</>
+				)}
+
+				{/* S3 Explorer Properties */}
+				{selectedElement.attributes?.["data-type"] === "s3-explorer" && (
+					<div>
+						<label className="block text-xs font-medium mb-1 text-muted-foreground">S3 Query</label>
+						<select
+							value={selectedElement.attributes?.["data-query-name"] || ""}
+							onChange={(e) => handleAttributeUpdate("data-query-name", e.target.value)}
+							className="w-full p-2 border border-input rounded text-xs bg-background text-foreground"
+						>
+							<option value="">Select an S3 query...</option>
+							{queries.filter(q => q.type === 's3').map((query) => (
+								<option key={query.name} value={query.name}>
+									{query.name}
+								</option>
+							))}
+						</select>
+					</div>
 				)}
 			</div>
 		</div>

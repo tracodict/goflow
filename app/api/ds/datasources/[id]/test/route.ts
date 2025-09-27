@@ -60,6 +60,82 @@ async function testMySQL(secret?: Datasource['secret']) {
   } catch (e:any) { return { ok:false, message: e?.message || 'Test failed' } }
 }
 
+async function testS3(secret?: Datasource['secret'], config?: any) {
+  try {
+    const started = Date.now()
+    
+    if (!secret?.provider) return { ok: false, code: 'NO_CONFIG', message: 'No S3 provider specified' }
+    
+    if (secret.provider === 'amazon') {
+      if (!secret.accessKey) return { ok: false, code: 'NO_CONFIG', message: 'Missing Access Key' }
+      if (!secret.secretKey) return { ok: false, code: 'NO_CONFIG', message: 'Missing Secret Key' }
+      if (!secret.region) return { ok: false, code: 'NO_CONFIG', message: 'Missing AWS region' }
+    } else if (secret.provider === 'google') {
+      // Google Cloud Storage validation and connection test
+      if (!secret.serviceAccountKey) return { ok: false, code: 'NO_CONFIG', message: 'Missing Service Account Key' }
+      if (!secret.projectId) return { ok: false, code: 'NO_CONFIG', message: 'Missing Project ID' }
+      
+      try {
+        const { Storage } = await import('@google-cloud/storage')
+        
+        // Parse service account key
+        const serviceAccountKey = JSON.parse(secret.serviceAccountKey as string)
+        const projectId = secret.projectId || serviceAccountKey.project_id
+        
+        const storage = new Storage({
+          projectId,
+          credentials: serviceAccountKey,
+        })
+        
+        // Test connection by checking if we can access the bucket
+        const bucketName = config?.bucket
+        if (bucketName) {
+          const bucket = storage.bucket(bucketName)
+          await bucket.exists()
+        }
+        
+        return { ok: true, latencyMs: Date.now() - started, message: 'Google Cloud Storage connection successful' }
+      } catch (gcsError: any) {
+        return { ok: false, code: 'CONNECTION_FAILED', message: `GCS connection failed: ${gcsError.message}` }
+      }
+    }
+    
+    if (!config?.bucket) return { ok: false, code: 'NO_CONFIG', message: 'Missing bucket name' }
+    
+    // Test actual S3 connection for Amazon provider
+    if (secret.provider === 'amazon') {
+      try {
+        const { S3Client, HeadBucketCommand } = await import('@aws-sdk/client-s3')
+        
+        const s3Client = new S3Client({
+          region: secret.region!,
+          credentials: {
+            accessKeyId: secret.accessKey!,
+            secretAccessKey: secret.secretKey!,
+          },
+          ...(secret.endpoint ? { endpoint: secret.endpoint } : {}),
+        })
+        
+        // Test connection by checking if bucket exists and is accessible
+        await s3Client.send(new HeadBucketCommand({ Bucket: config.bucket }))
+        
+        return { ok: true, latencyMs: Date.now() - started, message: 'S3 connection successful' }
+      } catch (sdkError: any) {
+        console.error('[testS3] AWS SDK error:', sdkError)
+        return { 
+          ok: false, 
+          message: `S3 connection failed: ${sdkError.message || 'Unknown error'}`,
+          code: sdkError.name || 'S3_ERROR'
+        }
+      }
+    }
+    
+    return { ok: false, message: 'Unsupported S3 provider for connection test' }
+  } catch (e:any) { 
+    return { ok: false, message: e?.message || 'S3 test failed' } 
+  }
+}
+
 export async function POST(
   req: Request,
   ctx: Promise<{ params: { id: string } | Promise<{ id: string }> }> | { params: { id: string } | Promise<{ id: string }> }
@@ -85,7 +161,8 @@ export async function POST(
     
     const run = datasource.type === 'mongo' ? testMongo : 
                 datasource.type === 'postgres' ? testPostgres : 
-                datasource.type === 'mysql' ? testMySQL : undefined
+                datasource.type === 'mysql' ? testMySQL : 
+                datasource.type === 's3' ? (() => testS3(secret, datasource.configPublic)) : undefined
     
     if (!run) {
       return NextResponse.json({ 

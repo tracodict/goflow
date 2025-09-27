@@ -69,7 +69,7 @@ export function QueryEditor() {
               Run Pipeline
             </Button>
           }
-          {current?.type!=='mongo' && current && 
+          {current?.type!=='mongo' && current?.type!=='s3' && current && 
             <Button size="sm" onClick={()=> runSql()} disabled={running || !sqlInput?.trim()}>
               <Play className="w-3 h-3 mr-1" />
               Run SQL

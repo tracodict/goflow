@@ -4,7 +4,7 @@ import path from 'path'
 export interface Datasource {
   id: string
   name: string
-  type: 'mongo' | 'postgres' | 'mysql'
+  type: 'mongo' | 'postgres' | 'mysql' | 's3'
   configPublic: Record<string, any>
   secret?: {
     uri?: string
@@ -14,6 +14,14 @@ export interface Datasource {
     password?: string
     database?: string
     collection?: string
+    // S3-specific secret fields
+    provider?: string
+    accessKey?: string
+    secretKey?: string
+    region?: string
+    endpoint?: string
+    serviceAccountKey?: string
+    projectId?: string
     [key: string]: any
   }
   status?: 'unknown' | 'healthy' | 'error'
