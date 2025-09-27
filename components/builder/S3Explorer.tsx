@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useQueryStore } from '@/stores/query'
 import { useSavedQueriesStore } from '@/stores/saved-queries'
 import { ResizablePanels } from '@/components/ui/resizable-panels'
@@ -17,26 +17,110 @@ interface S3ExplorerProps {
 }
 
 interface FileTreeItemProps {
-  file: S3File
+  item: S3TreeItem
   level: number
-  isExpanded?: boolean
-  onToggle?: () => void
   onSelect?: (file: S3File) => void
   isSelected?: boolean
+  expandedFolders: Set<string>
+  onToggleFolder: (key: string) => void
+  selectedFile: S3File | null
+}
+
+interface S3TreeItem {
+  key: string
+  name: string
+  isFolder: boolean
+  file?: S3File  // Original file data for actual files
+  children: S3TreeItem[]
+  size?: number
+  lastModified?: Date
+  contentType?: string
+}
+
+// Convert flat S3File array to hierarchical tree structure
+const buildS3Tree = (files: S3File[]): S3TreeItem[] => {
+  const tree: S3TreeItem[] = []
+  const folderMap = new Map<string, S3TreeItem>()
+
+  // First pass: create all folders
+  files.forEach(file => {
+    const pathParts = file.key.split('/')
+    let currentPath = ''
+
+    pathParts.forEach((part, index) => {
+      const isLast = index === pathParts.length - 1
+      const previousPath = currentPath
+      currentPath = currentPath ? `${currentPath}/${part}` : part
+
+      if (!folderMap.has(currentPath)) {
+        const treeItem: S3TreeItem = {
+          key: currentPath,
+          name: part,
+          isFolder: !isLast || file.isFolder,
+          file: !isLast || file.isFolder ? undefined : file,
+          children: [],
+          size: !isLast || file.isFolder ? undefined : file.size,
+          lastModified: !isLast || file.isFolder ? undefined : file.lastModified,
+          contentType: !isLast || file.isFolder ? undefined : file.contentType
+        }
+
+        folderMap.set(currentPath, treeItem)
+
+        // Add to parent or root
+        if (previousPath && folderMap.has(previousPath)) {
+          folderMap.get(previousPath)!.children.push(treeItem)
+        } else if (!previousPath) {
+          tree.push(treeItem)
+        }
+      } else if (isLast && !file.isFolder) {
+        // Update existing item with file data
+        const existing = folderMap.get(currentPath)!
+        existing.file = file
+        existing.size = file.size
+        existing.lastModified = file.lastModified
+        existing.contentType = file.contentType
+      }
+    })
+  })
+
+  // Sort function: folders first, then files, both alphabetically
+  const sortItems = (items: S3TreeItem[]): S3TreeItem[] => {
+    return items.sort((a, b) => {
+      if (a.isFolder && !b.isFolder) return -1
+      if (!a.isFolder && b.isFolder) return 1
+      return a.name.localeCompare(b.name)
+    })
+  }
+
+  // Recursively sort all levels
+  const sortTree = (items: S3TreeItem[]): S3TreeItem[] => {
+    const sorted = sortItems(items)
+    sorted.forEach(item => {
+      if (item.children.length > 0) {
+        item.children = sortTree(item.children)
+      }
+    })
+    return sorted
+  }
+
+  return sortTree(tree)
 }
 
 const FileTreeItem: React.FC<FileTreeItemProps> = ({ 
-  file, 
+  item, 
   level, 
-  isExpanded, 
-  onToggle, 
   onSelect, 
-  isSelected 
+  isSelected,
+  expandedFolders,
+  onToggleFolder,
+  selectedFile
 }) => {
-  const getFileIcon = (file: S3File) => {
-    if (file.isFolder) return <Folder className="h-4 w-4 text-blue-600" />
-    if (file.contentType?.startsWith('image/')) return <Image className="h-4 w-4 text-green-600" />
-    if (file.contentType?.startsWith('text/')) return <FileText className="h-4 w-4 text-gray-600" />
+  const isExpanded = expandedFolders.has(item.key)
+  
+  const getFileIcon = (item: S3TreeItem) => {
+    if (item.isFolder) return <Folder className="h-4 w-4 text-blue-600" />
+    if (item.contentType?.startsWith('image/')) return <Image className="h-4 w-4 text-green-600" />
+    if (item.contentType?.startsWith('text/')) return <FileText className="h-4 w-4 text-gray-600" />
     return <File className="h-4 w-4 text-gray-500" />
   }
 
@@ -48,33 +132,53 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
   }
 
   return (
-    <div 
-      className={`flex items-center py-1 px-2 hover:bg-gray-100 cursor-pointer ${isSelected ? 'bg-blue-100' : ''}`}
-      style={{ paddingLeft: `${level * 20 + 8}px` }}
-      onClick={() => onSelect?.(file)}
-    >
-      {file.isFolder && (
-        <button 
-          className="p-1 hover:bg-gray-200 rounded mr-1"
-          onClick={(e) => {
-            e.stopPropagation()
-            onToggle?.()
-          }}
-        >
-          {isExpanded ? (
-            <ChevronDown className="h-3 w-3" />
-          ) : (
-            <ChevronRight className="h-3 w-3" />
-          )}
-        </button>
+    <>
+      <div 
+        className={`flex items-center py-1 px-2 hover:bg-gray-100 cursor-pointer ${isSelected ? 'bg-blue-100' : ''}`}
+        style={{ paddingLeft: `${level * 20 + 8}px` }}
+        onClick={() => item.file && onSelect?.(item.file)}
+      >
+        {item.isFolder && (
+          <button 
+            className="p-1 hover:bg-gray-200 rounded mr-1"
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleFolder(item.key)
+            }}
+          >
+            {isExpanded ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : (
+              <ChevronRight className="h-3 w-3" />
+            )}
+          </button>
+        )}
+        {!item.isFolder && <div className="w-5" />}
+        {getFileIcon(item)}
+        <span className="ml-2 flex-1 truncate text-sm">{item.name}</span>
+        {!item.isFolder && item.size && (
+          <span className="text-xs text-gray-500 ml-2">{formatFileSize(item.size)}</span>
+        )}
+      </div>
+      
+      {/* Render children if folder is expanded */}
+      {item.isFolder && isExpanded && item.children.length > 0 && (
+        <>
+          {item.children.map((child) => (
+            <FileTreeItem
+              key={child.key}
+              item={child}
+              level={level + 1}
+              onSelect={onSelect}
+              isSelected={child.file && selectedFile ? selectedFile.key === child.file.key : false}
+              expandedFolders={expandedFolders}
+              onToggleFolder={onToggleFolder}
+              selectedFile={selectedFile}
+            />
+          ))}
+        </>
       )}
-      {!file.isFolder && <div className="w-5" />}
-      {getFileIcon(file)}
-      <span className="ml-2 flex-1 truncate text-sm">{file.key.split('/').pop()}</span>
-      {!file.isFolder && (
-        <span className="text-xs text-gray-500 ml-2">{formatFileSize(file.size)}</span>
-      )}
-    </div>
+    </>
   )
 }
 
@@ -206,9 +310,18 @@ export const S3Explorer: React.FC<S3ExplorerProps> = ({
     setExpandedFolders(newExpanded)
   }
 
-  const filteredFiles = s3Result?.files.filter(file => 
-    searchTerm === '' || file.key.toLowerCase().includes(searchTerm.toLowerCase())
-  ) || []
+  // Build tree structure from S3 files and apply search filter
+  const treeData = useMemo(() => {
+    if (!s3Result?.files) return []
+    
+    // First filter files by search term
+    const filteredFiles = s3Result.files.filter(file => 
+      searchTerm === '' || file.key.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    
+    // Then build tree from filtered files
+    return buildS3Tree(filteredFiles)
+  }, [s3Result?.files, searchTerm])
 
   const containerStyle: React.CSSProperties = {
     ...style,
@@ -298,21 +411,22 @@ export const S3Explorer: React.FC<S3ExplorerProps> = ({
               
               {/* File List */}
               <div className="flex-1 overflow-auto">
-                {filteredFiles.length === 0 ? (
+                {treeData.length === 0 ? (
                   <div className="p-4 text-center text-gray-500 text-sm">
                     {searchTerm ? 'No files match search' : 'No files found'}
                   </div>
                 ) : (
                   <div>
-                    {filteredFiles.map((file, index) => (
+                    {treeData.map((item) => (
                       <FileTreeItem
-                        key={file.key}
-                        file={file}
+                        key={item.key}
+                        item={item}
                         level={0}
-                        isExpanded={expandedFolders.has(file.key)}
-                        onToggle={() => toggleFolder(file.key)}
                         onSelect={setSelectedFile}
-                        isSelected={selectedFile?.key === file.key}
+                        isSelected={!!(selectedFile && item.file && selectedFile.key === item.file.key)}
+                        expandedFolders={expandedFolders}
+                        onToggleFolder={toggleFolder}
+                        selectedFile={selectedFile}
                       />
                     ))}
                   </div>

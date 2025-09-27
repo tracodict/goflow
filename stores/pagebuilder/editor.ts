@@ -21,6 +21,7 @@ export interface BuilderState {
 	leftPanelWidth: number
 	rightPanelWidth: number
 	showContainerBorders: boolean
+	hasUnsavedChanges: boolean
 
 	// Actions
 	addElement: (element: Element, parentId?: string) => void
@@ -35,6 +36,9 @@ export interface BuilderState {
 	setLeftPanelWidth: (width: number) => void
 	setRightPanelWidth: (width: number) => void
 	toggleContainerBorders: () => void
+	markAsChanged: () => void
+	markAsSaved: () => void
+	loadElements: (elements: Record<string, Element>) => void
 }
 
 export const useBuilderStore = create<BuilderState>((set, get) => ({
@@ -96,6 +100,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 	leftPanelWidth: 300,
 	rightPanelWidth: 320,
 	showContainerBorders: true,
+	hasUnsavedChanges: false,
 
 	addElement: (element, parentId = "page-root") => {
 		console.log("[v0] Adding element:", {
@@ -138,6 +143,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 				...state.elements,
 				[id]: { ...state.elements[id], ...updates },
 			},
+			hasUnsavedChanges: true,
 		}))
 	},
 
@@ -171,6 +177,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 			return {
 				elements: newElements,
 				selectedElementId: state.selectedElementId === id ? null : state.selectedElementId,
+				hasUnsavedChanges: true,
 			}
 		})
 	},
@@ -241,7 +248,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 				parentId: newParentId,
 			}
 
-			return { elements: newElements }
+			return { elements: newElements, hasUnsavedChanges: true }
 		})
 	},
 
@@ -255,5 +262,17 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
 	toggleContainerBorders: () => {
 		set((state) => ({ showContainerBorders: !state.showContainerBorders }))
+	},
+
+	markAsChanged: () => {
+		set({ hasUnsavedChanges: true })
+	},
+
+	markAsSaved: () => {
+		set({ hasUnsavedChanges: false })
+	},
+
+	loadElements: (elements: Record<string, Element>) => {
+		set({ elements, hasUnsavedChanges: false })
 	},
 }))

@@ -9,6 +9,7 @@ import { Trash2, MoveUp, MoveDown, SquarePen, X, Wand2 } from 'lucide-react'
 import SchemaVisualEditor from '@/jsonjoy-builder/src/components/SchemaEditor/SchemaVisualEditor'
 import { SchemaInferencer } from '@/jsonjoy-builder/src/components/features/SchemaInferencer'
 import type { JSONSchema } from '@/jsonjoy-builder/src/types/jsonSchema'
+import { SchemaEditForm } from '@/components/via/schema-edit-form'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
@@ -54,7 +55,7 @@ export function DeclarationsPanel({ value, onApply, builtInColorSets, disabled }
   // Visual schema editor modal state
   const [schemaEditorIndex, setSchemaEditorIndex] = useState<number | null>(null)
   const [schemaDraft, setSchemaDraft] = useState<JSONSchema | null>(null)
-  const [showInferencer, setShowInferencer] = useState(false)
+  const [showSchemaEditForm, setShowSchemaEditForm] = useState(false)
   const [flashIndex, setFlashIndex] = useState<number | null>(null)
   const applyImmediateRef = useRef(false)
   const preserveEditRef = useRef(false)
@@ -365,6 +366,7 @@ export function DeclarationsPanel({ value, onApply, builtInColorSets, disabled }
                   } catch {
                     setSchemaDraft({})
                   }
+                  setShowSchemaEditForm(true)
                 }}>
                   <SquarePen className="h-4 w-4" />
                 </Button>
@@ -408,41 +410,20 @@ export function DeclarationsPanel({ value, onApply, builtInColorSets, disabled }
       {category==='color' && (
         <div className="text-[10px] text-neutral-500">Built-ins: {builtInColorSets.join(', ')} (not persisted)</div>
       )}
-      {schemaEditorIndex!=null && schemaDraft && (
-        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/40">
-          <div className="w-[780px] max-h-[85vh] rounded-md border bg-white shadow-lg flex flex-col">
-            <div className="flex items-center justify-between border-b px-3 py-2 text-sm font-medium">
-              <div className="flex items-center gap-3">
-                <span>Edit Schema: {(lines.jsonSchemas||[])[schemaEditorIndex]?.name || 'Unnamed'}</span>
-                <Button size="sm" variant="outline" onClick={()=> setShowInferencer(true)} className="flex items-center gap-1" aria-label="Infer from JSON sample">
-                  <Wand2 className="h-4 w-4" /> Infer
-                </Button>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" onClick={()=>{ setSchemaEditorIndex(null); setSchemaDraft(null); setShowInferencer(false) }}>Cancel</Button>
-                <Button size="sm" onClick={()=>{
-                  setLines(prev => ({ ...prev, jsonSchemas: (prev.jsonSchemas||[]).map((o,i)=> i===schemaEditorIndex ? { ...o, schema: schemaDraft }: o) }))
-                  setSchemaEditorIndex(null); setSchemaDraft(null); setShowInferencer(false)
-                  applyImmediateRef.current = true
-                }}>Apply</Button>
-                <Button size="icon" variant="ghost" aria-label="Close" onClick={()=>{ setSchemaEditorIndex(null); setSchemaDraft(null); setShowInferencer(false) }}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            <div className="flex-1 overflow-auto">
-              <SchemaVisualEditor schema={schemaDraft as any} onChange={(next)=> setSchemaDraft(next as any)} />
-            </div>
-          </div>
-        </div>
-      )}
-      {showInferencer && schemaEditorIndex!=null && (
-        <SchemaInferencer
-          open={showInferencer}
-            onOpenChange={(open)=> setShowInferencer(open)}
-            onSchemaInferred={(s)=> {
-              setSchemaDraft(s as any)
-            }}
+      {schemaEditorIndex !== null && schemaDraft && (
+        <SchemaEditForm
+          open={showSchemaEditForm}
+          schemaName={(lines.jsonSchemas||[])[schemaEditorIndex]?.name || 'Unnamed'}
+          schema={schemaDraft}
+          onApply={(updatedSchema) => {
+            setLines(prev => ({ ...prev, jsonSchemas: (prev.jsonSchemas||[]).map((o,i)=> i===schemaEditorIndex ? { ...o, schema: updatedSchema }: o) }))
+            applyImmediateRef.current = true
+          }}
+          onClose={() => {
+            setSchemaEditorIndex(null)
+            setSchemaDraft(null)
+            setShowSchemaEditForm(false)
+          }}
         />
       )}
       <Separator />

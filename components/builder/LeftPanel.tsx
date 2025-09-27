@@ -1,11 +1,15 @@
 "use client"
 
 
-import type React from "react"
+import React from "react"
 import { useState, useEffect } from "react"
 import { ComponentsTab } from "./tabs/ComponentsTab"
 import { PageStructureTab } from "./tabs/PageStructureTab"
+import { PagesTab } from "./tabs/PagesTab"
+import { SchemaTab } from "../via/schema-tab"
+import { usePreSupportedSchemas } from "../petri/pre-supported-schemas"
 import ExplorerPanel from "../petri/explorer-panel"
+import type { JSONSchema } from "@/jsonjoy-builder/src/types/jsonSchema"
 import { Layers, FileText, TreePine, Database, BookText, Workflow, X, Wrench, MoreVertical, RefreshCw, Plus, Play, Beaker, Trash2 } from "lucide-react"
 import { Button } from "../ui/button"
 import { useDatasourceStore } from '@/stores/datasource'
@@ -37,12 +41,19 @@ type LeftPanelProps = {
 	onOpen: () => void
 	activeTab: string
 	setActiveTab: (tab: string) => void
+	onSchemaSelect?: (schemaName: string, schema: JSONSchema) => void
 }
-	export const LeftPanel: React.FC<LeftPanelProps> = ({ isOpen, onClose, onOpen, activeTab, setActiveTab }) => {
+	export const LeftPanel: React.FC<LeftPanelProps> = ({ isOpen, onClose, onOpen, activeTab, setActiveTab, onSchemaSelect }) => {
 		const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([])
 		const [loading, setLoading] = useState(false)
 		const [error, setError] = useState<string | null>(null)
 		const { settings } = useSystemSettings()
+		const { names: preSupportedNames, load: loadPreSupported } = usePreSupportedSchemas()
+
+		// Load pre-supported schemas when component mounts
+		useEffect(() => {
+			loadPreSupported()
+		}, [loadPreSupported])
 
 		const fetchList = async () => {
 			setLoading(true)
@@ -222,24 +233,22 @@ type LeftPanelProps = {
 				case "structure":
 					return <PageStructureTab />
 				case "pages":
-					return (
-						<div className="flex-1 p-4">
-							<div className="text-center text-muted-foreground">
-								<h3 className="font-medium mb-2">Pages</h3>
-								<p className="text-sm">Page management coming soon...</p>
-							</div>
-						</div>
-					)
+					return <PagesTab />
 				case "data":
 					// Datasource sidebar (Phase 1) using goflow design language
 					return <DataSidebar />
 				case "schema":
 					return (
-						<div className="flex-1 p-4">
-							<div className="text-center text-muted-foreground">
-								<h3 className="font-medium mb-2">Schema</h3>
-								<p className="text-sm">Schema management coming soon...</p>
-							</div>
+						<div className="flex-1 overflow-auto">
+							<SchemaTab
+								definedColors={preSupportedNames} // Use pre-supported schema names
+								jsonSchemas={[]} // TODO: Wire up actual JSON schemas when available
+								onSchemaUpdate={(name, updatedSchema) => {
+									// TODO: Implement schema update logic for workflow context
+									console.log('Schema updated:', name, updatedSchema)
+								}}
+								onSchemaSelect={onSchemaSelect} // Pass through the callback
+							/>
 						</div>
 					)
 				case "workflow":

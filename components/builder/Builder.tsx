@@ -7,10 +7,12 @@ import { PageWorkspace } from "./PageWorkspace"
 import { VerticalToolbar } from "./VerticalToolbar"
 import { FlowWorkspace } from "../petri/flow-workspace"
 import DataWorkspace from '@/components/data/DataWorkspace'
+import { SchemaViewer } from "./SchemaViewer"
 import { RightPanel } from "./RightPanel"
 import { ResizeHandle } from "./ResizeHandle"
 import { SystemSettingsProvider, useSystemSettings } from "../petri/system-settings-context"
 import { useState } from "react"
+import type { JSONSchema } from "@/jsonjoy-builder/src/types/jsonSchema"
 import {
   Menubar,
   MenubarMenu,
@@ -29,8 +31,25 @@ export const Builder: React.FC = () => {
   const [isRightPanelOpen, setRightPanelOpen] = useState(true)
   const [showSystemSettings, setShowSystemSettings] = useState(false)
   const [activeTab, setActiveTab] = useState<string>("components")
+  const [selectedSchema, setSelectedSchema] = useState<{ name: string; schema: JSONSchema } | null>(null)
   const { session: userSession, loading: sessionLoading } = useSession()
   const primaryRole = (userSession?.roles || [])[0]
+
+  const handleSchemaSelect = (schemaName: string, schema: JSONSchema) => {
+    setSelectedSchema({ name: schemaName, schema })
+  }
+
+  const handleSchemaClose = () => {
+    setSelectedSchema(null)
+  }
+
+  const handleSchemaChange = (updatedSchema: JSONSchema) => {
+    if (selectedSchema) {
+      setSelectedSchema({ ...selectedSchema, schema: updatedSchema })
+      // TODO: Implement schema persistence logic here
+      console.log('Schema updated:', selectedSchema.name, updatedSchema)
+    }
+  }
 
   return (
     <SystemSettingsProvider>
@@ -109,6 +128,7 @@ export const Builder: React.FC = () => {
                 onOpen={() => setLeftPanelOpen(true)}
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
+                onSchemaSelect={handleSchemaSelect}
               />
               {isLeftPanelOpen && (
                 <ResizeHandle direction="left" onResize={(delta) => setLeftPanelWidth(leftPanelWidth + delta)} />
@@ -118,18 +138,29 @@ export const Builder: React.FC = () => {
         )}
 
         {/* Main workspace */}
-        <div className="flex-1 flex bg-muted/30 relative overflow-hide">
-          <div
-            style={{
-              overflow: "hidden",
-              transform: `scale(${canvasScale})`,
-              transformOrigin: "0 0",
-              width: `${100 / canvasScale}%`,
-              height: `${100 / canvasScale}%`,
-            }}
-          >
-            {activeTab === "workflow" ? <FlowWorkspace /> : (activeTab === 'data' ? <DataWorkspace /> : <PageWorkspace />)}
-          </div>
+        <div className="flex-1 flex bg-muted/30 relative overflow-hidden">
+          {selectedSchema ? (
+            <div className="flex-1 h-full overflow-hidden">
+              <SchemaViewer
+                schema={selectedSchema.schema}
+                schemaName={selectedSchema.name}
+                onSchemaChange={handleSchemaChange}
+                onClose={handleSchemaClose}
+              />
+            </div>
+          ) : (
+            <div
+              style={{
+                overflow: "hidden",
+                transform: `scale(${canvasScale})`,
+                transformOrigin: "0 0",
+                width: `${100 / canvasScale}%`,
+                height: `${100 / canvasScale}%`,
+              }}
+            >
+              {activeTab === "workflow" ? <FlowWorkspace /> : (activeTab === 'data' ? <DataWorkspace /> : <PageWorkspace />)}
+            </div>
+          )}
         </div>
 
         {/* Vertical toolbar: show when PageWorkspace is visible (not workflow). Also show in preview mode at right-bottom. */}
