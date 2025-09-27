@@ -283,14 +283,18 @@ function ImportWorkflowButton({ onImported }: { onImported?: () => void }) {
   const [text, setText] = useState<string>('')
   const [error, setError] = useState<string>('')
   const [loading, setLoading] = useState(false)
+  // Read system settings safely. Hooks must be called at the top-level of the component.
+  // If the provider is not mounted, useSystemSettings will throw; catch and fall back to other sources.
+  let settingsFromCtx: Record<string, string> | undefined
+  try {
+    const ctx = useSystemSettings()
+    settingsFromCtx = ctx?.settings
+  } catch (e) {
+    settingsFromCtx = undefined
+  }
 
   const resolveServiceUrl = () => {
-    try {
-      const { settings } = useSystemSettings()
-      if (settings?.flowServiceUrl) return settings.flowServiceUrl
-    } catch {
-      // ignore if provider not present
-    }
+    if (settingsFromCtx && settingsFromCtx.flowServiceUrl) return settingsFromCtx.flowServiceUrl
     if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_FLOW_SERVICE_URL) return process.env.NEXT_PUBLIC_FLOW_SERVICE_URL
     if (typeof window !== 'undefined') {
       const g = (window as any).__goflowServiceBase

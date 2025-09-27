@@ -102,6 +102,19 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
     if (!flowServiceUrl) flowServiceUrl = DEFAULT_SETTINGS.flowServiceUrl
   }
 
+  // Diagnostic log: record the resolved flowServiceUrl and nearby potential sources
+  try {
+    // eslint-disable-next-line no-console
+    if (typeof window !== 'undefined') {
+      const raw = window.localStorage.getItem('goflow.systemSettings')
+      console.debug('[RunMain] resolved flowServiceUrl', { flowServiceUrl, localStorageRaw: raw, env: process.env.NEXT_PUBLIC_FLOW_SERVICE_URL, windowGlobal: (window as any).__goflowServiceBase })
+    } else {
+      console.debug('[RunMain] resolved flowServiceUrl (ssr)', { flowServiceUrl, env: process.env.NEXT_PUBLIC_FLOW_SERVICE_URL })
+    }
+  } catch (e) {
+    // ignore logging failures
+  }
+
   // Case-based polling of enabled transitions (simple interval)
   const [enabled, setEnabled] = useState<any[]>([])
   const refresh = React.useCallback(async () => {

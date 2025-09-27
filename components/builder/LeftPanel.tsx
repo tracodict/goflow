@@ -6,8 +6,13 @@ import { useState, useEffect } from "react"
 import { ComponentsTab } from "./tabs/ComponentsTab"
 import { PageStructureTab } from "./tabs/PageStructureTab"
 import ExplorerPanel from "../petri/explorer-panel"
-import { Layers, FileText, TreePine, Database, BookText, Workflow, X, Wrench, MoreVertical } from "lucide-react"
+import { Layers, FileText, TreePine, Database, BookText, Workflow, X, Wrench, MoreVertical, RefreshCw, Plus, Play, Beaker, Trash2 } from "lucide-react"
 import { Button } from "../ui/button"
+import { useDatasourceStore } from '@/stores/datasource'
+import { useSavedQueriesStore, SavedQuery } from '@/stores/saved-queries'
+import { useQueryStore, QueryHistoryItem } from '@/stores/query'
+import { createDatasource, testDatasource } from '@/lib/datasource-client'
+import { cn } from '@/lib/utils'
 
 
 const tabs = [
@@ -226,14 +231,8 @@ type LeftPanelProps = {
 						</div>
 					)
 				case "data":
-					return (
-						<div className="flex-1 p-4">
-							<div className="text-center text-muted-foreground">
-								<h3 className="font-medium mb-2">Data Source</h3>
-								<p className="text-sm">Data source management coming soon...</p>
-							</div>
-						</div>
-					)
+					// Datasource sidebar (Phase 1) using goflow design language
+					return <DataSidebar />
 				case "schema":
 					return (
 						<div className="flex-1 p-4">
@@ -466,3 +465,468 @@ type LeftPanelProps = {
 			</div>
 		)
 	}
+
+// --- Data Sidebar Implementation (Phase 1) ---
+
+// Shared Section Component
+const Section: React.FC<{ id:string; title:string; children:React.ReactNode; actions?:React.ReactNode; expanded: { [k:string]: boolean }; setExpanded: (fn: (s: { [k:string]: boolean }) => { [k:string]: boolean }) => void }> = ({ id, title, children, actions, expanded, setExpanded }) => {
+	const open = expanded[id]
+	return (
+		<div className="rounded border bg-background/50">
+			<div className="flex items-center justify-between px-2 py-1.5 border-b">
+				<button onClick={()=> setExpanded(s=>({ ...s, [id]: !open }))} className="flex-1 flex items-center gap-2 text-left">
+					<span className="text-xs font-semibold tracking-wide">{title}</span>
+					<span className="ml-auto text-[10px] text-muted-foreground">{open ? '−' : '+'}</span>
+				</button>
+				{actions}
+			</div>
+			{open && <div className="p-2 space-y-2 text-xs">{children}</div>}
+		</div>
+	)
+}
+
+const DataSidebar: React.FC = () => {
+	const { datasources, loading, error, fetchDatasources, connectDatasource } = useDatasourceStore()
+	const { fetchDetail, patchDatasource } = useDatasourceStore()
+	const currentDs = datasources.find(d => d.id === (typeof window !== 'undefined' ? (document as any).activeDatasourceId : undefined))
+	const [adding, setAdding] = useState(false)
+	const [creating, setCreating] = useState(false)
+	const [newName, setNewName] = useState('')
+	const [newType, setNewType] = useState<'mongo'|'postgres'|'mysql'>('mongo')
+	const [expanded, setExpanded] = useState<{ [k:string]: boolean }>({ ds: true, queries: true, history: true })
+	const [testingId, setTestingId] = useState<string | null>(null)
+	// legacy local latency removed; rely on store persistence
+		const [configOpen, setConfigOpen] = useState(false)
+		const [configDsId, setConfigDsId] = useState<string | null>(null)
+		interface ConfigForm { uri?: string; host?: string; port?: string; database?: string; user?: string; password?: string; __name?: string; __err?: string; __hosts?: string[] }
+		const [configForm, setConfigForm] = useState<ConfigForm>({})
+		const [savingConfig, setSavingConfig] = useState(false)
+
+		const saveConfig = async () => {
+			if (!configDsId) return
+			setSavingConfig(true)
+			try {
+				await patchDatasource(configDsId, { name: configForm.__name, config: { database: configForm.database }, secret: { uri: configForm.uri, host: configForm.host, port: configForm.port? Number(configForm.port): undefined, user: configForm.user, password: configForm.password, database: configForm.database } })
+				fetchDatasources()
+				toast({ title: 'Saved' })
+			} catch(e:any) {
+				toast({ title: 'Save failed', description: e?.message || 'Unable to save', variant:'destructive' })
+			} finally {
+				setSavingConfig(false)
+			}
+		}
+
+	useEffect(() => { fetchDatasources().catch(()=>{}) }, [fetchDatasources])
+
+	const handleCreate = async () => {
+		if (!newName.trim()) return
+		setCreating(true)
+		try {
+			await createDatasource({ name: newName.trim(), type: newType, config: { database: 'app' } })
+			setNewName('')
+			setAdding(false)
+			fetchDatasources()
+		} catch (e:any) {
+			toast({ title: 'Create failed', description: e?.message || 'Unable to create datasource', variant: 'destructive' })
+		} finally { setCreating(false) }
+	}
+
+	  const handleTest = async (id: string) => {
+	    setTestingId(id)
+	    try {
+	      const res = await testDatasource(id).catch(()=>({ ok:true as boolean }))
+	      toast({ title: 'Test complete', description: (res as any)?.ok ? 'Datasource reachable' : 'Test finished' })
+	    } catch(e:any) {
+	      toast({ title: 'Test failed', description: e?.message || 'Connection error', variant: 'destructive' })
+	    } finally { setTestingId(null) }
+	  }
+
+	const handleConnect = async (id: string) => {
+	  setTestingId(id)
+	  try {
+	    await connectDatasource(id)
+	    toast({ title: 'Connected', description: 'Status updated' })
+	  } catch(e:any) {
+	    toast({ title: 'Connect failed', description: e?.message || 'Error', variant: 'destructive' })
+	  } finally { setTestingId(null) }
+	}
+
+	return (
+		<>
+		<div className="flex-1 flex flex-col overflow-auto p-3 gap-3 text-xs">
+			<Section id="ds" title={`Datasources (${datasources.length})`} expanded={expanded} setExpanded={setExpanded} actions={
+				<div className="flex items-center gap-1 pr-1">
+					<Button size="icon" variant="ghost" className="h-6 w-6" onClick={()=> fetchDatasources()} disabled={loading} title="Refresh datasources"><RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} /></Button>
+					<Button size="icon" variant="ghost" className="h-6 w-6" onClick={()=> setAdding(true)} title="Add datasource"><Plus className="h-3.5 w-3.5" /></Button>
+				</div>
+			}>
+				{loading && <div className="text-muted-foreground">Loading…</div>}
+				{error && <div className="text-destructive">{error}</div>}
+				{!loading && datasources.length === 0 && <div className="text-muted-foreground">No datasources yet</div>}
+				<div className="space-y-1">
+					{datasources.map(ds => {
+						const statusColor = ds.status === 'healthy' ? 'bg-green-500' : ds.status === 'error' ? 'bg-red-500' : 'bg-neutral-400'
+						const pv: any = (ds as any).connectionPreview
+						return (
+							<div key={ds.id} className="group border rounded px-2 py-1 flex flex-col gap-1 hover:bg-accent/40">
+								<div className="flex items-center gap-2">
+									<div className={cn('h-2 w-2 rounded-full flex-shrink-0', statusColor)} />
+									<div className="flex-1 leading-tight overflow-hidden">
+										<div className="truncate font-medium text-[11px]">{ds.name}</div>
+										<div className="truncate text-[10px] text-muted-foreground">{ds.type}{typeof (ds as any).lastLatencyMs === 'number' && ` • ${(ds as any).lastLatencyMs}ms`}</div>
+									</div>
+									<div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+										<Button size="icon" variant="ghost" className="h-5 w-5" title="Test" onClick={()=> handleTest(ds.id)} disabled={testingId===ds.id}><Beaker className={cn('h-3 w-3', testingId===ds.id && 'animate-pulse')} /></Button>
+										<Button size="icon" variant="ghost" className="h-5 w-5" title="Connect" onClick={()=> handleConnect(ds.id)} disabled={testingId===ds.id}><Play className={cn('h-3 w-3', testingId===ds.id && 'animate-pulse')} /></Button>
+										<Button size="icon" variant="ghost" className="h-5 w-5" title="Configure" onClick={async ()=> { setConfigDsId(ds.id); setConfigOpen(true); const det = await fetchDetail(ds.id); setConfigForm(f=> ({ ...f, database: det?.configPublic?.database || f.database })) }}><Wrench className="h-3 w-3" /></Button>
+									</div>
+								</div>
+								{pv && (
+									<div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[9px] text-muted-foreground mt-1">
+										{pv.uri && <><span className="uppercase tracking-wide">URI</span><span className="truncate">{pv.uri}</span></>}
+										{pv.host && <><span>Host</span><span className="truncate">{pv.host}</span></>}
+										{pv.port && <><span>Port</span><span>{pv.port}</span></>}
+										{pv.database && <><span>DB</span><span className="truncate">{pv.database}</span></>}
+										{pv.user && <><span>User</span><span className="truncate">{pv.user}</span></>}
+										{pv.password && <><span>Pass</span><span>***</span></>}
+									</div>
+								)}
+							</div>
+						)
+					})}
+				</div>
+				{adding && (
+					<div className="mt-2 p-2 border rounded space-y-2 bg-background/80">
+						<div className="flex items-center gap-2">
+							<input autoFocus onKeyDown={e=> { e.stopPropagation() }} className="flex-1 px-2 py-1 rounded border text-xs" placeholder="Datasource name" value={newName} onChange={e=> setNewName(e.target.value)} />
+							<select className="px-2 py-1 rounded border text-xs" value={newType} onChange={e=> setNewType(e.target.value as any)}>
+								<option value="mongo">Mongo</option>
+								<option value="postgres">Postgres</option>
+								<option value="mysql">MySQL</option>
+							</select>
+						</div>
+						<div className="flex items-center gap-2 justify-end">
+							<Button size="sm" variant="ghost" onClick={()=> { setAdding(false); setNewName('') }} disabled={creating}>Cancel</Button>
+							<Button size="sm" onClick={handleCreate} disabled={creating || !newName.trim()}>{creating ? 'Creating…' : 'Create'}</Button>
+						</div>
+					</div>
+				)}
+			</Section>
+
+			<QueriesSection expanded={expanded} setExpanded={setExpanded} />
+			<HistorySection expanded={expanded} setExpanded={setExpanded} />
+		</div>
+		<Dialog open={configOpen} onOpenChange={setConfigOpen}>
+			<DialogContent className="max-w-md">
+				<DialogHeader>
+					<DialogTitle>Configure Datasource</DialogTitle>
+					<DialogDescription>Edit connection parameters (stored securely server-side).</DialogDescription>
+				</DialogHeader>
+				{(() => {
+					const current = datasources.find(d=> d.id===configDsId)
+							const engine = current?.type || 'mongo'
+							const disableIndividual = !!configForm.uri
+							const [uriError, setUriError] = [configForm['__err'] as any, (msg: string | null)=> setConfigForm(f=> ({ ...f, ['__err']: msg || undefined }))]
+							const [hostsParsed, setHostsParsed] = [configForm['__hosts'] as any[] | undefined, (hosts: string[] | undefined)=> setConfigForm(f=> ({ ...f, ['__hosts']: hosts }))]
+							const parseAndSet = (val:string) => {
+								if (!val) { setConfigForm(f=> ({ ...f, uri: '', host: '', port: '', user: '', password: '', database: f.database, __err: undefined, __hosts: undefined })) ; return }
+								try {
+									let original = val.trim()
+									let protoAdjusted = original
+									const isMongo = /^mongodb(\+srv)?:\/\//i.test(original)
+									if (isMongo && protoAdjusted.startsWith('mongodb+srv://')) protoAdjusted = protoAdjusted.replace('mongodb+srv://', 'mongodb://')
+									// Custom multi-host extraction for mongo before URL (URL only keeps first host)
+									let multiHosts: string[] | undefined
+									if (isMongo) {
+										const noProto = original.replace(/^mongodb(?:\+srv)?:\/\//,'')
+										const credsAndRest = noProto.split('@')
+										const afterCreds = credsAndRest.length>1 ? credsAndRest.slice(1).join('@') : credsAndRest[0]
+										const pathIdx = afterCreds.indexOf('/')
+										const hostSegment = pathIdx === -1 ? afterCreds : afterCreds.slice(0, pathIdx)
+										multiHosts = hostSegment.split(',').map(h=> h.trim()).filter(Boolean)
+									}
+									const u = new URL(protoAdjusted)
+									const db = u.pathname && u.pathname !== '/' ? decodeURIComponent(u.pathname.slice(1)) : ''
+									setHostsParsed(multiHosts)
+									setConfigForm({ uri: original, host: u.hostname, port: u.port, user: u.username, password: u.password, database: db, __name: configForm.__name })
+									setUriError(null)
+								} catch (err:any) { setUriError('Invalid connection string'); setConfigForm(f=> ({ ...f, uri: val })) }
+							}
+					return (
+						<div className="space-y-4 text-xs">
+							<div className="space-y-2">
+								<label className="text-[11px] font-semibold">Datasource Name</label>
+								<input className="px-2 py-1 rounded border" value={configForm['__name'] ?? current?.name ?? ''} onChange={e=> setConfigForm(f=> ({ ...f, ['__name']: e.target.value }))} placeholder="Name" />
+							</div>
+							<div className="space-y-2">
+								<label className="text-[11px] font-semibold flex items-center gap-2">Connection String ({engine}) {uriError && <span className="text-red-500 text-[10px] font-normal">{uriError}</span>}</label>
+								<input className={cn('px-2 py-1 rounded border', uriError && 'border-red-500 focus:ring-red-500')} placeholder={engine==='mongo' ? 'mongodb://user:pass@host1,host2:27017/db' : engine==='postgres' ? 'postgres://user:pass@host:5432/db' : 'mysql://user:pass@host:3306/db'} value={configForm.uri||''} onChange={e=> parseAndSet(e.target.value)} />
+								<p className="text-[10px] text-muted-foreground">If provided, individual host/port/user/password fields are ignored.</p>
+								{hostsParsed && hostsParsed.length>1 && (
+									<div className="text-[10px] bg-muted/40 rounded p-2 flex flex-wrap gap-1">
+										{hostsParsed.map(h=> <span key={h} className="px-1.5 py-0.5 bg-background rounded border text-[10px]">{h}</span>)}
+									</div>
+								)}
+							</div>
+							<div className="grid grid-cols-2 gap-2">
+								<div className="space-y-1">
+									<label className="text-[11px] font-semibold">Host</label>
+									<input disabled={disableIndividual} className="px-2 py-1 rounded border disabled:opacity-50" value={configForm.host||''} onChange={e=> setConfigForm(f=>({...f, host: e.target.value }))} />
+								</div>
+								<div className="space-y-1">
+									<label className="text-[11px] font-semibold">Port</label>
+									<input disabled={disableIndividual} className="px-2 py-1 rounded border disabled:opacity-50" value={configForm.port||''} onChange={e=> setConfigForm(f=>({...f, port: e.target.value }))} placeholder={engine==='postgres' ? '5432' : engine==='mysql' ? '3306' : '27017'} />
+								</div>
+							</div>
+							<div className="grid grid-cols-2 gap-2">
+								<div className="space-y-1">
+									<label className="text-[11px] font-semibold">Database</label>
+									<input disabled={false} className="px-2 py-1 rounded border" value={configForm.database||''} onChange={e=> setConfigForm(f=>({...f, database: e.target.value }))} />
+								</div>
+								<div className="space-y-1">
+									<label className="text-[11px] font-semibold">User</label>
+									<input disabled={disableIndividual} className="px-2 py-1 rounded border disabled:opacity-50" value={configForm.user||''} onChange={e=> setConfigForm(f=>({...f, user: e.target.value }))} />
+								</div>
+							</div>
+							<div className="space-y-1">
+								<label className="text-[11px] font-semibold">Password</label>
+								<input disabled={disableIndividual} type="password" className="px-2 py-1 rounded border disabled:opacity-50" value={configForm.password||''} onChange={e=> setConfigForm(f=>({...f, password: e.target.value }))} />
+							</div>
+							<div className="grid grid-cols-3 gap-3 pt-1">
+								{engine==='mongo' && (
+									<label className="flex items-center gap-2 text-[11px] font-medium"><input type="checkbox" disabled={disableIndividual} onChange={e=> setConfigForm(f=> ({ ...f, ['__tls']: e.target.checked }))} checked={!!(configForm as any).__tls} /> TLS</label>
+								)}
+								{engine==='postgres' && (
+									<div className="space-y-1">
+										<label className="text-[11px] font-semibold">SSL Mode</label>
+										<select className="px-2 py-1 rounded border text-[11px]" value={(configForm as any).__sslmode || 'prefer'} onChange={e=> setConfigForm(f=> ({ ...f, ['__sslmode']: e.target.value }))}>
+											<option value="disable">disable</option>
+											<option value="allow">allow</option>
+											<option value="prefer">prefer</option>
+											<option value="require">require</option>
+											<option value="verify-ca">verify-ca</option>
+											<option value="verify-full">verify-full</option>
+										</select>
+									</div>
+								)}
+								{engine==='mysql' && (
+									<label className="flex items-center gap-2 text-[11px] font-medium"><input type="checkbox" disabled={disableIndividual} onChange={e=> setConfigForm(f=> ({ ...f, ['__ssl']: e.target.checked }))} checked={!!(configForm as any).__ssl} /> SSL</label>
+								)}
+							</div>
+							{engine==='mongo' && (
+								<p className="text-[10px] text-muted-foreground">Supports standard & +srv URIs. Multi-host and replica set options parsed.</p>
+							)}
+							<p className="text-[10px] text-muted-foreground">Press Save to persist (in-memory for now). Connection secrets never echoed back.</p>
+						</div>
+					)
+				})()}
+				<DialogFooter className="flex items-center justify-between gap-2">
+					{(() => { const current = datasources.find(d=> d.id===configDsId); return (
+						<div className="flex flex-col mr-auto text-[11px] gap-1 max-w-[240px]">
+							<div className="flex items-center gap-2">
+								{current?.status && <span className={cn('px-2 py-0.5 rounded border', current.status==='healthy' ? 'bg-green-50 border-green-300 text-green-700' : current.status==='error' ? 'bg-red-50 border-red-300 text-red-700' : 'bg-neutral-50 border-neutral-300 text-neutral-600')}>{current.status}</span>}
+								{(current as any)?.lastLatencyMs && <span className="text-muted-foreground">{(current as any).lastLatencyMs}ms</span>}
+							</div>
+							{current && (current as any).lastError && (
+								<div className="text-[10px] leading-snug text-red-600 line-clamp-3 break-words">
+									{(current as any).lastError}
+								</div>
+							)}
+						</div>
+					)})()}
+					<Button variant="ghost" size="sm" onClick={()=> setConfigOpen(false)}>Close</Button>
+					{configDsId && <Button size="sm" variant="outline" onClick={()=> handleTest(configDsId)} disabled={savingConfig || testingId===configDsId}>{testingId===configDsId ? 'Testing…':'Test'}</Button>}
+					{configDsId && <Button size="sm" variant="outline" onClick={()=> handleConnect(configDsId)} disabled={savingConfig || testingId===configDsId}>{testingId===configDsId ? 'Connecting…':'Connect'}</Button>}
+					<Button size="sm" variant="secondary" onClick={saveConfig} disabled={savingConfig}>{savingConfig? 'Saving…':'Save'}</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+		</>
+	)
+}
+
+// Queries Section Component
+const QueriesSection: React.FC<{ expanded: { [k:string]: boolean }; setExpanded: (fn: (s: { [k:string]: boolean }) => { [k:string]: boolean }) => void }> = ({ expanded, setExpanded }) => {
+	const { queries, deleteQuery, openQuery, hydrated, hydrate } = useSavedQueriesStore()
+	const { setMongoInput, setSqlInput, runMongo, runSql, setDatasource } = useQueryStore()
+	const [searchTerm, setSearchTerm] = useState('')
+	
+	// Hydrate saved queries on component mount
+	useEffect(() => {
+		if (!hydrated) {
+			hydrate()
+		}
+	}, [hydrated, hydrate])
+	
+	const filteredQueries = queries.filter(q => 
+		q.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+		q.content.toLowerCase().includes(searchTerm.toLowerCase())
+	)
+
+	const handleLoadQuery = (query: SavedQuery) => {
+		openQuery(query) // This handles all the state setting including collection/table
+		
+		// Navigate to data workspace
+		try { 
+			window.dispatchEvent(new CustomEvent('goflow-open-data-workspace', { detail: { view: 'queries' } })) 
+		} catch {}
+	}
+
+	const handleRunQuery = (query: SavedQuery) => {
+		openQuery(query) // This handles all the state setting including collection/table
+		
+		// Run the query after loading it
+		if (query.datasourceId) {
+			if (query.type === 'mongo') {
+				runMongo()
+			} else {
+				runSql()
+			}
+		}
+		
+		// Navigate to data workspace
+		try { 
+			window.dispatchEvent(new CustomEvent('goflow-open-data-workspace', { detail: { view: 'queries' } })) 
+		} catch {}
+	}
+
+	return (
+		<Section id="queries" title={`Saved Queries (${queries.length})`} expanded={expanded} setExpanded={setExpanded} actions={
+			<Button size="icon" variant="ghost" className="h-6 w-6" onClick={()=> { try { window.dispatchEvent(new CustomEvent('goflow-open-data-workspace', { detail: { view: 'queries' } })) } catch {} }} title="Open Query Builder">
+				<Plus className="h-3.5 w-3.5" />
+			</Button>
+		}>
+			{queries.length === 0 ? (
+				<>
+					<div className="text-muted-foreground">None yet – build queries in the Data workspace.</div>
+					<Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={()=> { try { window.dispatchEvent(new CustomEvent('goflow-open-data-workspace', { detail: { view: 'queries' } })) } catch {} }}>Open Query Builder</Button>
+				</>
+			) : (
+				<>
+					{queries.length > 3 && (
+						<input
+							className="px-2 py-1 rounded border text-xs mb-2"
+							placeholder="Search queries..."
+							value={searchTerm}
+							onChange={(e) => setSearchTerm(e.target.value)}
+						/>
+					)}
+					<div className="space-y-1">
+						{filteredQueries.slice(0, 10).map((query) => (
+							<div key={query.name} className="group border rounded px-2 py-1 hover:bg-accent/40">
+								<div className="flex items-start justify-between">
+									<div className="flex-1 min-w-0 cursor-pointer" onClick={() => handleLoadQuery(query)}>
+										<div className="truncate font-medium text-[11px]">{query.name}</div>
+										<div className="text-[10px] text-muted-foreground truncate">
+											{query.content.split('\n')[0].substring(0, 40)}...
+										</div>
+										<div className="text-[9px] text-muted-foreground">
+											{new Date(query.updatedAt).toLocaleDateString()}
+										</div>
+									</div>
+									<div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+										<Button size="icon" variant="ghost" className="h-4 w-4" title="Run" onClick={(e) => { e.stopPropagation(); handleRunQuery(query) }}>
+											<Play className="h-2.5 w-2.5" />
+										</Button>
+										<Button size="icon" variant="ghost" className="h-4 w-4 text-red-600" title="Delete" onClick={(e) => { e.stopPropagation(); deleteQuery(query.name) }}>
+											<Trash2 className="h-2.5 w-2.5" />
+										</Button>
+									</div>
+								</div>
+							</div>
+						))}
+					</div>
+				</>
+			)}
+		</Section>
+	)
+}
+
+// History Section Component
+const HistorySection: React.FC<{ expanded: { [k:string]: boolean }; setExpanded: (fn: (s: { [k:string]: boolean }) => { [k:string]: boolean }) => void }> = ({ expanded, setExpanded }) => {
+	const { history, setMongoInput, setSqlInput, runMongo, runSql, setDatasource } = useQueryStore()
+	const [searchTerm, setSearchTerm] = useState('')
+	
+	const filteredHistory = history.filter(item => 
+		searchTerm === '' || 
+		String(item.input || '').toLowerCase().includes(searchTerm.toLowerCase())
+	)
+
+	const handleLoadFromHistory = (item: QueryHistoryItem) => {
+		if (item.engine === 'mongo') {
+			setMongoInput(String(item.input || '[]'))
+		} else {
+			setSqlInput(String(item.input || 'SELECT 1'))
+		}
+		// Navigate to data workspace
+		try { 
+			window.dispatchEvent(new CustomEvent('goflow-open-data-workspace', { detail: { view: 'queries' } })) 
+		} catch {}
+	}
+
+	const handleRunFromHistory = (item: QueryHistoryItem) => {
+		if (item.engine === 'mongo') {
+			setMongoInput(String(item.input || '[]'))
+		} else {
+			setSqlInput(String(item.input || 'SELECT 1'))
+		}
+		if (item.datasourceId) {
+			setDatasource(item.datasourceId)
+			if (item.engine === 'mongo') {
+				runMongo()
+			} else {
+				runSql()
+			}
+		}
+		// Navigate to data workspace
+		try { 
+			window.dispatchEvent(new CustomEvent('goflow-open-data-workspace', { detail: { view: 'queries' } })) 
+		} catch {}
+	}
+
+	return (
+		<Section id="history" title={`History (${history.length})`} expanded={expanded} setExpanded={setExpanded} actions={<></>}>
+			{history.length === 0 ? (
+				<div className="text-muted-foreground">No history yet (will list recent executions).</div>
+			) : (
+				<>
+					{history.length > 3 && (
+						<input
+							className="px-2 py-1 rounded border text-xs mb-2"
+							placeholder="Search history..."
+							value={searchTerm}
+							onChange={(e) => setSearchTerm(e.target.value)}
+						/>
+					)}
+					<div className="space-y-1">
+						{filteredHistory.slice(0, 10).map((item, index) => (
+							<div key={index} className="group border rounded px-2 py-1 hover:bg-accent/40">
+								<div className="flex items-start justify-between">
+									<div className="flex-1 min-w-0 cursor-pointer" onClick={() => handleLoadFromHistory(item)}>
+										<div className="text-[10px] text-muted-foreground truncate">
+											{String(item.input || '').split('\n')[0].substring(0, 40)}...
+										</div>
+										<div className="text-[9px] text-muted-foreground flex items-center gap-2">
+											<span>{new Date(item.started).toLocaleTimeString()}</span>
+											{item.durationMs && <span>{item.durationMs}ms</span>}
+										</div>
+									</div>
+									<Button 
+										size="icon" 
+										variant="ghost" 
+										className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" 
+										title="Run" 
+										onClick={(e) => { e.stopPropagation(); handleRunFromHistory(item) }}
+									>
+										<Play className="h-2.5 w-2.5" />
+									</Button>
+								</div>
+							</div>
+						))}
+					</div>
+				</>
+			)}
+		</Section>
+	)
+}
+

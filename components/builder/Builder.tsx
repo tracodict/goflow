@@ -6,6 +6,7 @@ import { LeftPanel } from "./LeftPanel"
 import { PageWorkspace } from "./PageWorkspace"
 import { VerticalToolbar } from "./VerticalToolbar"
 import { FlowWorkspace } from "../petri/flow-workspace"
+import DataWorkspace from '@/components/data/DataWorkspace'
 import { RightPanel } from "./RightPanel"
 import { ResizeHandle } from "./ResizeHandle"
 import { SystemSettingsProvider, useSystemSettings } from "../petri/system-settings-context"
@@ -71,9 +72,10 @@ export const Builder: React.FC = () => {
           {sessionLoading ? <UserCircle2 className="h-5 w-5 text-neutral-400 animate-pulse" /> : <UserCircle2 className="h-5 w-5 text-neutral-600" />}
           <span className="hidden sm:inline truncate max-w-[8rem]" title={userSession?.email}>{userSession?.name || 'Guest'}{primaryRole ? ` (${primaryRole})` : ''}</span>
           <a
-            href={`/api/logout?return=${typeof window !== 'undefined' ? encodeURIComponent(window.location.href) : '/'}`}
+            href="/api/logout?return=/"
             className="h-8 px-3 inline-flex items-center gap-1 rounded border bg-white hover:bg-neutral-50 text-xs"
             title="Logout"
+            data-static-logout
           >
             <LogOut className="h-4 w-4" /> <span className="hidden sm:inline">Logout</span>
           </a>
@@ -126,7 +128,7 @@ export const Builder: React.FC = () => {
               height: `${100 / canvasScale}%`,
             }}
           >
-            {activeTab === "workflow" ? <FlowWorkspace /> : <PageWorkspace />}
+            {activeTab === "workflow" ? <FlowWorkspace /> : (activeTab === 'data' ? <DataWorkspace /> : <PageWorkspace />)}
           </div>
         </div>
 

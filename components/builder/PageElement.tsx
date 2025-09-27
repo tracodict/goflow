@@ -3,6 +3,7 @@
 
 import React from "react"
 import { useBuilderStore } from "../../stores/pagebuilder/editor"
+import { DataGrid } from "./DataGrid"
 
 type PageElementProps = {
   elementId: string
@@ -166,6 +167,19 @@ export const PageElement: React.FC<PageElementProps> = ({ elementId, onElementCl
         onDragEnd={handleDragEnd}
         src={textContent}
         alt=""
+      />
+    )
+  }
+
+  // Special handling for data-grid elements
+  if (element.attributes?.["data-type"] === "data-grid") {
+    return (
+      <DataGrid
+        queryName={element.attributes?.["data-query-name"]}
+        autoRefresh={element.attributes?.["data-auto-refresh"] === "true"}
+        style={finalStyles}
+        onClick={handleClick}
+        onMouseEnter={handleMouseEnter}
       />
     )
   }

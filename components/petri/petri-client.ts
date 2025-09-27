@@ -91,9 +91,17 @@ export async function fetchWorkflow(flowServiceUrl: string, id: string) {
 
 export async function saveWorkflow(flowServiceUrl: string, workflowData: any) {
   const base = flowServiceUrl.replace(/\/$/, '')
+  // Debug: log incoming URL and composed base to help diagnose missing port issues
+  try {
+    // eslint-disable-next-line no-console
+    console.debug('[petri-client] saveWorkflow called', { flowServiceUrl, base, stack: (new Error()).stack })
+  } catch (e) {
+    // ignore
+  }
   // Strip CDN-backed jsonSchema bodies to keep payload lean. Retain only { name } for schemas
   // whose $id (or inferred path) matches the configured dictionaryUrl. Allow opt-out with _local flag.
   let payload = workflowData
+  debugger
   try {
     if (workflowData && Array.isArray(workflowData.jsonSchemas)) {
       // Determine dictionaryUrl from localStorage (system settings) or fallback constant.
@@ -145,7 +153,7 @@ export async function saveWorkflow(flowServiceUrl: string, workflowData: any) {
         .filter(Boolean) }
     }
   } catch { /* non-fatal sanitization issues ignored */ }
-  const resp = await authFetch(`${base}/api/cpn/load`, {
+  const resp = await authFetch(`${flowServiceUrl}/api/cpn/load`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -170,7 +178,7 @@ export async function saveWorkflow(flowServiceUrl: string, workflowData: any) {
 // Create a new (empty) workflow on the server
 export async function createWorkflow(flowServiceUrl: string, payload: { id?: string; name: string }) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await authFetch(`${base}/api/cpn/create`, {
+  const resp = await authFetch(`${flowServiceUrl}/api/cpn/create`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -182,7 +190,7 @@ export async function createWorkflow(flowServiceUrl: string, payload: { id?: str
 // Delete a workflow
 export async function deleteWorkflowApi(flowServiceUrl: string, id: string) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await authFetch(`${base}/api/cpn/delete?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const resp = await authFetch(`${flowServiceUrl}/api/cpn/delete?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
   if (!resp.ok) throw new Error(`Failed to delete workflow: ${resp.status}`)
   return resp.json()
 }
@@ -190,7 +198,7 @@ export async function deleteWorkflowApi(flowServiceUrl: string, id: string) {
 // Update color sets
 export async function updateColorSets(flowServiceUrl: string, id: string, colorSets: string[]) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await authFetch(`${base}/api/cpn/colorsets`, {
+  const resp = await authFetch(`${flowServiceUrl}/api/cpn/colorsets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id, colorSets }),
@@ -202,7 +210,7 @@ export async function updateColorSets(flowServiceUrl: string, id: string, colorS
 // Validate a workflow; expected response: { data: { violations: [...] }} or { violations: [...] }
 export async function validateWorkflow(flowServiceUrl: string, workflowId: string) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await authFetch(`${base}/api/cpn/validate?id=${encodeURIComponent(workflowId)}`)
+  const resp = await authFetch(`${flowServiceUrl}/api/cpn/validate?id=${encodeURIComponent(workflowId)}`)
   if (!resp.ok) {
     let body = ''
     try { body = await resp.text() } catch {}
@@ -254,7 +262,7 @@ export async function withApiErrorToast<T>(promise: Promise<T>, toastFn?: (opts:
 // ---- Case-based API helpers ----
 export async function createCase(flowServiceUrl: string, payload: { id?: string; cpnId: string; name?: string; description?: string; variables?: Record<string,any> }) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await authFetch(`${base}/api/cases/create`, {
+  const resp = await authFetch(`${flowServiceUrl}/api/cases/create`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
   })
   if (!resp.ok) throw new Error(`Failed to create case: ${resp.status}`)
@@ -334,14 +342,14 @@ export async function queryTokens(flowServiceUrl: string, body: any) {
 // ---- Tool Catalog helpers ----
 export async function listTools(flowServiceUrl: string) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await authFetch(`${base}/api/tools/list`)
+  const resp = await authFetch(`${flowServiceUrl}/api/tools/list`)
   if (!resp.ok) throw new Error(`Failed to list tools: ${resp.status}`)
   return resp.json()
 }
 
 export async function registerTool(flowServiceUrl: string, payload: any) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await authFetch(`${base}/api/tools/register`, {
+  const resp = await authFetch(`${flowServiceUrl}/api/tools/register`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, 
     body: JSON.stringify({"endpoint": payload.baseUrl, "name": payload.name, "description": payload.description || "", "icon": payload.icon || "", "mcp": payload.mcp || false})
   })
@@ -355,7 +363,7 @@ export async function registerTool(flowServiceUrl: string, payload: any) {
 
 export async function listMcpTools(flowServiceUrl: string, params: { baseUrl: string; timeoutMs?: number }) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await authFetch(`${base}/api/tools/list_mcp_tools`, {
+  const resp = await authFetch(`${flowServiceUrl}/api/tools/list_mcp_tools`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({"endpoint": params.baseUrl, "timeoutMs": params.timeoutMs || 5000 })
@@ -379,7 +387,7 @@ export async function listRegisteredMcpTools(flowServiceUrl: string): Promise<{ 
   // First get registered servers
   let servers: any[] = []
   try {
-    const regResp = await authFetch(`${base}/api/tools/registered_mcp`)
+    const regResp = await authFetch(`${flowServiceUrl}/api/tools/registered_mcp`)
     if (regResp.ok) {
       const regJson = await regResp.json().catch(()=>({}))
       servers = Array.isArray(regJson?.data?.servers) ? regJson.data.servers : (Array.isArray(regJson) ? regJson : [])
@@ -391,7 +399,7 @@ export async function listRegisteredMcpTools(flowServiceUrl: string): Promise<{ 
     const ep = s?.baseUrl || s?.endpoint
     if (!ep) continue
     try {
-      const resp = await authFetch(`${base}/api/tools/list_mcp_tools?enabled=true`, {
+      const resp = await authFetch(`${flowServiceUrl}/api/tools/list_mcp_tools?enabled=true`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ endpoint: ep, timeoutMs: 5000 })
@@ -414,7 +422,7 @@ export async function listRegisteredMcpTools(flowServiceUrl: string): Promise<{ 
 
 export async function listRegisteredMcpServers(flowServiceUrl: string) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await authFetch(`${base}/api/tools/registered_mcp`)
+  const resp = await authFetch(`${flowServiceUrl}/api/tools/registered_mcp`)
   if (!resp.ok) {
     let text = ''
     try { text = await resp.text() } catch {}
@@ -427,7 +435,7 @@ export async function listRegisteredMcpServers(flowServiceUrl: string) {
 
 export async function registerMcpServer(flowServiceUrl: string, payload: { id?: string; name?: string; baseUrl: string; timeoutMs?: number; tools?: Array<{ name: string; enabled: boolean; config?: any }> }) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await authFetch(`${base}/api/tools/register_mcp`, {
+  const resp = await authFetch(`${flowServiceUrl}/api/tools/register_mcp`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, 
     body: JSON.stringify({"endpoint": payload.baseUrl, 
       "id": payload.id,
@@ -444,7 +452,7 @@ export async function registerMcpServer(flowServiceUrl: string, payload: { id?: 
 
 export async function deregisterMcpServer(flowServiceUrl: string, payload: { id?: string; baseUrl?: string }) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await authFetch(`${base}/api/tools/deregister_mcp`, {
+  const resp = await authFetch(`${flowServiceUrl}/api/tools/deregister_mcp`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, 
     body: JSON.stringify({"endpoint": payload.baseUrl, "id": payload.id })
   })
@@ -463,7 +471,7 @@ export async function fetchCaseList(flowServiceUrl: string, opts: { offset?: num
   if (typeof opts.offset === 'number') params.push(`offset=${encodeURIComponent(String(opts.offset))}`)
   if (typeof opts.limit === 'number') params.push(`limit=${encodeURIComponent(String(opts.limit))}`)
   const qs = params.length ? `?${params.join('&')}` : ''
-  const resp = await authFetch(`${base}/api/cases/list${qs}`)
+  const resp = await authFetch(`${flowServiceUrl}/api/cases/list${qs}`)
   if (!resp.ok) throw new Error(`Failed to list cases: ${resp.status}`)
   return resp.json()
 }
@@ -474,7 +482,7 @@ export async function fetchCaseList(flowServiceUrl: string, opts: { offset?: num
 // Server response (planned): { data: { results: [{ enabledTransitions: Transition[] }] } }
 export async function tokensEnabled(flowServiceUrl: string, body: { caseId: string; tokens: { placeId: string; value: any }[] }) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await authFetch(`${base}/api/tokens/enabled`, {
+  const resp = await authFetch(`${flowServiceUrl}/api/tokens/enabled`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
@@ -488,7 +496,7 @@ export async function tokensEnabled(flowServiceUrl: string, body: { caseId: stri
 // Body shape: { caseId, transitionId, tokenBinding: { placeId, value }, input?: any }
 export async function fireTokenTransition(flowServiceUrl: string, body: { caseId: string; transitionId: string; tokenBinding: { placeId: string; value: any }; input?: any }) {
   const base = flowServiceUrl.replace(/\/$/, '')
-  const resp = await authFetch(`${base}/api/tokens/fire`, {
+  const resp = await authFetch(`${flowServiceUrl}/api/tokens/fire`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)

@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "datasources": [
+    {
+      "id": "ds_mock_mongo",
+      "name": "Mock MongoDB",
+      "type": "mongo",
+      "configPublic": {
+        "database": "app"
+      },
+      "status": "unknown",
+      "createdAt": "2025-09-27T02:13:16.249Z",
+      "updatedAt": "2025-09-27T02:13:16.249Z"
+    },
+    {
+      "id": "ds_hchlg3y9",
+      "name": "p",
+      "type": "postgres",
+      "configPublic": {
+        "database": "neondb"
+      },
+      "status": "healthy",
+      "createdAt": "2025-09-27T02:13:24.816Z",
+      "updatedAt": "2025-09-27T02:14:50.565Z",
+      "lastError": "Missing host/port",
+      "secret": {
+        "uri": "postgresql://neondb_owner:npg_fgZq9vaJx0Hs@ep-weathered-glitter-a1hq2sr0.ap-southeast-1.aws.neon.tech/neondb?sslmode=require",
+        "host": "ep-weathered-glitter-a1hq2sr0.ap-southeast-1.aws.neon.tech",
+        "user": "neondb_owner",
+        "password": "npg_fgZq9vaJx0Hs",
+        "database": "neondb"
+      },
+      "lastLatencyMs": 86
+    },
+    {
+      "id": "ds_ey9gvxip",
+      "name": "m",
+      "type": "mongo",
+      "configPublic": {
+        "database": "go_petri_flow"
+      },
+      "status": "healthy",
+      "createdAt": "2025-09-27T02:27:28.231Z",
+      "updatedAt": "2025-09-27T02:36:00.080Z",
+      "lastError": "No connection details provided",
+      "secret": {
+        "uri": "mongodb://localhost:27017/go_petri_flow",
+        "host": "localhost",
+        "port": 27017,
+        "user": "",
+        "password": "",
+        "database": "go_petri_flow"
+      },
+      "lastLatencyMs": 7
+    }
+  ]
+}

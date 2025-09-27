@@ -4,10 +4,20 @@
 
 import type React from "react"
 import { useBuilderStore } from "../../../stores/pagebuilder/editor"
+import { useSavedQueriesStore } from "../../../stores/saved-queries"
+import { useEffect } from "react"
 
 export const PropertiesTab: React.FC = () => {
 	const { elements, selectedElementId, updateElement } = useBuilderStore()
+	const { queries, hydrated, hydrate } = useSavedQueriesStore()
 	const selectedElement = selectedElementId ? elements[selectedElementId] : null
+
+	// Hydrate queries for data grid component
+	useEffect(() => {
+		if (!hydrated) {
+			hydrate()
+		}
+	}, [hydrated, hydrate])
 
 	if (!selectedElement) return null
 
@@ -160,6 +170,38 @@ export const PropertiesTab: React.FC = () => {
 									placeholder="315"
 								/>
 							</div>
+						</div>
+					</>
+				)}
+
+				{/* Data Grid Properties */}
+				{selectedElement.attributes?.["data-type"] === "data-grid" && (
+					<>
+						<div>
+							<label className="block text-xs font-medium mb-1 text-muted-foreground">Query</label>
+							<select
+								value={selectedElement.attributes?.["data-query-name"] || ""}
+								onChange={(e) => handleAttributeUpdate("data-query-name", e.target.value)}
+								className="w-full p-2 border border-input rounded text-xs bg-background text-foreground"
+							>
+								<option value="">Select a query...</option>
+								{queries.map((query) => (
+									<option key={query.name} value={query.name}>
+										{query.name} ({query.type})
+									</option>
+								))}
+							</select>
+						</div>
+						<div>
+							<label className="block text-xs font-medium mb-1 text-muted-foreground">Auto Refresh</label>
+							<select
+								value={selectedElement.attributes?.["data-auto-refresh"] || "false"}
+								onChange={(e) => handleAttributeUpdate("data-auto-refresh", e.target.value)}
+								className="w-full p-2 border border-input rounded text-xs bg-background text-foreground"
+							>
+								<option value="false">Manual</option>
+								<option value="true">Automatic</option>
+							</select>
 						</div>
 					</>
 				)}

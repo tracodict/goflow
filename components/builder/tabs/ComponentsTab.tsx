@@ -318,15 +318,22 @@ const componentCategories = [
 				description: "Server-side data grid",
 				template: {
 					tagName: "div",
-					attributes: { "data-type": "data-grid" },
+					attributes: { 
+						"data-type": "data-grid",
+						"data-query-name": "",
+						"data-auto-refresh": "false"
+					},
 					styles: {
 						width: "100%",
+						minHeight: "200px",
 						border: "1px solid #e5e7eb",
 						borderRadius: "8px",
 						overflow: "hidden",
 						margin: "16px 0",
+						backgroundColor: "white",
+						position: "relative",
 					},
-					content: "Data Grid Component",
+					content: "Data Grid Component - Select a query to display data",
 				},
 			},
 			{
