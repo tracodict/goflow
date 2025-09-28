@@ -129,19 +129,9 @@ export const useQueryStore = create<QueryState>((set, get) => {
       set({ running: true, error: undefined })
       const started = Date.now()
       try {
-        // For now, return mock data since S3 API is future-proof
-        const mockResult: S3QueryResult = {
-          files: [
-            { key: 'folder1/', size: 0, lastModified: new Date(), etag: '', isFolder: true },
-            { key: 'file1.txt', size: 1024, lastModified: new Date(), etag: 'abc123', isFolder: false, contentType: 'text/plain' },
-            { key: 'image.jpg', size: 2048, lastModified: new Date(), etag: 'def456', isFolder: false, contentType: 'image/jpeg' }
-          ],
-          prefix: s3Query,
-          totalFiles: 3,
-          meta: { executionMs: Date.now() - started, datasourceId: dsId }
-        }
+        const result = await runDatasourceQuery(dsId, { prefix: s3Query })
         pushHistory({ id: Math.random().toString(36).slice(2), datasourceId: dsId, engine: 's3', input: s3Query, started, durationMs: Date.now() - started })
-        set({ running: false, s3Result: mockResult })
+        set({ running: false, s3Result: result as any })
       } catch(e:any) {
         pushHistory({ id: Math.random().toString(36).slice(2), datasourceId: dsId, engine: 's3', input: s3Query, started, durationMs: Date.now() - started, error: e?.message })
         set({ running: false, error: e?.message || 'S3 query failed' })

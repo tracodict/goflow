@@ -1,23 +1,32 @@
-// ...existing code...
-
 "use client"
 
-import type React from "react"
+import React, { useState, useEffect } from "react"
 import { useBuilderStore } from "../../../stores/pagebuilder/editor"
-import { useSavedQueriesStore } from "../../../stores/saved-queries"
-import { useEffect } from "react"
+import { useSavedQueriesStore } from "../../../stores/saved-queries" 
+import { useDatasourceStore } from "../../../stores/datasource"
+import { MenuConfigForm } from "../forms/menu-config-form"
+import { getPropertyConfig, PropertyConfigRenderer } from "../../../vComponents/property-config-registry"
 
 export const PropertiesTab: React.FC = () => {
 	const { elements, selectedElementId, updateElement } = useBuilderStore()
+	const [showMenuConfig, setShowMenuConfig] = useState(false)
+	const [menuConfigData, setMenuConfigData] = useState<any>(null)
 	const { queries, hydrated, hydrate } = useSavedQueriesStore()
+	const { datasources, loading: datasourcesLoading, fetchDatasources } = useDatasourceStore()
 	const selectedElement = selectedElementId ? elements[selectedElementId] : null
 
-	// Hydrate queries for data grid component
+	// Hydrate queries and datasources
 	useEffect(() => {
 		if (!hydrated) {
 			hydrate()
 		}
 	}, [hydrated, hydrate])
+	
+	useEffect(() => {
+		if (!datasourcesLoading && datasources.length === 0) {
+			fetchDatasources()
+		}
+	}, [datasourcesLoading, datasources.length, fetchDatasources])
 
 	if (!selectedElement) return null
 
@@ -33,9 +42,56 @@ export const PropertiesTab: React.FC = () => {
 		updateElement(selectedElement.id, { attributes: updatedAttributes })
 	}
 
+	const openMenuConfig = () => {
+		try {
+			const currentConfig = JSON.parse(selectedElement.attributes?.["data-config"] || '{}')
+			setMenuConfigData(currentConfig)
+			setShowMenuConfig(true)
+		} catch (err) {
+			console.error('Failed to parse menu configuration:', err)
+			// Set default config if parse fails
+			setMenuConfigData({
+				items: [],
+				orientation: "horizontal",
+				showIcons: true,
+				showBadges: false
+			})
+			setShowMenuConfig(true)
+		}
+	}
+
+	const handleMenuConfigSave = (configData: any) => {
+		handleAttributeUpdate("data-config", JSON.stringify(configData))
+	}
+
+	const handleMenuConfigClose = () => {
+		setShowMenuConfig(false)
+		setMenuConfigData(null)
+	}
+
+	// Get the component type to determine which property config to use
+	const getComponentType = (): string | null => {
+		const attributes = selectedElement.attributes || {}
+		
+		// Check for vComponent types first
+		if (attributes["data-component-type"]) {
+			return attributes["data-component-type"]
+		}
+		
+		// Check for legacy data-type values
+		if (attributes["data-type"]) {
+			return attributes["data-type"]
+		}
+		
+		return null
+	}
+
+	const componentType = getComponentType()
+	const propertyConfig = componentType ? getPropertyConfig(componentType) : null
+
 	return (
 		<div className="h-full overflow-y-auto">
-			{/* No header bar here, handled by panel shell */}
+			{/* Content field for elements that support it */}
 			{selectedElement.content !== undefined && (
 				<div className="px-4 py-2 border-b border-border bg-card">
 					<label className="block text-sm font-medium mb-1 text-card-foreground">Content</label>
@@ -47,9 +103,9 @@ export const PropertiesTab: React.FC = () => {
 					/>
 				</div>
 			)}
-			{/* Common attributes based on element type */}
+			
 			<div className="px-4 py-2 space-y-3">
-
+				{/* Standard HTML element properties */}
 				{selectedElement.tagName === "img" && (
 					<>
 						<div>
@@ -174,58 +230,27 @@ export const PropertiesTab: React.FC = () => {
 					</>
 				)}
 
-				{/* Data Grid Properties */}
-				{selectedElement.attributes?.["data-type"] === "data-grid" && (
-					<>
-						<div>
-							<label className="block text-xs font-medium mb-1 text-muted-foreground">Query</label>
-							<select
-								value={selectedElement.attributes?.["data-query-name"] || ""}
-								onChange={(e) => handleAttributeUpdate("data-query-name", e.target.value)}
-								className="w-full p-2 border border-input rounded text-xs bg-background text-foreground"
-							>
-								<option value="">Select a query...</option>
-								{queries.filter(q => q.type !== 's3').map((query) => (
-									<option key={query.name} value={query.name}>
-										{query.name} ({query.type})
-									</option>
-								))}
-							</select>
-						</div>
-						<div>
-							<label className="block text-xs font-medium mb-1 text-muted-foreground">Auto Refresh</label>
-							<select
-								value={selectedElement.attributes?.["data-auto-refresh"] || "false"}
-								onChange={(e) => handleAttributeUpdate("data-auto-refresh", e.target.value)}
-								className="w-full p-2 border border-input rounded text-xs bg-background text-foreground"
-							>
-								<option value="false">Manual</option>
-								<option value="true">Automatic</option>
-							</select>
-						</div>
-					</>
-				)}
-
-				{/* S3 Explorer Properties */}
-				{selectedElement.attributes?.["data-type"] === "s3-explorer" && (
-					<div>
-						<label className="block text-xs font-medium mb-1 text-muted-foreground">S3 Query</label>
-						<select
-							value={selectedElement.attributes?.["data-query-name"] || ""}
-							onChange={(e) => handleAttributeUpdate("data-query-name", e.target.value)}
-							className="w-full p-2 border border-input rounded text-xs bg-background text-foreground"
-						>
-							<option value="">Select an S3 query...</option>
-							{queries.filter(q => q.type === 's3').map((query) => (
-								<option key={query.name} value={query.name}>
-									{query.name}
-								</option>
-							))}
-						</select>
-					</div>
+				{/* vComponent properties - use decoupled property configs */}
+				{propertyConfig && (
+					<PropertyConfigRenderer
+						config={propertyConfig}
+						attributes={selectedElement.attributes || {}}
+						onAttributeUpdate={handleAttributeUpdate}
+						queries={queries}
+						datasources={datasources}
+					/>
 				)}
 			</div>
+
+			{/* Menu Configuration Form (special case for NavigationMenu) */}
+			{menuConfigData && (
+				<MenuConfigForm
+					open={showMenuConfig}
+					config={menuConfigData}
+					onApply={handleMenuConfigSave}
+					onClose={handleMenuConfigClose}
+				/>
+			)}
 		</div>
 	)
 }
-// ...existing code from pure/src/components/tabs/PropertiesTab.tsx

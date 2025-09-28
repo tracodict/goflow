@@ -1,6 +1,10 @@
 "use client"
-import React from 'react'
+import React, { useEffect } from 'react'
 import dynamic from 'next/dynamic'
+// NOTE: Using classic CSS-based theming (Quartz). Do NOT also supply the new Theming API "theme" grid option
+// simultaneously, or AG Grid will emit error #239 (mixed theme application).
+// If you want to migrate to the new Theming API, remove these CSS imports and the ag-theme-* class below
+// and instead pass the `theme` grid option created via `createTheme`. For now we stick to CSS classes.
 import 'ag-grid-community/styles/ag-grid.css'
 import 'ag-grid-community/styles/ag-theme-quartz.css'
 import '@/styles/ag-grid-custom.css'
@@ -18,7 +22,10 @@ if (typeof window !== 'undefined') {
 }
 
 // Dynamically load AgGridReact to avoid SSR issues
-const AgGridReact: any = dynamic(() => import('ag-grid-react').then(m => m.AgGridReact), { ssr: false })
+const AgGridReact: any = dynamic(() => import('ag-grid-react').then(m => m.AgGridReact), { 
+  ssr: false,
+  loading: () => <div className="p-4 text-center">Loading grid...</div>
+})
 
 export interface AgGridWrapperProps extends Omit<React.ComponentProps<any>, 'rowData'> {
   /** Data rows */
@@ -56,10 +63,23 @@ export const AgGridWrapper: React.FC<AgGridWrapperProps> = ({
   children, // allow overlays or custom children if needed
   ...rest
 }) => {
-  const domLayout = autoHeight ? 'autoHeight' : (rest as any).domLayout || 'normal'
-  // Remove domLayout from rest to avoid duplication
-  if ((rest as any).domLayout) delete (rest as any).domLayout
+  // Create a shallow clone of rest to manipulate safe props without mutating original reference (helps dependency of useEffect)
+  const gridProps: any = { ...rest }
+  const domLayout = autoHeight ? 'autoHeight' : gridProps.domLayout || 'normal'
+  if (gridProps.domLayout) delete gridProps.domLayout
   const baseTheme = `ag-theme-${theme} custom-grid`
+
+  useEffect(() => {
+    if (gridProps.theme) {
+      console.warn('[AgGridWrapper] Detected "theme" prop while using CSS theme class. Remove this prop or migrate fully to new Theming API.')
+      delete gridProps.theme
+    }
+    if (gridProps.gridOptions?.theme) {
+      console.warn('[AgGridWrapper] Detected gridOptions.theme while also using CSS theme class. Remove gridOptions.theme or migrate fully to Theming API to avoid error #239.')
+      gridProps.gridOptions = { ...gridProps.gridOptions }
+      delete gridProps.gridOptions.theme
+    }
+  }, [])
   const outerClass = [baseTheme, fullHeight && !autoHeight ? 'h-full min-h-0' : '', containerClassName].filter(Boolean).join(' ')
   return (
     <div className={outerClass} style={containerStyle} data-testid={(rest as any)['data-testid']}>        
@@ -70,7 +90,7 @@ export const AgGridWrapper: React.FC<AgGridWrapperProps> = ({
         rowHeight={rowHeight}
         headerHeight={headerHeight}
         suppressCellFocus={false}
-        {...rest}
+        {...gridProps}
       />
       {children}
     </div>

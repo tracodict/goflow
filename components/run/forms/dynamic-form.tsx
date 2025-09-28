@@ -1,14 +1,80 @@
 "use client"
-import React, { useMemo } from 'react'
+import React, { useMemo, createContext, useContext, useState } from 'react'
 import { JsonForms } from '@jsonforms/react'
 // @ts-ignore
 import { vanillaRenderers, vanillaCells } from '@jsonforms/vanilla-renderers'
 import { shadcnRenderers, shadcnCells } from '@/components/run/forms/renderers'
 import Ajv from 'ajv'
+import { Button } from '@/components/ui/button'
+import { ArrowBigUpDash } from 'lucide-react'
 // Ajv does not automatically register draft-07 under the https variant; load and add explicitly.
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - json import
 import draft7MetaSchema from 'ajv/dist/refs/json-schema-draft-07.json'
+
+// Navigation history types
+interface NavigationLevel {
+  title: string
+  schema: any
+  data: any
+  path: string[]
+  onChange: (data: any) => void
+}
+
+interface NavigationContextType {
+  currentLevel: NavigationLevel | null
+  history: NavigationLevel[]
+  pushLevel: (level: NavigationLevel) => void
+  popLevel: () => void
+  isNested: boolean
+}
+
+const NavigationContext = createContext<NavigationContextType | null>(null)
+
+export const useNavigation = () => {
+  const context = useContext(NavigationContext)
+  if (!context) {
+    throw new Error('useNavigation must be used within a NavigationProvider')
+  }
+  return context
+}
+
+// NavigationProvider component
+const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [history, setHistory] = useState<NavigationLevel[]>([])
+  const [currentLevel, setCurrentLevel] = useState<NavigationLevel | null>(null)
+
+  const pushLevel = (level: NavigationLevel) => {
+    if (currentLevel) {
+      setHistory(prev => [...prev, currentLevel])
+    }
+    setCurrentLevel(level)
+  }
+
+  const popLevel = () => {
+    if (history.length > 0) {
+      const previousLevel = history[history.length - 1]
+      setHistory(prev => prev.slice(0, -1))
+      setCurrentLevel(previousLevel)
+    } else {
+      setCurrentLevel(null)
+    }
+  }
+
+  const value: NavigationContextType = {
+    currentLevel,
+    history,
+    pushLevel,
+    popLevel,
+    isNested: history.length > 0 || currentLevel !== null
+  }
+
+  return (
+    <NavigationContext.Provider value={value}>
+      {children}
+    </NavigationContext.Provider>
+  )
+}
 
 export interface DynamicFormProps {
   schema: any
@@ -16,6 +82,7 @@ export interface DynamicFormProps {
   onChange: (data: any) => void
   uiSchema?: any
   readOnly?: boolean
+  title?: string
 }
 
 function buildAutoUiSchema(schema: any, readOnly?: boolean) {
@@ -110,22 +177,81 @@ class SimpleBoundary extends React.Component<{ children: any }, { err: any }> {
   }
 }
 
-export const DynamicForm: React.FC<DynamicFormProps> = ({ schema, data, onChange, uiSchema, readOnly }) => {
+// Internal DynamicForm component (without NavigationProvider)
+const InternalDynamicForm: React.FC<DynamicFormProps> = ({ schema, data, onChange, uiSchema, readOnly, title }) => {
+  const navigation = useNavigation()
   const ajv = useMemo(() => getAjv(), [])
   const preparedSchema = useMemo(() => normalizeSchema(schema) || { type: 'object', properties: {} }, [schema])
   const effectiveUi = useMemo(() => uiSchema || buildAutoUiSchema(preparedSchema, readOnly), [uiSchema, preparedSchema, readOnly])
+  
+  // If we have a nested level, show the nested form instead
+  if (navigation.currentLevel) {
+    return (
+      <div className="space-y-4">
+        {/* Navigation header */}
+        <div className="flex items-center gap-2 border-b pb-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={navigation.popLevel}
+            className="flex items-center gap-1"
+          >
+            <ArrowBigUpDash className="h-4 w-4" />
+            Back
+          </Button>
+          <div className="text-sm font-medium text-muted-foreground">
+            {navigation.history.length > 0 && (
+              <span>{title || 'Form'} → </span>
+            )}
+            <span className="text-foreground">{navigation.currentLevel.title}</span>
+          </div>
+        </div>
+        
+        {/* Nested form */}
+        <SimpleBoundary>
+          <JsonForms
+            schema={navigation.currentLevel.schema}
+            uischema={buildAutoUiSchema(navigation.currentLevel.schema, readOnly) as any}
+            data={navigation.currentLevel.data}
+            renderers={[...shadcnRenderers, ...vanillaRenderers]}
+            cells={[...shadcnCells, ...vanillaCells]}
+            onChange={(ev: any) => navigation.currentLevel?.onChange(ev.data)}
+            ajv={ajv as any}
+          />
+        </SimpleBoundary>
+      </div>
+    )
+  }
+
+  // Show main form with optional title
   return (
-    <SimpleBoundary>
-      <JsonForms
-        schema={preparedSchema}
-        uischema={effectiveUi as any}
-        data={data}
-        renderers={[...shadcnRenderers, ...vanillaRenderers]}
-        cells={[...shadcnCells, ...vanillaCells]}
-        onChange={(ev: any) => onChange(ev.data)}
-        ajv={ajv as any}
-      />
-    </SimpleBoundary>
+    <div className="space-y-4">
+      {title && navigation.isNested && (
+        <div className="border-b pb-2">
+          <div className="text-sm font-medium">{title}</div>
+        </div>
+      )}
+      <SimpleBoundary>
+        <JsonForms
+          schema={preparedSchema}
+          uischema={effectiveUi as any}
+          data={data}
+          renderers={[...shadcnRenderers, ...vanillaRenderers]}
+          cells={[...shadcnCells, ...vanillaCells]}
+          onChange={(ev: any) => onChange(ev.data)}
+          ajv={ajv as any}
+        />
+      </SimpleBoundary>
+    </div>
+  )
+}
+
+// Main DynamicForm component with NavigationProvider
+export const DynamicForm: React.FC<DynamicFormProps> = (props) => {
+  return (
+    <NavigationProvider>
+      <InternalDynamicForm {...props} />
+    </NavigationProvider>
   )
 }
 

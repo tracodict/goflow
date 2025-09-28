@@ -1,18 +1,30 @@
 "use client"
 
 import type React from "react"
+import { useState } from "react"
 import { useBuilderStore } from "../../../stores/pagebuilder/editor"
 
 export const PageStructureTab: React.FC = () => {
 	const { elements, selectedElementId, setDraggedElement, draggedElementId, removeElement } = useBuilderStore()
+	const [dragOverElementId, setDragOverElementId] = useState<string | null>(null)
 
 	const handleDragStart = (e: React.DragEvent, elementId: string) => {
 		e.dataTransfer.setData("text/plain", elementId)
 		setDraggedElement(elementId)
 	}
 
-	const handleDragOver = (e: React.DragEvent) => {
+	const handleDragOver = (e: React.DragEvent, elementId: string) => {
 		e.preventDefault()
+		setDragOverElementId(elementId)
+	}
+
+	const handleDragLeave = (e: React.DragEvent) => {
+		// Only clear drag over if we're leaving the entire component
+		const relatedTarget = e.relatedTarget as HTMLElement
+		const currentTarget = e.currentTarget as HTMLElement
+		if (!currentTarget.contains(relatedTarget)) {
+			setDragOverElementId(null)
+		}
 	}
 
 	const handleDrop = (e: React.DragEvent, targetElementId: string) => {
@@ -22,11 +34,23 @@ export const PageStructureTab: React.FC = () => {
 		const draggedId = e.dataTransfer.getData("text/plain")
 		if (draggedId && draggedId !== targetElementId) {
 			const targetElement = elements[targetElementId]
-			const isTargetContainer =
-				targetElement && ["div", "section", "main", "article", "aside", "nav"].includes(targetElement.tagName)
-
+			const draggedElement = elements[draggedId]
+			
+			// Allow drop if:
+			// 1. Target is a container element, OR
+			// 2. Target is a sibling (drop will insert after the target)
+			const isTargetContainer = targetElement && ["div", "section", "main", "article", "aside", "nav"].includes(targetElement.tagName)
+			
 			if (isTargetContainer) {
+				// Drop into container as child
 				useBuilderStore.getState().moveElement(draggedId, targetElementId)
+			} else if (targetElement && targetElement.parentId) {
+				// Drop as sibling - insert after target
+				const parentElement = elements[targetElement.parentId]
+				if (parentElement) {
+					const targetIndex = parentElement.childIds.indexOf(targetElementId)
+					useBuilderStore.getState().moveElement(draggedId, targetElement.parentId, targetIndex + 1)
+				}
 			}
 		}
 		setDraggedElement(null)
@@ -56,7 +80,7 @@ export const PageStructureTab: React.FC = () => {
 				key={id}
 				draggable={id !== "page-root"}
 				onDragStart={(e) => handleDragStart(e, id)}
-				onDragOver={handleDragOver}
+				onDragOver={(e) => handleDragOver(e, id)}
 				onDrop={(e) => handleDrop(e, id)}
 				onDragEnd={handleDragEnd}
 				onKeyDown={(e) => handleTreeKeyDown(e, id)}

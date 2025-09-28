@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { QueryEditor, QueryResultViewer } from './QueryEditor'
-import { S3Explorer } from './S3Explorer'
+import { S3Explorer } from '@/vComponents/S3Explorer'
 import { ResizablePanels } from '@/components/ui/resizable-panels'
 import { useDatasourceStore } from '@/stores/datasource'
 import { useQueryStore } from '@/stores/query'

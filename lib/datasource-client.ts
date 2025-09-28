@@ -43,7 +43,7 @@ export async function testDatasource(id: string, secretOverride?: Record<string,
   return json(r)
 }
 
-export async function runDatasourceQuery(id: string, payload: { pipeline?: any[]; sql?: string; collection?: string }): Promise<QueryResult> {
+export async function runDatasourceQuery(id: string, payload: { pipeline?: any[]; sql?: string; collection?: string; prefix?: string; key?: string; format?: string }): Promise<QueryResult> {
   const res = await fetch(`${BASE}/datasources/${id}/query`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
   if (!res.ok) {
     let err: any = 'Query failed'

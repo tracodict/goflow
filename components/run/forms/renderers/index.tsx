@@ -36,9 +36,10 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { Calendar } from '@/components/ui/calendar'
-import { Calendar as CalendarIcon, Plus, Trash2, ChevronRight, ChevronDown } from 'lucide-react'
+import { Calendar as CalendarIcon, Plus, Trash2, ChevronRight, ChevronDown, FilePenLine } from 'lucide-react'
 import { ColDef, GridApi } from 'ag-grid-community'
 import AgGridWrapper from '@/components/ui/ag-grid-wrapper'
+import { useNavigation } from '../dynamic-form'
 
 // ---------- Helpers ----------
 
@@ -222,57 +223,211 @@ const ArrayControl: React.FC<ControlProps> = (props) => {
   const itemsSchema: any = schema.items || {}
   const rows: any[] = Array.isArray(data) ? data : []
   const gridRef = React.useRef<{ api: GridApi | null }>({ api: null })
-
-  // Derive column definitions
-  let columnDefs: ColDef[]
-  if (itemsSchema.type === 'object') {
-    const keys = Object.keys(itemsSchema.properties || {})
-    columnDefs = keys.map(k => ({ field: k, editable: true, resizable: true, filter: true, sortable: true }))
-  } else {
-    columnDefs = [{ headerName: 'Value', field: 'value', editable: true, resizable: true }]
+  
+  // Try to get navigation context (may be null if not used within DynamicForm)
+  let navigation: any = null
+  try {
+    navigation = useNavigation()
+  } catch {
+    // Not within NavigationProvider, that's ok
   }
-  columnDefs.push({
-    headerName: '', field: '__actions', width: 60, cellRenderer: (p: any) => {
-      return React.createElement('button', {
-        type: 'button',
-        className: 'text-destructive text-xs underline',
-        onClick: () => removeRow(p.rowIndex)
-      }, 'Del')
+
+  // Stable component key to prevent unnecessary re-mounts
+  const componentKey = React.useMemo(() => `array-control-${Array.isArray(path) ? path.join('-') : path}`, [path])
+
+  // Memoized cell renderer factory to prevent recreation on every render
+  const createComplexCellRenderer = React.useCallback((fieldKey: string, fieldSchema: any) => {
+    const CellRenderer = React.memo((params: any) => {
+      const value = params.value
+      const isObject = fieldSchema.type === 'object' && value && typeof value === 'object' && !Array.isArray(value)
+      const isArray = fieldSchema.type === 'array' && Array.isArray(value)
+      const isComplex = isObject || isArray
+      
+      if (!isComplex || !navigation) {
+        // Fallback to simple display for primitives or when no navigation
+        if (value === null || value === undefined) return <span className="text-muted-foreground">—</span>
+        if (Array.isArray(value)) return <span className="text-muted-foreground">[{value.length} items]</span>
+        if (typeof value === 'object') return <span className="text-muted-foreground">{`{${Object.keys(value).length} fields}`}</span>
+        return <span>{String(value)}</span>
+      }
+
+      // Show edit button for complex fields (objects and arrays)
+      let displayText = ''
+      if (isArray) {
+        displayText = `[${value.length} items]`
+      } else if (isObject) {
+        displayText = `{${Object.keys(value).length} fields}`
+      }
+
+      const handleEdit = React.useCallback((e: React.MouseEvent) => {
+        e.stopPropagation()
+        // Navigate to nested editor (works for both objects and arrays)
+        navigation.pushLevel({
+          title: `Edit ${fieldKey}`,
+          schema: fieldSchema,
+          data: value || (isArray ? [] : {}),
+          path: [...path, params.rowIndex, fieldKey],
+          onChange: (newData: any) => {
+            console.log('Nested form onChange called:', { fieldKey, newData, rowIndex: params.rowIndex })
+            
+            // Get the current rows at the time of the callback
+            const currentRows = Array.isArray(rows) ? [...rows] : []
+            
+            // Ensure the row exists and update it
+            while (currentRows.length <= params.rowIndex) {
+              currentRows.push({})
+            }
+            
+            currentRows[params.rowIndex] = {
+              ...currentRows[params.rowIndex],
+              [fieldKey]: newData
+            }
+            
+            console.log('Updated rows:', currentRows)
+            
+            // Use setRows to trigger proper update
+            setRows(currentRows)
+            
+            // Note: Don't auto-pop the level - let the user navigate back manually
+            // This ensures they can see their changes were applied
+          }
+        })
+      }, [value, params.rowIndex, fieldKey, fieldSchema, isArray, navigation, path, rows, setRows])
+
+      return (
+        <div className="flex items-center gap-2 w-full">
+          <span className="flex-1 text-xs text-muted-foreground truncate">
+            {displayText}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0 shrink-0"
+            onClick={handleEdit}
+          >
+            <FilePenLine className="h-3 w-3" />
+          </Button>
+        </div>
+      )
+    })
+    
+    return (params: any) => React.createElement(CellRenderer, params)
+  }, [navigation, path, rows, handleChange])
+
+  // Memoized column definitions to prevent ag-grid re-initialization
+  // Memoized callback functions to prevent unnecessary re-renders
+  const setRows = React.useCallback((newRows: any[]) => {
+    handleChange(path, [...newRows])
+  }, [handleChange, path])
+
+  const removeRow = React.useCallback((idx: number) => {
+    console.debug('[JsonFormsGrid] removeRow invoked', { idx, before: rows })
+    const copy = Array.isArray(rows) ? [...rows] : []
+    if (idx < 0 || idx >= copy.length) {
+      console.warn('[JsonFormsGrid] removeRow index out of range', { idx, length: copy.length })
+      return
     }
-  })
+    copy.splice(idx, 1)
+    setRows(copy)
+    console.debug('[JsonFormsGrid] rows after removal', copy)
+  }, [rows, setRows])
 
-  const setRows = (newRows: any[]) => handleChange(path, newRows)
+  const columnDefs = React.useMemo((): ColDef[] => {
+    let cols: ColDef[]
+    if (itemsSchema.type === 'object') {
+      const keys = Object.keys(itemsSchema.properties || {})
+      console.debug('[JsonFormsGrid] building columnDefs', { type: 'object', keys })
+      cols = keys.map(k => {
+        const fieldSchema = itemsSchema.properties[k]
+        const isComplexField = fieldSchema.type === 'object' || fieldSchema.type === 'array'
+        return {
+          field: k,
+            editable: !isComplexField,
+            resizable: true,
+            filter: !isComplexField,
+            sortable: true,
+            cellRenderer: isComplexField ? createComplexCellRenderer(k, fieldSchema) : undefined,
+            width: isComplexField ? 200 : undefined,
+            suppressSizeToFit: isComplexField
+        }
+      })
+    } else {
+      console.debug('[JsonFormsGrid] building columnDefs', { type: 'primitive' })
+      cols = [{ headerName: 'Value', field: 'value', editable: true, resizable: true }]
+    }
 
-  const addRow = () => {
+    // Simple inline React component renderer (AG Grid will treat functions returning elements as React cell renderer when using the React wrapper)
+    cols.push({
+      headerName: '',
+      field: '__actions',
+      width: 60,
+      pinned: 'right',
+      cellRenderer: (p: any) => {
+        return (
+          <button
+            type="button"
+            className="text-destructive text-xs underline hover:text-destructive/80"
+            onClick={() => {
+              console.debug('[JsonFormsGrid] Del click handler fired', { rowIndex: p.rowIndex, data: p.data, totalRows: rows?.length })
+              removeRow(p.rowIndex)
+              try { p.api?.refreshCells({ force: true }) } catch {}
+            }}
+            data-row-index={p.rowIndex}
+          >
+            Del
+          </button>
+        )
+      }
+    })
+    return cols
+  }, [itemsSchema, createComplexCellRenderer, rows, removeRow])
+
+  // (setRows hoisted earlier)
+
+  const addRow = React.useCallback(() => {
     let newItem: any
     if (itemsSchema.type === 'object') {
       newItem = {}
-      Object.keys(itemsSchema.properties || {}).forEach(k => { newItem[k] = undefined })
+      Object.keys(itemsSchema.properties || {}).forEach(k => { 
+        const fieldSchema = itemsSchema.properties[k]
+        if (fieldSchema.type === 'object') {
+          newItem[k] = {}
+        } else if (fieldSchema.type === 'array') {
+          newItem[k] = []
+        } else {
+          newItem[k] = undefined 
+        }
+      })
     } else if (itemsSchema.type === 'string') newItem = ''
     else if (itemsSchema.type === 'number' || itemsSchema.type === 'integer') newItem = 0
     else if (itemsSchema.type === 'boolean') newItem = false
     else newItem = null
     setRows([...(rows||[]), newItem])
-  }
-  const removeRow = (idx: number) => {
-    const copy = rows.slice()
-    copy.splice(idx,1)
-    setRows(copy)
-  }
-  const onCellValueChanged = (params: any) => {
+  }, [itemsSchema, rows, setRows])
+  
+  // (removeRow hoisted earlier)
+  
+  const onCellValueChanged = React.useCallback((params: any) => {
     const updated = [...rows]
     if (itemsSchema.type === 'object') {
-      updated[params.rowIndex] = { ...updated[params.rowIndex], [params.colDef.field]: params.newValue }
+      const fieldSchema = itemsSchema.properties?.[params.colDef.field]
+      const isComplexField = fieldSchema?.type === 'object' || fieldSchema?.type === 'array'
+      if (!isComplexField) {
+        updated[params.rowIndex] = { ...updated[params.rowIndex], [params.colDef.field]: params.newValue }
+        setRows(updated)
+      }
     } else {
       updated[params.rowIndex] = params.newValue
+      setRows(updated)
     }
-    setRows(updated)
-  }
+  }, [rows, setRows, itemsSchema])
 
+  // Stable row data with unique keys
   const rowData = React.useMemo(() => {
-    if (itemsSchema.type === 'object') return rows
-    return rows.map(r => ({ value: r }))
-  }, [rows, itemsSchema.type])
+    const data = itemsSchema.type === 'object' ? rows : rows.map(r => ({ value: r }))
+    return data.map((row, index) => ({ ...row, __id: `${componentKey}-${index}` }))
+  }, [rows, itemsSchema.type, componentKey])
 
   return (
     <div className="col-span-full">
@@ -282,14 +437,17 @@ const ArrayControl: React.FC<ControlProps> = (props) => {
             <Button type="button" variant="outline" size="sm" onClick={addRow}><Plus className="size-4" />Add</Button>
           </div>
           <AgGridWrapper
+            key={`${componentKey}-${rows?.length || 0}`}
             rowData={rowData}
             columnDefs={columnDefs}
             autoHeight
+            theme="legacy"
             containerClassName="w-full min-h-40 border rounded-md overflow-hidden"
             stopEditingWhenCellsLoseFocus
             onCellValueChanged={onCellValueChanged}
             suppressDragLeaveHidesColumns
             reactiveCustomComponents
+            getRowId={(params: any) => params.data.__id}
           />
         </div>
       </ControlWrapper>

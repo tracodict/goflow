@@ -1,5 +1,6 @@
 "use client"
 import React, { useState, useEffect, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { FileExplorer, type FileExplorerItem } from '../FileExplorer'
 import { usePagesStore, type PageItem } from '@/stores/pages'
 import { useBuilderStore } from '@/stores/pagebuilder/editor'
@@ -30,8 +31,10 @@ export const PagesTab: React.FC = () => {
     updatePageElements,
     getPageTree,
     findPageById,
+    getPageNavigationURL,
   } = usePagesStore()
 
+  const router = useRouter()
   const { elements, selectElement, addElement, removeElement, hasUnsavedChanges, markAsSaved, loadElements } = useBuilderStore()
 
   const [showAddDialog, setShowAddDialog] = useState<{ type: 'page' | 'folder'; parentId?: string } | null>(null)
@@ -119,11 +122,11 @@ export const PagesTab: React.FC = () => {
     }
 
     // Proceed with page loading
-    loadPageInBuilder(item)
+    navigateToPage(item)
   }
 
-  const loadPageInBuilder = (item: FileExplorerItem) => {
-    // If it's a page, load it in the builder
+  const navigateToPage = (item: FileExplorerItem) => {
+    // If it's a page, navigate to it in builder mode
     if (item.type === 'file') {
       const page = findPageById(item.id)
       if (page) {
@@ -135,11 +138,9 @@ export const PagesTab: React.FC = () => {
           }
         }
 
-        // Load the selected page
-        setActivePage(item.id)
-        loadPageElements(page.elements)
-        selectElement(null) // Clear selection in builder
-        markAsSaved() // Mark the newly loaded page as saved
+        // Navigate to the page in builder mode
+        const url = getPageNavigationURL(item.id, 'builder')
+        router.push(url)
         
         toast({
           title: "Page Loaded",
@@ -151,7 +152,7 @@ export const PagesTab: React.FC = () => {
 
   const proceedWithPageSelection = (item: FileExplorerItem) => {
     setSelectedItem(item.id)
-    loadPageInBuilder(item)
+    navigateToPage(item)
   }
 
   const handleUnsavedDialogDiscard = () => {
@@ -159,7 +160,7 @@ export const PagesTab: React.FC = () => {
     
     // Discard changes and proceed with selection
     markAsSaved() // Clear the unsaved changes flag
-    loadPageInBuilder(showUnsavedDialog.targetItem)
+    navigateToPage(showUnsavedDialog.targetItem)
     setShowUnsavedDialog(null)
   }
 
@@ -174,7 +175,7 @@ export const PagesTab: React.FC = () => {
     }
     
     // Proceed with selection
-    loadPageInBuilder(showUnsavedDialog.targetItem)
+    navigateToPage(showUnsavedDialog.targetItem)
     setShowUnsavedDialog(null)
     
     toast({

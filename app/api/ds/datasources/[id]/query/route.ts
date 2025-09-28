@@ -147,9 +147,133 @@ export async function POST(
           await conn.end()
         }
       } else if (datasource.type === 's3') {
-        const { key, format } = body
+        const { key, format, prefix } = body
+        
+        // Handle S3 file listing (when prefix is provided)
+        if (prefix !== undefined) {
+          if (!datasource.secret) {
+            return new Response(JSON.stringify({ error: 'no credentials configured for S3 datasource' }), { status: 400 })
+          }
+
+          const provider = datasource.secret.provider
+          if (provider === 'amazon') {
+            const { S3Client, ListObjectsV2Command } = await import('@aws-sdk/client-s3')
+            
+            const s3Client = new S3Client({
+              region: datasource.secret.region || 'us-east-1',
+              credentials: {
+                accessKeyId: datasource.secret.accessKey as string,
+                secretAccessKey: datasource.secret.secretKey as string,
+              },
+              ...(datasource.secret.endpoint && { endpoint: datasource.secret.endpoint as string }),
+            })
+
+            try {
+              // Normalize prefix: "/" should be treated as root (empty prefix)
+              let normalizedPrefix = prefix || ''
+              if (normalizedPrefix === '/') {
+                normalizedPrefix = ''
+              }
+              
+              const command = new ListObjectsV2Command({
+                Bucket: datasource.configPublic?.bucket,
+                Prefix: normalizedPrefix,
+                MaxKeys: maxRows,
+              })
+
+              const response = await s3Client.send(command)
+              
+              // Convert S3 objects to S3QueryResult format
+              const files = (response.Contents || []).map(obj => ({
+                key: obj.Key || '',
+                size: obj.Size || 0,
+                lastModified: obj.LastModified || new Date(),
+                etag: obj.ETag || '',
+                isFolder: (obj.Key || '').endsWith('/'),
+                contentType: undefined // Not available in ListObjects response
+              }))
+
+              // Return as S3QueryResult
+              return Response.json({
+                files,
+                prefix: prefix || '',
+                totalFiles: files.length,
+                meta: { executionMs: Date.now() - started, datasourceId: datasource.id }
+              })
+            } catch (error: any) {
+              return new Response(JSON.stringify({ 
+                error: `Failed to list S3 objects: ${error.message}` 
+              }), { status: 500 })
+            }
+          } else if (provider === 'google') {
+            const { Storage } = await import('@google-cloud/storage')
+            
+            let storage: any
+            if (datasource.secret.serviceAccountKey) {
+              try {
+                // Parse the service account key if it's a JSON string
+                let credentials
+                if (typeof datasource.secret.serviceAccountKey === 'string') {
+                  credentials = JSON.parse(datasource.secret.serviceAccountKey)
+                } else {
+                  credentials = datasource.secret.serviceAccountKey
+                }
+                
+                storage = new Storage({
+                  credentials: credentials,
+                  projectId: datasource.secret.projectId || credentials.project_id,
+                })
+              } catch (parseError: any) {
+                return new Response(JSON.stringify({ 
+                  error: `Invalid service account key JSON: ${parseError.message}` 
+                }), { status: 400 })
+              }
+            } else {
+              return new Response(JSON.stringify({ error: 'Service account key required for Google Cloud Storage' }), { status: 400 })
+            }
+
+            try {
+              const bucket = storage.bucket(datasource.configPublic?.bucket)
+              
+              // Normalize prefix: "/" should be treated as root (empty prefix)
+              let normalizedPrefix = prefix || ''
+              if (normalizedPrefix === '/') {
+                normalizedPrefix = ''
+              }
+              
+              const [files] = await bucket.getFiles({
+                prefix: normalizedPrefix || undefined,
+                maxResults: maxRows,
+              })
+
+              const gcsFiles = files.map((file: any) => ({
+                key: file.name,
+                size: parseInt(file.metadata.size || '0'),
+                lastModified: new Date(file.metadata.timeCreated),
+                etag: file.metadata.etag || '',
+                isFolder: file.name.endsWith('/'),
+                contentType: file.metadata.contentType
+              }))
+
+              return Response.json({
+                files: gcsFiles,
+                prefix: prefix || '',
+                totalFiles: gcsFiles.length,
+                meta: { executionMs: Date.now() - started, datasourceId: datasource.id }
+              })
+            } catch (error: any) {
+              return new Response(JSON.stringify({ 
+                error: `Failed to list GCS objects: ${error.message}` 
+              }), { status: 500 })
+            }
+          } else {
+            return new Response(JSON.stringify({ error: 'Unsupported S3 provider for listing' }), { status: 400 })
+          }
+        }
+        
+        // Handle individual file retrieval (when key is provided)
         if (typeof key !== 'string' || !key.trim()) {
-          return new Response(JSON.stringify({ error: 'key (file path) required for S3 queries' }), { status: 400 })
+          return new Response(JSON.stringify({ error: 'key (file path) or prefix required for S3 queries' }), { status: 400 })
         }
 
         if (!datasource.secret) {

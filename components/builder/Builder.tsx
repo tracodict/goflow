@@ -54,52 +54,54 @@ export const Builder: React.FC = () => {
   return (
     <SystemSettingsProvider>
     <div className="h-screen flex flex-col overflow-hidden bg-background">
-      {/* Top menu bar */}
-      <Menubar className="border-b rounded-none shadow-none px-2">
-        <MenubarMenu>
-          <MenubarTrigger>File</MenubarTrigger>
-          <MenubarContent>
-            <MenubarItem disabled>New</MenubarItem>
-            <MenubarItem disabled>Open…</MenubarItem>
-            <MenubarSeparator />
-            <MenubarItem disabled>Save</MenubarItem>
-          </MenubarContent>
-        </MenubarMenu>
-        <MenubarMenu>
-          <MenubarTrigger>View</MenubarTrigger>
-          <MenubarContent>
-            <MenubarItem onClick={() => setRightPanelOpen((v) => !v)}>
-              Right Panel
-            </MenubarItem>
-            <MenubarItem onClick={() => setShowSystemSettings(true)}>
-              System Settings
-            </MenubarItem>
-          </MenubarContent>
-        </MenubarMenu>
-        <MenubarMenu>
-          <MenubarTrigger>Help</MenubarTrigger>
-          <MenubarContent>
-            <MenubarItem asChild>
-              <a href="https://github.com/tracodict/goflow" target="_blank" rel="noopener noreferrer">GitHub</a>
-            </MenubarItem>
-            <MenubarItem asChild>
-              <a href="https://docs.goflow.dev" target="_blank" rel="noopener noreferrer">Docs</a>
-            </MenubarItem>
-          </MenubarContent>
-        </MenubarMenu>
-        <div className="ml-auto flex items-center gap-2 pl-2 pr-2 h-8 rounded-full border bg-white">
-          {sessionLoading ? <UserCircle2 className="h-5 w-5 text-neutral-400 animate-pulse" /> : <UserCircle2 className="h-5 w-5 text-neutral-600" />}
-          <span className="hidden sm:inline truncate max-w-[8rem]" title={userSession?.email}>{userSession?.name || 'Guest'}{primaryRole ? ` (${primaryRole})` : ''}</span>
-          <a
-            href="/api/logout?return=/"
-            className="h-8 px-3 inline-flex items-center gap-1 rounded border bg-white hover:bg-neutral-50 text-xs"
-            title="Logout"
-            data-static-logout
-          >
-            <LogOut className="h-4 w-4" /> <span className="hidden sm:inline">Logout</span>
-          </a>
-        </div>
-      </Menubar>
+      {/* Top menu bar - hide in preview mode */}
+      {!isPreviewMode && (
+        <Menubar className="border-b rounded-none shadow-none px-2">
+          <MenubarMenu>
+            <MenubarTrigger>File</MenubarTrigger>
+            <MenubarContent>
+              <MenubarItem disabled>New</MenubarItem>
+              <MenubarItem disabled>Open…</MenubarItem>
+              <MenubarSeparator />
+              <MenubarItem disabled>Save</MenubarItem>
+            </MenubarContent>
+          </MenubarMenu>
+          <MenubarMenu>
+            <MenubarTrigger>View</MenubarTrigger>
+            <MenubarContent>
+              <MenubarItem onClick={() => setRightPanelOpen((v) => !v)}>
+                Right Panel
+              </MenubarItem>
+              <MenubarItem onClick={() => setShowSystemSettings(true)}>
+                System Settings
+              </MenubarItem>
+            </MenubarContent>
+          </MenubarMenu>
+          <MenubarMenu>
+            <MenubarTrigger>Help</MenubarTrigger>
+            <MenubarContent>
+              <MenubarItem asChild>
+                <a href="https://github.com/tracodict/goflow" target="_blank" rel="noopener noreferrer">GitHub</a>
+              </MenubarItem>
+              <MenubarItem asChild>
+                <a href="https://docs.goflow.dev" target="_blank" rel="noopener noreferrer">Docs</a>
+              </MenubarItem>
+            </MenubarContent>
+          </MenubarMenu>
+          <div className="ml-auto flex items-center gap-2 pl-2 pr-2 h-8 rounded-full border bg-white">
+            {sessionLoading ? <UserCircle2 className="h-5 w-5 text-neutral-400 animate-pulse" /> : <UserCircle2 className="h-5 w-5 text-neutral-600" />}
+            <span className="hidden sm:inline truncate max-w-[8rem]" title={userSession?.email}>{userSession?.name || 'Guest'}{primaryRole ? ` (${primaryRole})` : ''}</span>
+            <a
+              href="/api/logout?return=/"
+              className="h-8 px-3 inline-flex items-center gap-1 rounded border bg-white hover:bg-neutral-50 text-xs"
+              title="Logout"
+              data-static-logout
+            >
+              <LogOut className="h-4 w-4" /> <span className="hidden sm:inline">Logout</span>
+            </a>
+          </div>
+        </Menubar>
+      )}
       {/* System Settings Dialog (real) */}
       {showSystemSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">

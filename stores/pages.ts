@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
+import { getPagePath, buildPagePathMap, findPageByPath, getPageNavigationURL } from '@/lib/page-routing'
 
 export interface PageItem {
   id: string
@@ -32,6 +33,10 @@ interface PagesState {
   getPageTree: () => PageItem[]
   findPageById: (id: string) => PageItem | undefined
   getHomePage: () => PageItem | undefined
+  getPagePath: (id: string) => string
+  findPageByPath: (path: string) => string | null
+  getPageNavigationURL: (id: string, mode?: 'builder' | 'preview' | 'run') => string
+  buildPathMap: () => Map<string, string>
 }
 
 const generateId = () => `page_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
@@ -265,6 +270,26 @@ export const usePagesStore = create<PagesState>()(
       getHomePage: () => {
         const { pages } = get()
         return pages.find((page) => page.type === 'page' && page.name.toLowerCase() === 'home')
+      },
+
+      getPagePath: (id: string) => {
+        const { pages } = get()
+        return getPagePath(id, pages)
+      },
+
+      findPageByPath: (path: string) => {
+        const { pages } = get()
+        return findPageByPath(path, pages)
+      },
+
+      getPageNavigationURL: (id: string, mode = 'preview') => {
+        const { pages } = get()
+        return getPageNavigationURL(id, pages, mode)
+      },
+
+      buildPathMap: () => {
+        const { pages } = get()
+        return buildPagePathMap(pages)
       },
     }),
     {

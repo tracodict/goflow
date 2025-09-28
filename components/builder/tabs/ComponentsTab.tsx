@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useBuilderStore, type Element } from "../../../stores/pagebuilder/editor"
 import { Button } from "../../ui/button"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../../ui/accordion"
@@ -38,7 +38,59 @@ import {
 	Folder,
 } from "lucide-react"
 
+// Import vComponents registry
+import { componentRegistry } from "../../../vComponents/registry"
+
 const generateUniqueId = () => Math.random().toString(36).substr(2, 9)
+
+// Function to merge vComponents registry with existing hardcoded components
+function getMergedComponentCategories() {
+	// Convert vComponents registry to ComponentsTab format
+	const vComponentCategories = Object.entries(componentRegistry).map(([categoryKey, components]) => ({
+		key: categoryKey,
+		label: categoryKey.charAt(0).toUpperCase() + categoryKey.slice(1),
+		components: components.map(component => ({
+			icon: component.icon,
+			name: component.name,
+			description: component.description,
+			template: {
+				...component.template,
+				// Ensure all required template properties are present
+				attributes: component.template.attributes as any,
+				styles: component.template.styles as any
+			},
+			isVComponent: true, // Flag to identify vComponents
+			interface: component.interface
+		} as any))
+	}))
+
+	// Get existing categories (make a deep copy to avoid mutations)
+	const existingCategories = componentCategories.map(cat => ({
+		...cat,
+		components: [...cat.components]
+	}))
+	
+	// Merge or add vComponent categories
+	vComponentCategories.forEach(vCategory => {
+		const existingCategory = existingCategories.find(cat => cat.key === vCategory.key)
+		if (existingCategory) {
+			// Only add vComponents that don't already exist in the category
+			vCategory.components.forEach(vComponent => {
+				const exists = existingCategory.components.some((comp: any) => 
+					comp.name === vComponent.name && comp.isVComponent === true
+				)
+				if (!exists) {
+					existingCategory.components.push(vComponent)
+				}
+			})
+		} else {
+			// Add new category
+			existingCategories.push(vCategory as any)
+		}
+	})
+	
+	return existingCategories
+}
 
 const componentCategories = [
 	{
@@ -275,8 +327,8 @@ const componentCategories = [
 						src: "https://www.youtube.com/embed/dQw4w9WgXcQ",
 						width: "560",
 						height: "315",
-						frameborder: "0",
-						allowfullscreen: "true",
+						frameBorder: "0",
+						allowFullScreen: "true",
 					},
 					styles: {
 						width: "100%",
@@ -313,30 +365,7 @@ const componentCategories = [
 					content: "# Markdown Content\n\nThis is **bold** and *italic* text.",
 				},
 			},
-			{
-				icon: Grid,
-				name: "Data Grid",
-				description: "Server-side data grid",
-				template: {
-					tagName: "div",
-					attributes: { 
-						"data-type": "data-grid",
-						"data-query-name": "",
-						"data-auto-refresh": "false"
-					},
-					styles: {
-						width: "100%",
-						minHeight: "200px",
-						border: "1px solid #e5e7eb",
-						borderRadius: "8px",
-						overflow: "hidden",
-						margin: "16px 0",
-						backgroundColor: "white",
-						position: "relative",
-					},
-					content: "Data Grid Component - Select a query to display data",
-				},
-			},
+
 			{
 				icon: Search,
 				name: "Combobox",
@@ -355,56 +384,13 @@ const componentCategories = [
 					content: "Search...",
 				},
 			},
-			{
-				icon: Folder,
-				name: "S3 Explorer",
-				description: "S3 file browser",
-				template: {
-					tagName: "div",
-					attributes: { 
-						"data-type": "s3-explorer",
-						"data-query-name": ""
-					},
-					styles: {
-						width: "100%",
-						minHeight: "400px",
-						border: "1px solid #e5e7eb",
-						borderRadius: "8px",
-						overflow: "hidden",
-						margin: "16px 0",
-						backgroundColor: "white",
-						position: "relative",
-					},
-					content: "S3 Explorer - Select an S3 query to browse files",
-				},
-			},
+
 		],
 	},
 	{
 		key: "form",
 		label: "Form",
 		components: [
-			{
-				icon: MousePointer,
-				name: "Button",
-				description: "Interactive button",
-				template: {
-					tagName: "button",
-					attributes: {},
-					styles: {
-						padding: "12px 24px",
-						backgroundColor: "#3b82f6",
-						color: "white",
-						border: "none",
-						borderRadius: "6px",
-						cursor: "pointer",
-						fontSize: "14px",
-						fontWeight: "500",
-						margin: "8px 0",
-					},
-					content: "Click me",
-				},
-			},
 			{
 				icon: Type,
 				name: "Label",
@@ -585,19 +571,58 @@ const componentCategories = [
 			},
 			{
 				icon: Menu,
-				name: "Navigation Menu",
-				description: "Navigation component",
+				name: "Menu",
+				description: "Advanced navigation with nested menus and custom scripts",
 				template: {
-					tagName: "nav",
-					attributes: {},
-					styles: {
-						display: "flex",
-						gap: "16px",
-						padding: "12px 0",
-						borderBottom: "1px solid #e5e7eb",
-						margin: "16px 0",
+					tagName: "div",
+					attributes: { 
+						"data-type": "enhanced-navigation-menu",
+						"data-component-type": "NavigationMenu",
+						"data-config": JSON.stringify({
+							items: [
+								{
+									id: "home",
+									label: "Home",
+									href: "/",
+									icon: "🏠"
+								},
+								{
+									id: "products",
+									label: "Products",
+									children: [
+										{
+											id: "software",
+											label: "Software",
+											href: "/products/software"
+										},
+										{
+											id: "services",
+											label: "Services", 
+											href: "/products/services"
+										}
+									]
+								},
+								{
+									id: "contact",
+									label: "Contact",
+									href: "/contact",
+									script: "// Custom script example\nfunction handleContact(eventPayload, context) {\n  context.ui.showNotification({\n    type: 'info',\n    message: 'Contact clicked!'\n  })\n}",
+									scriptType: "custom"
+								}
+							],
+							orientation: "horizontal",
+							showIcons: true,
+							showBadges: false
+						})
 					},
-					content: "Nav Item 1 | Nav Item 2 | Nav Item 3",
+					styles: {
+						width: "100%",
+						padding: "0px 0",
+						borderBottom: "1px solid #e5e7eb",
+						margin: "8px 0",
+						position: "relative"
+					},
+					content: "Enhanced Navigation Menu",
 				},
 			},
 			{
@@ -641,6 +666,11 @@ export const ComponentsTab: React.FC = () => {
 
 	const [expandedSections, setExpandedSections] = useState<string[]>([])
 
+	// Memoize merged categories to prevent duplicates
+	const mergedCategories = useMemo(() => {
+		return getMergedComponentCategories()
+	}, [])
+
 	// Load expanded sections from localStorage on mount
 	useEffect(() => {
 		const saved = localStorage.getItem("componentAccordionExpanded")
@@ -682,29 +712,37 @@ export const ComponentsTab: React.FC = () => {
 			{/* No header bar here, handled by panel shell */}
 			<TooltipProvider delayDuration={300}>
 				<Accordion type="multiple" className="px-4" value={expandedSections} onValueChange={handleValueChange}>
-					{componentCategories.map((category) => (
+					{mergedCategories.map((category) => (
 						<AccordionItem key={category.key} value={category.key}>
 							<AccordionTrigger className="text-left font-semibold text-foreground">{category.label}</AccordionTrigger>
 							<AccordionContent className="pt-2">
 								<div className="grid grid-cols-2 gap-2">
-									{category.components.map((component, index) => {
+									{category.components.map((component: any, index: number) => {
 										const IconComponent = component.icon
+										const isVComponent = component.isVComponent
 										return (
 											<Tooltip key={index}>
 												<TooltipTrigger asChild>
 													<Button
 														onClick={() => handleAddElement(component.template)}
 														variant="outline"
-														className="h-auto p-3 flex flex-col items-center gap-2 text-center"
+														className={`h-auto p-3 flex flex-col items-center gap-2 text-center ${isVComponent ? 'border-blue-300 bg-blue-50/50' : ''}`}
 													>
-														<div className="w-8 h-8 bg-primary/10 rounded flex items-center justify-center">
-															<IconComponent className="w-4 h-4 text-primary" />
+														<div className={`w-8 h-8 ${isVComponent ? 'bg-blue-500/20' : 'bg-primary/10'} rounded flex items-center justify-center`}>
+															<IconComponent className={`w-4 h-4 ${isVComponent ? 'text-blue-600' : 'text-primary'}`} />
 														</div>
-														<div className="font-medium text-xs">{component.name}</div>
+														<div className="font-medium text-xs">
+															{component.name}
+														</div>
 													</Button>
 												</TooltipTrigger>
 												<TooltipContent side="right" className="max-w-xs">
-													<p className="text-sm">{component.description}</p>
+													<div>
+														<p className="text-sm">{component.description}</p>
+														{isVComponent && (
+															<p className="text-xs text-blue-600 mt-1 font-medium">✨ Enhanced with scripting support</p>
+														)}
+													</div>
 												</TooltipContent>
 											</Tooltip>
 										)
