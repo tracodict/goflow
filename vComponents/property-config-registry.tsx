@@ -6,6 +6,7 @@
  */
 
 import React from "react"
+import { ScriptEditor } from '@/components/builder/ScriptEditor'
 import { PropertyTabConfig, PropertyTabRegistry, CustomPropertyRenderProps, PropertyFieldConfig } from "./property-config-types"
 
 // Import property configurations
@@ -56,22 +57,21 @@ export const renderPropertyField = (
       )
       
     case 'textarea':
-    case 'script':
-      return (
-        <div key={field.key}>
-          <label className={labelClasses}>{field.label}</label>
-          <textarea
-            value={value || ""}
-            onChange={(e) => onUpdate(field.key, e.target.value)}
-            className={`${commonClasses} ${field.type === 'script' ? 'font-mono resize-none' : ''}`}
-            rows={field.rows || 3}
-            placeholder={field.placeholder}
-          />
-          {field.helpText && (
-            <div className="text-[10px] text-muted-foreground mt-1">{field.helpText}</div>
-          )}
-        </div>
-      )
+        case 'script':
+          return (
+            <div key={field.key}>
+              <label className={labelClasses}>{field.label}</label>
+              <ScriptEditor
+                value={value || ''}
+                onChange={(val) => onUpdate(field.key, val)}
+                placeholder={field.placeholder}
+                initialHeight={(field.rows ? field.rows * 40 : 160)}
+              />
+              {field.helpText && (
+                <div className="text-[10px] text-muted-foreground mt-1">{field.helpText}</div>
+              )}
+            </div>
+          )
       
     case 'select':
       return (

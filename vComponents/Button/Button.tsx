@@ -111,11 +111,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     // Combine refs
     React.useImperativeHandle(ref, () => buttonRef.current!, [])
     
-    // Generate unique component ID if not provided
-    const finalElementId = React.useMemo(() => 
-      elementId || `button-${Math.random().toString(36).substr(2, 9)}`, 
-      [elementId]
-    )
+    // Stable component id: prefer provided elementId, else derive from React useId (SSR-safe)
+    const reactGeneratedId = React.useId()
+    const finalElementId = elementId || `button-${reactGeneratedId.replace(/[:]/g,'')}`
     
     // Mount/unmount effects for scriptable components
     React.useEffect(() => {

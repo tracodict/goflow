@@ -148,7 +148,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 			attributes: {
 				"data-component-type": "Button",
 				"data-scriptable": "true",
-				"data-onclick-script": "alert('Welcome')"
+				"data-onclick-script": "// Update Data Grid query to use saved 'Mock Query' and provide user feedback.\n(function handleClick(payload, context){\n  const gridId = 'data-grid';\n  // Use helper exposed in PageBuilderButton context\n  context.page.updateElementAttribute(gridId, 'data-query-name', 'Mock Query');\n  context.app.showNotification('Data Grid query set to Mock Query', 'info');\n})(payload, context);"
 			},
 			styles: {
 				padding: "12px 24px",
@@ -163,7 +163,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 				display: "block",
 				textAlign: "center"
 			},
-			content: "Welcome",
+			content: "Set Data Grid Query",
 			childIds: [],
 			parentId: "page-root",
 		},

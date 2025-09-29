@@ -13,8 +13,6 @@ export default function HomeClient() {
   const pageId = searchParams.get('page')
   const mode = searchParams.get('mode')
   
-  console.log('[Root] Pathname:', pathname, 'PageId:', pageId, 'Mode:', mode)
-  
   const { findPageById, findPageByPath, setActivePage } = usePagesStore()
   const { loadElements, togglePreviewMode, isPreviewMode } = useBuilderStore()
 

@@ -8,6 +8,8 @@
 import * as React from "react"
 import { Button, ButtonProps } from "./Button"
 import type { BaseEventPayload, InteractionEventPayload } from "./Button"
+// Builder store import to allow scripts to mutate other elements (e.g., set DataGrid query)
+import { useBuilderStore } from '@/stores/pagebuilder/editor'
 
 // Global script sandbox for executing event scripts
 const globalSandbox = {
@@ -108,6 +110,36 @@ const PageBuilderButton = React.forwardRef<HTMLButtonElement, PageBuilderButtonP
         setState: (state: any) => {},
         dispatch: (action: any) => {
           console.log('Action dispatched:', action)
+        },
+        /**
+         * Retrieve a builder element by id
+         */
+        getElement: (id: string) => {
+          return useBuilderStore.getState().elements[id]
+        },
+        /**
+         * Low-level helper to update an element using the builder store updateElement API
+         */
+        updateElement: (id: string, updates: Partial<any>) => {
+          const store = useBuilderStore.getState()
+            ;(store as any).updateElement(id, updates)
+        },
+        /**
+         * Convenience helper used by scripts to change a single attribute on another element.
+         * Example (in data-onclick-script):
+         *   const gridId = 'data-grid';
+         *   page.updateElementAttribute(gridId, 'data-query-name', 'Mock Query');
+         */
+        updateElementAttribute: (id: string, attrName: string, value: any) => {
+          const store = useBuilderStore.getState()
+          const el = store.elements[id]
+          if (!el) {
+            console.warn('[PageBuilderButton] updateElementAttribute: element not found', id)
+            return
+          }
+          ;(store as any).updateElement(id, {
+            attributes: { ...el.attributes, [attrName]: value }
+          })
         }
       },
       app: {

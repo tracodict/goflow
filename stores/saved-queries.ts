@@ -51,12 +51,32 @@ export const useSavedQueriesStore = create<SavedQueriesState>((set, get) => {
       
       try {
         const saved = localStorage.getItem('goflow.savedQueries')
+        let queries: SavedQuery[] = []
+        
         if (saved) {
-          const queries = JSON.parse(saved)
-          set({ queries: Array.isArray(queries) ? queries : [], hydrated: true })
-        } else {
-          set({ hydrated: true })
+          queries = JSON.parse(saved)
+          queries = Array.isArray(queries) ? queries : []
         }
+        
+        // Add default Mock Query if it doesn't exist
+        const hasMockQuery = queries.some(q => q.name === 'Mock Query')
+        if (!hasMockQuery) {
+          const defaultMockQuery: SavedQuery = {
+            name: 'Mock Query',
+            type: 'mongo',
+            datasourceId: 'ds_mock_mongo',
+            content: '[\n  { "$match": {} },\n  { "$limit": 50 }\n]',
+            collection: 'users',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+          queries.unshift(defaultMockQuery)
+          
+          // Persist the updated queries including the default
+          localStorage.setItem('goflow.savedQueries', JSON.stringify(queries))
+        }
+        
+        set({ queries, hydrated: true })
       } catch (error) {
         console.warn('Failed to hydrate saved queries:', error)
         set({ queries: [], hydrated: true, error: 'Failed to load saved queries' })
