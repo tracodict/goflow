@@ -75,34 +75,30 @@ export const componentRegistry: Record<string, ComponentRegistration[]> = {
               {
                 id: "home",
                 label: "Home",
-                href: "/"
+                href: "/Home"
               },
-              {
-                id: "about",
-                label: "About",
-                href: "/about"
-              },
+
               {
                 id: "services",
                 label: "Services",
                 children: [
                   {
-                    id: "consulting",
-                    label: "Consulting",
-                    href: "/services/consulting"
+                    id: "rfq",
+                    label: "RFQ",
+                    href: "/svc/rfq"
                   },
                   {
-                    id: "development",
-                    label: "Development",
-                    href: "/services/development"
+                    id: "quote",
+                    label: "Quote",
+                    href: "/svc/quote"
                   }
                 ]
               },
               {
-                id: "contact",
-                label: "Contact",
-                href: "/contact"
-              }
+                id: "help",
+                label: "Help",
+                href: "/help"
+              },
             ]
           })
         },

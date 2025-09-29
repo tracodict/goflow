@@ -53,41 +53,117 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 				backgroundColor: "#ffffff",
 				fontFamily: "system-ui, sans-serif",
 			},
-			childIds: ["sample-box", "sample-text"],
+			childIds: ["navigation-menu", "main-title", "data-grid", "welcome-button"],
 		},
-		"sample-box": {
-			id: "sample-box",
-			tagName: "div",
-			attributes: {},
-			styles: {
-				width: "200px",
-				height: "120px",
-				backgroundColor: "transparent",
-				border: "2px dashed #d1d5db",
-				borderRadius: "0px",
-				margin: "16px 0",
-				display: "flex",
-				alignItems: "center",
-				justifyContent: "center",
-				padding: "16px",
-				fontSize: "14px",
-				color: "#6b7280",
+
+		"navigation-menu": {
+			id: "navigation-menu",
+			tagName: "NavigationMenu",
+			attributes: {
+				"data-component-type": "NavigationMenu",
+				"data-scriptable": "true",
+				"data-config": JSON.stringify({
+					items: [
+						{
+							id: "home",
+							label: "Home",
+							href: "/Home"
+						},
+						{
+							id: "services",
+							label: "Services",
+							children: [
+								{
+									id: "rfq",
+									label: "RFQ",
+									href: "/svc/rfq"
+								},
+								{
+									id: "quote",
+									label: "Quote",
+									href: "/svc/quote"
+								}
+							]
+						},
+						{
+							id: "help",
+							label: "Help",
+							href: "/help"
+						}
+					]
+				})
 			},
-			content: "Layout Container",
+			styles: {
+				padding: "8px 0",
+				marginTop: "-20px",
+				marginLeft: "-20px",
+				marginBottom: "0px",
+				display: "block",
+				width: "100%"
+			},
 			childIds: [],
 			parentId: "page-root",
 		},
-		"sample-text": {
-			id: "sample-text",
-			tagName: "p",
+
+		"main-title": {
+			id: "main-title",
+			tagName: "h1",
 			attributes: {},
 			styles: {
-				fontSize: "18px",
-				color: "#374151",
-				margin: "16px 0",
-				lineHeight: "1.6",
+				fontSize: "32px",
+				fontWeight: "bold",
+				color: "#1f2937",
+				margin: "24px 0",
+				lineHeight: "1.2",
+				textAlign: "center"
 			},
-			content: "Welcome to the Visual Page Builder!",
+			content: "Welcome to Our Website",
+			childIds: [],
+			parentId: "page-root",
+		},
+
+		"data-grid": {
+			id: "data-grid",
+			tagName: "div",
+			attributes: {
+				"data-component-type": "data-grid",
+				"data-scriptable": "true",
+				"data-query-name": ""
+			},
+			styles: {
+				width: "100%",
+				minHeight: "200px",
+				margin: "8px 0",
+				border: "1px solid #e5e7eb",
+				borderRadius: "6px"
+			},
+			content: "",
+			childIds: [],
+			parentId: "page-root",
+		},
+
+		"welcome-button": {
+			id: "welcome-button",
+			tagName: "div",
+			attributes: {
+				"data-component-type": "Button",
+				"data-scriptable": "true",
+				"data-onclick-script": "alert('Welcome')"
+			},
+			styles: {
+				padding: "12px 24px",
+				backgroundColor: "#3b82f6",
+				color: "white",
+				border: "none",
+				borderRadius: "6px",
+				cursor: "pointer",
+				fontSize: "14px",
+				fontWeight: "500",
+				margin: "16px auto",
+				display: "block",
+				textAlign: "center"
+			},
+			content: "Welcome",
 			childIds: [],
 			parentId: "page-root",
 		},
