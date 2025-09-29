@@ -4,13 +4,10 @@ import React, { useState, useEffect } from "react"
 import { useBuilderStore } from "../../../stores/pagebuilder/editor"
 import { useSavedQueriesStore } from "../../../stores/saved-queries" 
 import { useDatasourceStore } from "../../../stores/datasource"
-import { MenuConfigForm } from "../forms/menu-config-form"
 import { getPropertyConfig, PropertyConfigRenderer } from "../../../vComponents/property-config-registry"
 
 export const PropertiesTab: React.FC = () => {
 	const { elements, selectedElementId, updateElement } = useBuilderStore()
-	const [showMenuConfig, setShowMenuConfig] = useState(false)
-	const [menuConfigData, setMenuConfigData] = useState<any>(null)
 	const { queries, hydrated, hydrate } = useSavedQueriesStore()
 	const { datasources, loading: datasourcesLoading, fetchDatasources } = useDatasourceStore()
 	const selectedElement = selectedElementId ? elements[selectedElementId] : null
@@ -42,32 +39,6 @@ export const PropertiesTab: React.FC = () => {
 		updateElement(selectedElement.id, { attributes: updatedAttributes })
 	}
 
-	const openMenuConfig = () => {
-		try {
-			const currentConfig = JSON.parse(selectedElement.attributes?.["data-config"] || '{}')
-			setMenuConfigData(currentConfig)
-			setShowMenuConfig(true)
-		} catch (err) {
-			console.error('Failed to parse menu configuration:', err)
-			// Set default config if parse fails
-			setMenuConfigData({
-				items: [],
-				orientation: "horizontal",
-				showIcons: true,
-				showBadges: false
-			})
-			setShowMenuConfig(true)
-		}
-	}
-
-	const handleMenuConfigSave = (configData: any) => {
-		handleAttributeUpdate("data-config", JSON.stringify(configData))
-	}
-
-	const handleMenuConfigClose = () => {
-		setShowMenuConfig(false)
-		setMenuConfigData(null)
-	}
 
 	// Get the component type to determine which property config to use
 	const getComponentType = (): string | null => {
@@ -242,15 +213,6 @@ export const PropertiesTab: React.FC = () => {
 				)}
 			</div>
 
-			{/* Menu Configuration Form (special case for NavigationMenu) */}
-			{menuConfigData && (
-				<MenuConfigForm
-					open={showMenuConfig}
-					config={menuConfigData}
-					onApply={handleMenuConfigSave}
-					onClose={handleMenuConfigClose}
-				/>
-			)}
 		</div>
 	)
 }

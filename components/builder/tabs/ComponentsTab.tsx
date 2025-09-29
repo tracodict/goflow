@@ -569,62 +569,7 @@ const componentCategories = [
 					content: "Accordion Content",
 				},
 			},
-			{
-				icon: Menu,
-				name: "Menu",
-				description: "Advanced navigation with nested menus and custom scripts",
-				template: {
-					tagName: "div",
-					attributes: { 
-						"data-type": "enhanced-navigation-menu",
-						"data-component-type": "NavigationMenu",
-						"data-config": JSON.stringify({
-							items: [
-								{
-									id: "home",
-									label: "Home",
-									href: "/",
-									icon: "🏠"
-								},
-								{
-									id: "products",
-									label: "Products",
-									children: [
-										{
-											id: "software",
-											label: "Software",
-											href: "/products/software"
-										},
-										{
-											id: "services",
-											label: "Services", 
-											href: "/products/services"
-										}
-									]
-								},
-								{
-									id: "contact",
-									label: "Contact",
-									href: "/contact",
-									script: "// Custom script example\nfunction handleContact(eventPayload, context) {\n  context.ui.showNotification({\n    type: 'info',\n    message: 'Contact clicked!'\n  })\n}",
-									scriptType: "custom"
-								}
-							],
-							orientation: "horizontal",
-							showIcons: true,
-							showBadges: false
-						})
-					},
-					styles: {
-						width: "100%",
-						padding: "0px 0",
-						borderBottom: "1px solid #e5e7eb",
-						margin: "8px 0",
-						position: "relative"
-					},
-					content: "Enhanced Navigation Menu",
-				},
-			},
+
 			{
 				icon: Tabs,
 				name: "Tabs",

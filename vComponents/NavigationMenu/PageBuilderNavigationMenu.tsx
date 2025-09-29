@@ -3,9 +3,13 @@
 import React from "react"
 import { NavigationMenu } from "./NavigationMenu"
 import { globalSandbox } from "@/lib/script-sandbox"
-import type { NavigationMenuConfig, NavigationMenuEventPayload, MenuState } from "@/lib/types/navigation-menu-interface"
 import type { BaseEventPayload } from "@/lib/component-interface"
-import type { MenuInteractionEventPayload } from "./interface"
+import type { 
+  NavigationMenuConfig, 
+  NavigationMenuEventPayload, 
+  MenuState,
+  MenuInteractionEventPayload 
+} from "./interface"
 
 // Base props interface for NavigationMenu
 export interface NavigationMenuProps {

@@ -4,6 +4,8 @@
 
 import React from "react"
 import { PropertyTabConfig, CustomPropertyRenderProps } from "../property-config-types"
+import CodeMirror from '@uiw/react-codemirror'
+import { json } from '@codemirror/lang-json'
 
 const NavigationMenuCustomRenderer: React.FC<CustomPropertyRenderProps> = ({ 
   attributes, 
@@ -12,7 +14,7 @@ const NavigationMenuCustomRenderer: React.FC<CustomPropertyRenderProps> = ({
   const updateConfigProperty = (property: string, value: any) => {
     try {
       const currentConfig = JSON.parse(attributes?.["data-config"] || '{}')
-      const newConfig = { ...currentConfig, [property]: value }
+      const newConfig = { ...currentConfig, [property]: JSON.parse(value) }
       onAttributeUpdate("data-config", JSON.stringify(newConfig))
     } catch (err) {
       console.error(`Failed to update menu ${property}:`, err)
@@ -30,11 +32,13 @@ const NavigationMenuCustomRenderer: React.FC<CustomPropertyRenderProps> = ({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <label className="text-xs font-medium text-muted-foreground">Menu Configuration</label>
-        <div className="text-xs text-muted-foreground">
-          Use the Configure Menu button in Properties panel
-        </div>
+      <div className="border rounded-md overflow-hidden">
+        <CodeMirror
+          value={JSON.stringify(getConfigValue('items', []), null, 2)}
+          onChange={(value) => updateConfigProperty('items', value)}
+          height="300px"
+          extensions={[json()]}
+        />
       </div>
       
       <div>
