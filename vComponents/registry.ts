@@ -6,11 +6,12 @@
  * in the component library of the PageBuilder.
  */
 
-import { MousePointer, Navigation, Table, FolderTree } from 'lucide-react'
+import { MousePointer, Navigation, Table, FolderTree, Workflow } from 'lucide-react'
 import { ButtonComponent, ButtonComponentInterface } from './Button'
 import { NavigationMenuComponent } from './NavigationMenu'
 import { DataGridComponent } from './DataGrid'
 import { S3ExplorerComponent } from './S3Explorer'
+import { WorkflowTokens } from './WorkflowTokens'
 
 // Define the component registration interface
 export interface ComponentRegistration {
@@ -153,6 +154,33 @@ export const componentRegistry: Record<string, ComponentRegistration[]> = {
           margin: '8px 0',
           border: '1px solid #e5e7eb',
           borderRadius: '6px'
+        },
+        content: ''
+      }
+    }
+  ],
+  workflow: [
+    {
+      name: 'WorkflowTokens',
+      category: 'Workflow',
+      description: 'Display workflow tokens with color-based filtering',
+      icon: Workflow,
+      template: {
+        tagName: 'div',
+        attributes: {
+          'data-component-type': 'workflow-tokens',
+          'data-scriptable': 'true',
+          'data-workflow-color': 'red',
+          'data-workflow-base-url': '',
+          'data-workflow-dictionary-url': ''
+        },
+        styles: {
+          width: '100%',
+          minHeight: '200px',
+          margin: '8px 0',
+          border: '1px solid #e5e7eb',
+          borderRadius: '6px',
+          padding: '16px'
         },
         content: ''
       }

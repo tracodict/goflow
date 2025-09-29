@@ -123,6 +123,49 @@ The visual page editor serves as the primary interface for building interactive 
 - **AI Integration**: Workflows can leverage AI services for intelligent data processing and automation
 - **Async Operations**: Support for long-running backend processes with status tracking and notifications
 
+### 1.6 Component Registration System
+- **vComponents Architecture**: All components organized in `vComponents/` directory with standardized structure
+- **Central Registry**: Components registered in `vComponents/registry.ts` for automatic discovery by PageBuilder
+- **Category-Based Organization**: Components grouped by categories (form, navigation, data, workflow, etc.)
+- **Template-Driven Rendering**: Each component includes template definition for initial PageBuilder rendering
+- **Interface Definitions**: Components expose events and actions through standardized interfaces
+
+#### Component Directory Structure
+```
+vComponents/
+├── registry.ts              # Central component registration
+├── ComponentName/           # Each component in its own directory
+│   ├── index.ts            # Main export file
+│   ├── ComponentName.tsx   # Core React component
+│   ├── PageBuilderComponentName.tsx  # PageBuilder wrapper
+│   └── property-config.tsx # Property panel configuration
+```
+
+#### Registry Configuration
+```typescript
+// vComponents/registry.ts
+export const componentRegistry: Record<string, ComponentRegistration[]> = {
+  form: [/* form components */],
+  navigation: [/* navigation components */],
+  data: [/* data components */],
+  workflow: [/* workflow components */]
+}
+```
+
+#### Adding New Components
+1. **Create Component Directory**: `vComponents/NewComponent/`
+2. **Implement Core Component**: `NewComponent.tsx` with React implementation
+3. **Create PageBuilder Wrapper**: `PageBuilderNewComponent.tsx` for editor integration
+4. **Register in Registry**: Add to appropriate category in `componentRegistry`
+5. **Define Template**: Specify initial rendering template with attributes and styles
+
+#### Creating New Categories
+To add a new component category:
+1. **Add to Registry**: Create new category key in `componentRegistry`
+2. **Import Icon**: Import appropriate Lucide icon for category
+3. **Register Components**: Add component entries with `category` matching the new category name
+4. **Auto-Discovery**: ComponentsTab automatically discovers and displays new categories
+
 ### Platform Interactions
 The visual editor orchestrates these components through:
 - **Unified State Management**: Centralized application state that connects pages, data sources, and workflows

@@ -5,12 +5,204 @@
 This tutorial will guide you through creating interactive components in GoFlow's PageBuilder platform using the new centralized component architecture. All components are now organized in the `vComponents` directory with a registry-based system for automatic discovery and integration.
 
 ## Table of Contents
-1. [Component Interface Standards](#1-component-interface-standards)
-2. [Button Component Implementation Example](#2-button-component-implementation-example)
-3. [Event Handling and Scripts](#3-event-handling-and-scripts)
-4. [Visual Page Editor Usage](#4-visual-page-editor-usage)
-5. [Advanced Scripting Patterns](#5-advanced-scripting-patterns)
-6. [Best Practices](#6-best-practices)
+1. [Component Registration Guide](#0-component-registration-guide)
+2. [Component Interface Standards](#1-component-interface-standards)
+3. [Button Component Implementation Example](#2-button-component-implementation-example)
+4. [Event Handling and Scripts](#3-event-handling-and-scripts)
+5. [Visual Page Editor Usage](#4-visual-page-editor-usage)
+6. [Advanced Scripting Patterns](#5-advanced-scripting-patterns)
+7. [Best Practices](#6-best-practices)
+
+---
+
+## 0. Component Registration Guide
+
+### 0.1 Quick Start: Adding a New vComponent
+
+**CRITICAL**: All components must be registered in `vComponents/registry.ts` to appear in the PageBuilder component palette. This is the most common mistake when adding new components.
+
+#### Step-by-Step Registration Process
+
+**Step 1: Create Component Directory Structure**
+```bash
+mkdir vComponents/YourComponent
+cd vComponents/YourComponent
+touch index.ts YourComponent.tsx PageBuilderYourComponent.tsx property-config.tsx
+```
+
+**Step 2: Implement Core Component** (`YourComponent.tsx`)
+```typescript
+// vComponents/YourComponent/YourComponent.tsx
+import React from 'react'
+
+interface YourComponentProps {
+  // Component props
+}
+
+export const YourComponent: React.FC<YourComponentProps> = (props) => {
+  return (
+    <div>Your component implementation</div>
+  )
+}
+```
+
+**Step 3: Create PageBuilder Wrapper** (`PageBuilderYourComponent.tsx`)
+```typescript
+// vComponents/YourComponent/PageBuilderYourComponent.tsx
+import React from 'react'
+import { YourComponent } from './YourComponent'
+
+interface PageBuilderYourComponentProps {
+  // PageBuilder-specific props from data attributes
+}
+
+export const PageBuilderYourComponent: React.FC<PageBuilderYourComponentProps> = (props) => {
+  // Extract configuration from data attributes
+  const config = extractDataAttributes(props)
+  
+  return <YourComponent {...config} />
+}
+```
+
+**Step 4: REGISTER IN COMPONENT REGISTRY** (`vComponents/registry.ts`)
+
+⚠️ **MOST IMPORTANT STEP** - Without this, your component won't appear in the PageBuilder!
+
+```typescript
+// 1. Import the component at the top
+import { YourComponent } from './YourComponent'
+import { YourIcon } from 'lucide-react' // Choose appropriate icon
+
+// 2. Add to the appropriate category or create new category
+export const componentRegistry: Record<string, ComponentRegistration[]> = {
+  // Existing categories...
+  workflow: [ // or create new category
+    // Existing components...
+    {
+      name: 'YourComponent',
+      category: 'Workflow', // Must match the category key
+      description: 'Brief description of your component',
+      icon: YourIcon,
+      template: {
+        tagName: 'div',
+        attributes: {
+          'data-component-type': 'your-component',
+          'data-scriptable': 'true',
+          // Add component-specific data attributes
+          'data-your-config': 'default-value'
+        },
+        styles: {
+          width: '100%',
+          minHeight: '200px',
+          margin: '8px 0',
+          border: '1px solid #e5e7eb',
+          borderRadius: '6px',
+          padding: '16px'
+        },
+        content: ''
+      }
+    }
+  ]
+}
+```
+
+**Step 5: Add Property Configuration** (Optional but recommended)
+```typescript
+// vComponents/YourComponent/property-config.tsx
+export const YourComponentPropertyConfig = {
+  type: 'your-component',
+  title: 'Your Component Properties',
+  properties: [
+    {
+      key: 'your-config',
+      label: 'Configuration',
+      type: 'text' as const,
+      defaultValue: 'default-value'
+    }
+  ]
+}
+
+// Register in property-config-registry.ts
+import { YourComponentPropertyConfig } from './YourComponent/property-config'
+export const propertyTabRegistry = {
+  // ...existing configs
+  'your-component': YourComponentPropertyConfig
+}
+```
+
+### 0.2 Creating New Categories
+
+To add a completely new component category (e.g., 'workflow', 'ai', 'charts'):
+
+**Step 1: Add Category to Registry**
+```typescript
+// vComponents/registry.ts
+export const componentRegistry: Record<string, ComponentRegistration[]> = {
+  // Existing categories
+  form: [...],
+  navigation: [...],
+  data: [...],
+  
+  // NEW CATEGORY
+  yourcategory: [
+    {
+      name: 'YourComponent',
+      category: 'YourCategory', // IMPORTANT: category value must match key
+      // ... rest of component config
+    }
+  ]
+}
+```
+
+**Step 2: Import Required Icons**
+```typescript
+// At top of registry.ts
+import { YourCategoryIcon } from 'lucide-react'
+```
+
+**Step 3: Component Appears Automatically**
+The `ComponentsTab.tsx` automatically discovers new categories and creates accordion sections for them. No additional configuration needed!
+
+### 0.3 Common Registration Mistakes
+
+❌ **Mistake 1: Component implemented but not in registry**
+- Component exists in `vComponents/YourComponent/` but missing from `componentRegistry`
+- **Result**: Component doesn't appear in PageBuilder palette
+
+❌ **Mistake 2: Wrong category value**
+```typescript
+// WRONG
+workflow: [
+  {
+    name: 'MyComponent',
+    category: 'data', // Should be 'workflow' to match the key
+  }
+]
+
+// CORRECT
+workflow: [
+  {
+    name: 'MyComponent',  
+    category: 'workflow', // Must match the registry key
+  }
+]
+```
+
+❌ **Mistake 3: Missing import**
+```typescript
+// Registry has component entry but missing import at top
+// Results in runtime error
+```
+
+✅ **Verification Checklist**
+1. Component directory created: `vComponents/YourComponent/`
+2. Core component implemented: `YourComponent.tsx`
+3. PageBuilder wrapper created: `PageBuilderYourComponent.tsx`
+4. Import added to registry: `import { YourComponent } from './YourComponent'`
+5. Component entry added to appropriate category in `componentRegistry`
+6. `category` field matches registry key
+7. Icon imported and assigned
+8. Template configuration provided
 
 ---
 

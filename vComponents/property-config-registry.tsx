@@ -14,6 +14,7 @@ import { ButtonPropertyConfig } from "./Button/property-config"
 import { NavigationMenuPropertyConfig } from "./NavigationMenu/property-config"
 import { DataGridPropertyConfig } from "./DataGrid/property-config"
 import { S3ExplorerPropertyConfig } from "./S3Explorer/property-config"
+import { WorkflowTokensPropertyConfig } from './WorkflowTokens/property-config'
 
 // Property tab registry
 export const propertyTabRegistry: PropertyTabRegistry = {
@@ -21,6 +22,7 @@ export const propertyTabRegistry: PropertyTabRegistry = {
   [NavigationMenuPropertyConfig.componentType]: NavigationMenuPropertyConfig,
   [DataGridPropertyConfig.componentType]: DataGridPropertyConfig,
   [S3ExplorerPropertyConfig.componentType]: S3ExplorerPropertyConfig,
+  [WorkflowTokensPropertyConfig.componentType]: WorkflowTokensPropertyConfig,
 }
 
 // Utility to get property config for a component
