@@ -27,5 +27,4 @@ yarn-error.log*
 next-env.d.ts
 cpn-ide-docs
 
-datasources.json
-.goFlow
+.goflow/*
