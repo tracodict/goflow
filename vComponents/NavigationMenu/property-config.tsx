@@ -3,6 +3,7 @@
  */
 
 import React from "react"
+import { useDialog } from '@/lib/dialog/context'
 import { PropertyTabConfig, CustomPropertyRenderProps } from "../property-config-types"
 import CodeMirror from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
@@ -30,8 +31,29 @@ const NavigationMenuCustomRenderer: React.FC<CustomPropertyRenderProps> = ({
     }
   }
 
+  const { open, featureEnabled } = useDialog();
+  const openMenuDefinition = async () => {
+    if (!featureEnabled) return;
+    await open({
+      type: 'modeless',
+      title: 'Menu Definition',
+      content: { mode: 'component', refId: 'menu-definition-panel' },
+      draggable: true,
+      resizable: true,
+      position: { x: 200, y: 120, width: 520, height: 480 },
+      initialPayload: { currentConfig: attributes?.["data-config"] || '{}' }
+    });
+  };
+
   return (
     <div className="space-y-3">
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={openMenuDefinition}
+          className="text-xs px-2 py-1 border rounded bg-background hover:bg-accent"
+        >Configure Menu…</button>
+      </div>
       <div className="border rounded-md overflow-hidden">
         <CodeMirror
           value={JSON.stringify(getConfigValue('items', []), null, 2)}

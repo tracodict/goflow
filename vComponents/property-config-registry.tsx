@@ -15,6 +15,8 @@ import { NavigationMenuPropertyConfig } from "./NavigationMenu/property-config"
 import { DataGridPropertyConfig } from "./DataGrid/property-config"
 import { S3ExplorerPropertyConfig } from "./S3Explorer/property-config"
 import { WorkflowTokensPropertyConfig } from './WorkflowTokens/property-config'
+import { DynamicFormPropertyConfig } from './DynamicForm/property-config'
+import { DialogFormLauncherPropertyConfig } from './DialogFormLauncher/property-config'
 
 // Property tab registry
 export const propertyTabRegistry: PropertyTabRegistry = {
@@ -23,6 +25,8 @@ export const propertyTabRegistry: PropertyTabRegistry = {
   [DataGridPropertyConfig.componentType]: DataGridPropertyConfig,
   [S3ExplorerPropertyConfig.componentType]: S3ExplorerPropertyConfig,
   [WorkflowTokensPropertyConfig.componentType]: WorkflowTokensPropertyConfig,
+  [DynamicFormPropertyConfig.componentType]: DynamicFormPropertyConfig,
+  [DialogFormLauncherPropertyConfig.componentType]: DialogFormLauncherPropertyConfig,
 }
 
 // Utility to get property config for a component

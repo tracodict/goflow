@@ -48,7 +48,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 			tagName: "div",
 			attributes: { className: "page-container" },
 			styles: {
-				minHeight: "100vh",
+				minHeight: "40vh",
 				padding: "20px",
 				backgroundColor: "#ffffff",
 				fontFamily: "system-ui, sans-serif",

@@ -58,6 +58,62 @@ export const componentRegistry: Record<string, ComponentRegistration[]> = {
         content: 'Click me'
       },
       interface: ButtonComponentInterface
+    },
+    {
+      name: 'DynamicForm',
+      category: 'Form',
+      description: 'Schema-driven JSON Schema form (auto layout)',
+      icon: Table,
+      template: {
+        tagName: 'div',
+        attributes: {
+          'data-component-type': 'DynamicForm',
+          'data-scriptable': 'true',
+          'data-schema-id': 'example-schema',
+          'data-ui-schema': JSON.stringify({ 'ui:order': [] }),
+          'data-initial-value': JSON.stringify({})
+        },
+        styles: {
+          width: '100%',
+          minHeight: '140px',
+          margin: '8px 0',
+          border: '1px dashed #cbd5e1',
+          borderRadius: '6px',
+          padding: '8px',
+          background: '#f8fafc'
+        },
+        content: 'DynamicForm (configure data-schema-id)'
+      }
+    },
+    {
+      name: 'FormLauncher',
+      category: 'Form',
+      description: 'Button that opens a DynamicForm inside a dialog',
+      icon: MousePointer,
+      template: {
+        tagName: 'div',
+        attributes: {
+          'data-component-type': 'DialogFormLauncher',
+          'data-scriptable': 'true',
+          'data-schema-id': 'example-schema',
+          'data-dialog-title': 'Edit Example',
+          'data-bindings': JSON.stringify({ 'name': '$.user.name' }),
+          'data-ui-schema': JSON.stringify({ 'ui:order': ['name', '*'] })
+        },
+        styles: {
+          padding: '10px 18px',
+          backgroundColor: '#6366f1',
+          color: '#ffffff',
+          borderRadius: '6px',
+          cursor: 'pointer',
+          display: 'inline-block',
+          fontSize: '14px',
+          fontWeight: 500,
+          userSelect: 'none',
+          margin: '8px 0'
+        },
+        content: 'Open Form Dialog'
+      }
     }
   ],
   navigation: [

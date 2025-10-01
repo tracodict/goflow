@@ -56,7 +56,7 @@ export const usePagesStore = create<PagesState>()(
               tagName: "div",
               attributes: { className: "page-container" },
               styles: {
-                minHeight: "100vh",
+                minHeight: "40vh",
                 padding: "20px",
                 backgroundColor: "#ffffff",
                 fontFamily: "system-ui, sans-serif",
@@ -100,7 +100,7 @@ export const usePagesStore = create<PagesState>()(
               tagName: "div",
               attributes: { className: "page-container" },
               styles: {
-                minHeight: "100vh",
+                minHeight: "40vh",
                 padding: "20px",
                 backgroundColor: "#ffffff",
                 fontFamily: "system-ui, sans-serif",

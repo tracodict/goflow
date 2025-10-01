@@ -146,6 +146,9 @@ importers:
       ag-grid-react:
         specifier: ^34.1.2
         version: 34.2.0(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+      ajv:
+        specifier: ^8.17.1
+        version: 8.17.1
       autoprefixer:
         specifier: ^10.4.20
         version: 10.4.21(postcss@8.5.6)
@@ -227,6 +230,9 @@ importers:
       zod:
         specifier: 3.25.67
         version: 3.25.67
+      zustand:
+        specifier: ^4.5.5
+        version: 4.5.7(@types/react@19.1.13)(react@19.1.1)
     devDependencies:
       '@tailwindcss/postcss':
         specifier: ^4.1.9

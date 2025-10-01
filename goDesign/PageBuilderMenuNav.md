@@ -11,7 +11,8 @@ This comprehensive tutorial guides you through implementing and using the Enhanc
 > - ✅ **Canvas Selection**: Fixed click event handling - components can now be selected directly on canvas
 > - ✅ **Properties Panel**: Configuration options working in the right panel
 > - ✅ **Menu Definition**: Visual menu builder panel implemented
-> - 🔧 **Integration**: Menu Definition Panel modal integration pending
+- ✅ **Integration (Phase 1 Stub)**: Menu Definition Panel now opens in modeless dialog (stub editor)
+- 🔧 **Integration (Full Visual Editor)**: Advanced drag & drop + script binding UI pending
 
 ## Table of Contents
 1. [Enhanced Navigation Menu Overview](#1-enhanced-navigation-menu-overview)

@@ -53,7 +53,7 @@ export const PageWorkspace: React.FC<WorkspaceProps> = ({ rootElementId = "page-
 					flex: 1,
 					backgroundColor: "#ffffff",
 					padding: "0px",
-					overflow: "auto",
+					overflow: "visible",
 					position: "relative",
 					minHeight: "100%",
 				}}
@@ -61,8 +61,8 @@ export const PageWorkspace: React.FC<WorkspaceProps> = ({ rootElementId = "page-
 				onMouseLeave={handleMouseLeave}
 				tabIndex={0}
 			>
-				<div className="h-full w-full">
-					<div className="h-full w-full overflow-auto scrollbar-hide group-hover:scrollbar-default" style={{ height: '100%' }}>
+				<div className="w-full">
+					<div className="w-full">
 						<PageElement elementId={rootElementId} onElementHover={handleElementHover} onElementClick={handleElementClick} />
 					</div>
 				</div>

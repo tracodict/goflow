@@ -5,6 +5,7 @@ import './globals.css'
 import { Toaster } from '@/components/ui/toaster'
 import { SessionProvider } from '@/components/auth/session-context'
 import { SystemSettingsProvider } from '@/components/petri/system-settings-context'
+import { DialogRootClient } from '@/components/dialog/DialogRootClient'
 
 export const metadata: Metadata = {
   title: 'goFlow Editor',
@@ -32,7 +33,9 @@ html {
   <body className="font-sans">
         <SystemSettingsProvider>
           <SessionProvider>
-            {children}
+            <DialogRootClient>
+              {children}
+            </DialogRootClient>
           </SessionProvider>
         </SystemSettingsProvider>
         <Toaster />
