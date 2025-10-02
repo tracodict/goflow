@@ -140,7 +140,7 @@ export const Builder: React.FC = () => {
         )}
 
         {/* Main workspace */}
-        <div className={`flex-1 flex bg-muted/30 relative ${isPreviewMode ? 'overflow-auto' : 'overflow-hidden'}`}>
+        <div className="flex-1 flex bg-muted/30 relative overflow-hidden">
           {selectedSchema ? (
             <div className="flex-1 h-full overflow-hidden">
               <SchemaViewer
@@ -153,12 +153,11 @@ export const Builder: React.FC = () => {
           ) : (
             <div
               style={{
-                overflow: isPreviewMode ? "visible" : "auto",
+                overflow: "auto",
                 transform: `scale(${canvasScale})`,
                 transformOrigin: "0 0",
                 width: `${100 / canvasScale}%`,
-                height: "auto",
-                minHeight: isPreviewMode ? "auto" : "500px",
+                height: `calc(${100 / canvasScale}% - 0.5rem)`,
               }}
             >
               {activeTab === "workflow" ? <FlowWorkspace /> : (activeTab === 'data' ? <DataWorkspace /> : <PageWorkspace />)}

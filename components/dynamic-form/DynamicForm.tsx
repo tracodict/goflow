@@ -61,7 +61,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   } catch {
     // ignore
   }
-  const stored = useMemo(() => schemaRegistry.get(schemaId, schemaVersion), [schemaId, schemaVersion]);
+  // Force re-render when schema is fetched and registered
+  const [schemaFetchTrigger, setSchemaFetchTrigger] = useState(0);
+  const stored = useMemo(() => schemaRegistry.get(schemaId, schemaVersion), [schemaId, schemaVersion, schemaFetchTrigger]);
   const schemaMissing = !stored;
   const jsonSchema = stored?.schema || { type: 'object', properties: {} };
   const [data, setData] = useState<any>(() => value ?? {});
@@ -174,6 +176,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               updatedAt: new Date().toISOString(),
               schema: fetched
             } as any);
+            // Force component re-render now that schema is available
+            setSchemaFetchTrigger(prev => prev + 1);
           }
         } catch (e) {
           console.warn('[DynamicForm] auto-fetch schema failed', schemaId, e);
@@ -267,7 +271,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     const widget = fieldUi?.['ui:widget'];
     const depth = path ? path.split('.').length - 1 : 0;
     const accordionIndent = depth * 8; // px
-    const isAuto = isEmptyUiSchema;
+    const isAuto = useAutoLayout;
 
     const objectSummary = (definition: any, value: any): string => {
       if (!definition || !definition.properties) return '';
@@ -563,19 +567,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     propEntries = finalOrder.map(k => [k, properties[k]] as [string, any]);
   }
 
-  // Detect an "empty" uiSchema to trigger auto responsive layout
-  const isEmptyUiSchema = useMemo(() => {
-    if (!uiSchema) return true;
-    const keys = Object.keys(uiSchema);
-    if (keys.length === 0) return true;
-    if (keys.length === 1 && keys[0] === 'ui:order') {
-      const arr = uiSchema['ui:order'];
-      if (!Array.isArray(arr) || arr.length === 0) return true;
-    }
-    const isEmpty = false;
-    console.log('[DynamicForm] uiSchema analysis:', { uiSchema, keys, isEmpty: !isEmpty, isEmptyResult: isEmpty });
-    return isEmpty;
-  }, [uiSchema]);
+  // Always use responsive auto layout (accordion nested style) - uiSchema only affects field ordering
+  const useAutoLayout = true;
+  console.log('[DynamicForm] Always using auto responsive layout with uiSchema:', uiSchema);
 
   // Responsive grid helper for auto layout: primitive fields share grid, complex spans full width
   const rootAutoLayoutClass = 'grid gap-4';
@@ -583,14 +577,12 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', // Reduce min width for better fit
     width: '100%'
   };
-  console.log('[DynamicForm] Layout mode:', { isEmptyUiSchema, rootAutoLayoutStyle });
+  console.log('[DynamicForm] Layout mode:', { useAutoLayout, rootAutoLayoutStyle });
 
-  // Enhance renderField to optionally wrap primitive fields for grid auto layout
-  const originalRenderField = renderField; // keep reference if needed later
+  // Enhance renderField to wrap complex fields for grid auto layout
   const renderFieldWithAutoLayout = (key: string, def: any, parentPath: string) => {
-    const node = originalRenderField(key, def, parentPath);
-    if (!isEmptyUiSchema) return node; // only modify when auto layout
-    // For object / array wrappers we already style internal; ensure they span full width
+    const node = renderField(key, def, parentPath);
+    // For object / array wrappers ensure they span full width in grid
     const type = Array.isArray(def.type) ? def.type[0] : def.type;
     if (type === 'object' || type === 'array') {
       return <div key={(parentPath? parentPath + '.' : '') + key} style={{ gridColumn: '1 / -1' }}>{node}</div>;
@@ -615,9 +607,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         {propEntries.length === 0 && (
           <div style={{ fontSize: 12, opacity: 0.7 }}>Schema has no object properties to render.</div>
         )}
-        {/* Auto layout container */}
-        <div className={isEmptyUiSchema ? rootAutoLayoutClass : ''} style={isEmptyUiSchema ? rootAutoLayoutStyle : { display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {propEntries.map(([key, def]) => (isEmptyUiSchema ? renderFieldWithAutoLayout(key, def, '') : renderField(key, def, '')))}
+        {/* Always use responsive auto layout container */}
+        <div className={rootAutoLayoutClass} style={rootAutoLayoutStyle}>
+          {propEntries.map(([key, def]) => renderFieldWithAutoLayout(key, def, ''))}
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
           <button type="submit" disabled={readOnly} className="px-3 py-1 text-xs border rounded bg-accent">Submit</button>
