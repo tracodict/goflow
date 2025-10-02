@@ -509,3 +509,10 @@ export async function fireTokenTransition(flowServiceUrl: string, body: { caseId
   }
   return resp.json()
 }
+
+// Fetch colors list (defined schemas) from the server
+export async function fetchColorsList(flowServiceUrl: string) {
+  const resp = await authFetch(`${flowServiceUrl}/api/colors/list`)
+  if (!resp.ok) throw new Error(`Failed to fetch colors list: ${resp.status}`)
+  return resp.json()
+}

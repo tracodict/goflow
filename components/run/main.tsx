@@ -9,7 +9,7 @@ import { DynamicForm } from '@/components/run/forms/dynamic-form'
 import { shadcnRenderers, shadcnCells } from '@/components/run/forms/renderers'
 // @ts-ignore
 import { rankWith, isStringControl, isNumberControl, isBooleanControl } from '@jsonforms/core'
-import { fetchWorkflowList, fetchWorkflow, createCase, startCase, fetchCaseEnabledTransitions, fireCaseTransition, fetchCaseList, suspendCase, resumeCase, abortCase, deleteCase } from '@/components/petri/petri-client'
+import { fetchWorkflowList, fetchWorkflow, createCase, startCase, fetchCaseEnabledTransitions, fireCaseTransition, fetchCaseList, suspendCase, resumeCase, abortCase, deleteCase, fetchColorsList } from '@/components/petri/petri-client'
 import type { PetriNodeData } from '@/lib/petri-types'
 import type { Node } from '@xyflow/react'
 import { DEFAULT_SETTINGS, useSystemSettings } from '@/components/petri/system-settings-context'
@@ -129,29 +129,37 @@ export default function RunMain({ workflowId }: { workflowId: string | null }) {
     } catch {/* ignore */}
   }, [flowServiceUrl, activeCaseId])
 
-  // Fetch workflow definition for currently selected case's cpn
+  // Load defined schemas from server API and fetch workflow definition for currently selected case's cpn
   useEffect(() => {
     let cancelled = false
     async function load() {
       if (!flowServiceUrl) return
       const cpn = activeCaseId ? casesRef.current.find(c => c.id === activeCaseId)?.cpnId : workflowId
-      if (!cpn) return
+      
+      // Load defined colors from API
       try {
-        const resp: any = await fetchWorkflow(flowServiceUrl, cpn)
-        const data = resp?.data || resp
-        if (!cancelled && data) {
-          setWfTransitions(Array.isArray(data.transitions) ? data.transitions : [])
-          setJsonSchemas(Array.isArray(data.jsonSchemas) ? data.jsonSchemas : [])
-          if (Array.isArray(data.colorSets)) {
-            // Extract names from colorSets lines like "colset INT = int;"
-            const names = data.colorSets.map((l: string) => {
-              const m = /colset\s+(\w+)/i.exec(l)
-              return m ? m[1] : null
-            }).filter(Boolean)
-            setWfColorSets(names)
-          }
+        const response = await fetchColorsList(flowServiceUrl)
+        if (!cancelled) {
+          // API returns { success: boolean, data: { colors: string[], schemas?: any[] } }
+          const data = response?.data || response
+          const colors = Array.isArray(data.colors) ? data.colors : []
+          setWfColorSets(colors)
         }
-      } catch {/* ignore */}
+      } catch (error) {
+        console.error('Failed to load defined schemas from API:', error)
+      }
+      
+      // Load workflow definition for transitions and schemas if cpn is available
+      if (cpn) {
+        try {
+          const resp: any = await fetchWorkflow(flowServiceUrl, cpn)
+          const data = resp?.data || resp
+          if (!cancelled && data) {
+            setWfTransitions(Array.isArray(data.transitions) ? data.transitions : [])
+            setJsonSchemas(Array.isArray(data.jsonSchemas) ? data.jsonSchemas : [])
+          }
+        } catch {/* ignore */}
+      }
     }
     load()
     return () => { cancelled = true }

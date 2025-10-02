@@ -29,7 +29,7 @@ const tabs = [
 	{ id: "mcp-tools", label: "MCP Tools", icon: Wrench },
 ]
 
-import { fetchWorkflowList, fetchWorkflow, deleteWorkflowApi, listMcpTools, registerMcpServer, withApiErrorToast, listRegisteredMcpServers, deregisterMcpServer } from "../petri/petri-client"
+import { fetchWorkflowList, fetchWorkflow, deleteWorkflowApi, listMcpTools, registerMcpServer, withApiErrorToast, listRegisteredMcpServers, deregisterMcpServer, fetchColorsList } from "../petri/petri-client"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "../ui/dropdown-menu"
 import { serverToGraph } from "@/lib/workflow-conversion"
 import { useSystemSettings } from "../petri/system-settings-context"
@@ -55,6 +55,10 @@ type LeftPanelProps = {
 			loadPreSupported()
 		}, [loadPreSupported])
 
+		// State for workflow-defined schemas and color sets
+		const [workflowDefinedColors, setWorkflowDefinedColors] = useState<string[]>([])
+		const [workflowJsonSchemas, setWorkflowJsonSchemas] = useState<{ name: string; schema: any }[]>([])
+
 		const fetchList = async () => {
 			setLoading(true)
 			setError(null)
@@ -77,6 +81,40 @@ type LeftPanelProps = {
 		const [loadingWorkflow, setLoadingWorkflow] = useState(false)
 		const [workflowError, setWorkflowError] = useState<string | null>(null)
 		const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null)
+
+		// Load defined schemas from server API
+		useEffect(() => {
+			if (!settings.flowServiceUrl) {
+				setWorkflowDefinedColors([])
+				setWorkflowJsonSchemas([])
+				return
+			}
+
+			let cancelled = false
+			async function loadDefinedSchemas() {
+				try {
+					// Fetch defined schemas from server API
+					const response = await fetchColorsList(settings.flowServiceUrl)
+					if (!cancelled) {
+						// API returns { success: boolean, data: { colors: string[], schemas?: any[] } }
+						const data = response?.data || response
+						const colors = Array.isArray(data.colors) ? data.colors : []
+						const schemas = Array.isArray(data.schemas) ? data.schemas : []
+						setWorkflowDefinedColors(colors)
+						setWorkflowJsonSchemas(schemas)
+					}
+				} catch (error) {
+					console.error('Failed to load defined schemas from API:', error)
+					if (!cancelled) {
+						setWorkflowDefinedColors([])
+						setWorkflowJsonSchemas([])
+					}
+				}
+			}
+
+			loadDefinedSchemas()
+			return () => { cancelled = true }
+		}, [settings.flowServiceUrl])
 
 		// MCP dialog state (migrated from FlowWorkspace)
 		const [mcpAddOpen, setMcpAddOpen] = useState(false)
@@ -241,8 +279,8 @@ type LeftPanelProps = {
 					return (
 						<div className="flex-1 overflow-auto">
 							<SchemaTab
-								definedColors={preSupportedNames} // Use pre-supported schema names
-								jsonSchemas={[]} // TODO: Wire up actual JSON schemas when available
+								definedColors={workflowDefinedColors} // Use workflow-defined color sets
+								jsonSchemas={workflowJsonSchemas} // Use workflow-defined JSON schemas
 								onSchemaUpdate={(name, updatedSchema) => {
 									// TODO: Implement schema update logic for workflow context
 									console.log('Schema updated:', name, updatedSchema)
