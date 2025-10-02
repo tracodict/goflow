@@ -12,6 +12,7 @@ export interface PageBuilderDialogFormLauncherProps {
   'data-bindings'?: string;
   'data-ui-schema'?: string;
   'data-initial-value'?: string;
+  'data-rules'?: string; // JSON string of FieldRule[]
   'data-onclick-script'?: string;
   'data-component-type'?: string;
   style?: React.CSSProperties;
@@ -34,6 +35,7 @@ export const PageBuilderDialogFormLauncher: React.FC<PageBuilderDialogFormLaunch
     'data-bindings': bindingsJSON,
     'data-ui-schema': uiSchemaJSON,
     'data-initial-value': initialValueJSON,
+    'data-rules': rulesJSON,
     'data-onclick-script': onClickScript,
     'data-component-type': componentType,
     style,
@@ -44,6 +46,7 @@ export const PageBuilderDialogFormLauncher: React.FC<PageBuilderDialogFormLaunch
   const bindings = useMemo(() => safeParse<Record<string, string>>(bindingsJSON), [bindingsJSON]);
   const uiSchema = useMemo(() => safeParse<any>(uiSchemaJSON), [uiSchemaJSON]);
   const initialValue = useMemo(() => safeParse<any>(initialValueJSON), [initialValueJSON]);
+  const rules = useMemo(() => safeParse<any[]>(rulesJSON), [rulesJSON]);
   const width = widthStr ? parseInt(widthStr, 10) : undefined;
   const height = heightStr ? parseInt(heightStr, 10) : undefined;
 
@@ -92,7 +95,7 @@ export const PageBuilderDialogFormLauncher: React.FC<PageBuilderDialogFormLaunch
           'dialog-form-launcher-onClick',
           onClickScript,
           eventContext,
-          { schemaId, title: dialogTitle, bindings, uiSchema, initialValue }
+          { schemaId, title: dialogTitle, bindings, uiSchema, initialValue, rules }
         );
         if (scriptResult && typeof scriptResult === 'object' && (scriptResult as any).cancel) {
           console.log('[DialogFormLauncher] Open cancelled by script');
@@ -110,6 +113,7 @@ export const PageBuilderDialogFormLauncher: React.FC<PageBuilderDialogFormLaunch
         bindings,
         uiSchema,
         initialValue,
+        rules,
         width,
         height,
         type: 'modal'

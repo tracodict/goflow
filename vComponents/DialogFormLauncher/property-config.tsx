@@ -18,7 +18,8 @@ export const DialogFormLauncherPropertyConfig: PropertyTabConfig = {
       fields: [
         { key: 'data-bindings', label: 'Bindings JSON', type: 'textarea', placeholder: '{"field.path": "$.json.path"}', rows: 5, helpText: 'Map form field paths to JSONPath in external model.' },
         { key: 'data-ui-schema', label: 'UI Schema JSON', type: 'textarea', placeholder: '{"ui:order": ["name", "*"]}', rows: 5 },
-        { key: 'data-initial-value', label: 'Initial Value JSON', type: 'textarea', placeholder: '{ }', rows: 4 }
+        { key: 'data-initial-value', label: 'Initial Value JSON', type: 'textarea', placeholder: '{ }', rows: 4 },
+        { key: 'data-rules', label: 'Dynamic Rules JSON', type: 'textarea', placeholder: '[{"condition": {"field": "showAdvanced", "operator": "equals", "value": true}, "action": {"type": "show", "field": "advanced"}}]', rows: 6, helpText: 'Rules for dynamic field visibility, enabling, and schema modification.' }
       ]
     },
     {

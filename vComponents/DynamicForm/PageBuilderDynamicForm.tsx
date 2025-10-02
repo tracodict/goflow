@@ -11,6 +11,7 @@ export interface PageBuilderDynamicFormProps extends Omit<DynamicFormProps, 'sch
   'data-initial-value'?: string;
   'data-bindings'?: string;
   'data-ui-schema'?: string;
+  'data-rules'?: string; // JSON string of FieldRule[]
   // Event scripts
   'data-onChange-script'?: string;
   'data-onSubmit-script'?: string;
@@ -31,6 +32,7 @@ export const PageBuilderDynamicForm: React.FC<PageBuilderDynamicFormProps> = ({
   'data-initial-value': initialValueJSON,
   'data-bindings': bindingsJSON,
   'data-ui-schema': uiSchemaJSON,
+  'data-rules': rulesJSON,
   'data-onChange-script': onChangeScript,
   'data-onSubmit-script': onSubmitScript,
   'data-onValidate-script': onValidateScript,
@@ -54,6 +56,11 @@ export const PageBuilderDynamicForm: React.FC<PageBuilderDynamicFormProps> = ({
     if (!uiSchemaJSON) return undefined;
     try { return JSON.parse(uiSchemaJSON); } catch { return undefined; }
   }, [uiSchemaJSON]);
+
+  const parsedRules = React.useMemo(() => {
+    if (!rulesJSON) return undefined;
+    try { return JSON.parse(rulesJSON); } catch { return undefined; }
+  }, [rulesJSON]);
 
   useEffect(() => {
     if (parsedInitial && initial.current === undefined) {
@@ -137,6 +144,7 @@ export const PageBuilderDynamicForm: React.FC<PageBuilderDynamicFormProps> = ({
         value={parsedInitial}
         bindings={parsedBindings}
         uiSchema={parsedUiSchema}
+        rules={parsedRules}
         onChange={handleChange}
         onSubmit={handleSubmit}
         onValidate={handleValidate}

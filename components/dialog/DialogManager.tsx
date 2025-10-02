@@ -157,6 +157,7 @@ export const DialogManager: React.FC = () => {
                       data-initial-value={ip.initialValue ? JSON.stringify(ip.initialValue) : undefined}
                       data-bindings={ip.bindings ? JSON.stringify(ip.bindings) : undefined}
                       data-ui-schema={forceEmptyUiSchema}
+                      data-rules={ip.rules ? JSON.stringify(ip.rules) : undefined}
                       style={{ width: '100%', minWidth: 0 }}
                       onChange={(next: any) => updateData(dlg.id, next)}
                       onSubmit={(finalData: any) => {

@@ -8,6 +8,7 @@ export interface OpenDynamicFormOptions {
   bindings?: Record<string, string>;
   uiSchema?: any;
   initialValue?: any;
+  rules?: any[]; // FieldRule[] but avoiding import
   type?: 'modal' | 'modeless';
   width?: number;
   height?: number;
@@ -26,8 +27,9 @@ export function openDynamicFormInDialog(opts: OpenDynamicFormOptions) {
     bindings,
     uiSchema,
     initialValue,
+    rules,
     type = 'modal',
-  width = 760,
+    width = 760,
     height = 420,
     position
   } = opts;
@@ -48,7 +50,8 @@ export function openDynamicFormInDialog(opts: OpenDynamicFormOptions) {
       model,
       bindings,
       uiSchema,
-      initialValue
+      initialValue,
+      rules
     }
   };
   return store.openDialog(cfg);

@@ -19,8 +19,9 @@ const DynamicFormCustomRenderer: React.FC<CustomPropertyRenderProps> = ({ attrib
   const bindingsRaw = attributes?.['data-bindings'] || '{}';
   const uiSchemaRaw = attributes?.['data-ui-schema'] || '{"ui:order": []}';
   const initialValueRaw = attributes?.['data-initial-value'] || '{}';
+  const rulesRaw = attributes?.['data-rules'] || '[]';
 
-  const [tab, setTab] = useState<'config' | 'bindings' | 'uiSchema' | 'events'>('config');
+  const [tab, setTab] = useState<'config' | 'bindings' | 'uiSchema' | 'rules' | 'events'>('config');
 
   const preview = async () => {
   if (!open || !featureEnabled || !schemaId) return;
@@ -39,7 +40,7 @@ const DynamicFormCustomRenderer: React.FC<CustomPropertyRenderProps> = ({ attrib
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2 border-b pb-1">
         <div className="flex gap-2 text-[11px]">
-          {(['config','bindings','uiSchema','events'] as const).map(t => (
+          {(['config','bindings','uiSchema','rules','events'] as const).map(t => (
             <button
               key={t}
               type="button"
@@ -124,6 +125,23 @@ const DynamicFormCustomRenderer: React.FC<CustomPropertyRenderProps> = ({ attrib
             placeholder='{"ui:order": ["name", "address", "*"]}'
           />
           <p className="text-[10px] text-muted-foreground">Supports root and nested "ui:order" plus simple "ui:widget" overrides.</p>
+        </div>
+      )}
+      {tab === 'rules' && (
+        <div className="space-y-2">
+          <label className="block text-xs font-medium mb-1 text-muted-foreground">Dynamic Rules JSON</label>
+          <textarea
+            value={rulesRaw}
+            onChange={e => onAttributeUpdate('data-rules', e.target.value)}
+            rows={12}
+            className="w-full p-2 border border-input rounded text-xs font-mono bg-background text-foreground"
+            placeholder='[{"condition": {"field": "showAdvanced", "operator": "equals", "value": true}, "action": {"type": "show", "field": "advanced"}}]'
+          />
+          <div className="text-[10px] text-muted-foreground space-y-1">
+            <p><strong>Rule Types:</strong> show/hide fields, enable/disable fields, modify schema (enum, range, required)</p>
+            <p><strong>Conditions:</strong> equals, not_equals, greater_than, less_than, contains, exists, in</p>
+            <p><strong>Example:</strong> Show field when checkbox is true, modify enum options based on selection</p>
+          </div>
         </div>
       )}
       {tab === 'events' && (

@@ -661,7 +661,164 @@ For each component with binding:
     computed → store in computed props bag
 ```
 
-### 5.7 Transform Sandbox
+### 5.7 Dynamic Rule Engine
+
+#### 5.7.1 Purpose
+Provide a declarative rule system for dynamic field behavior based on other field values:
+- Field visibility (show/hide)
+- Field enabling (enabled/disabled/readonly)
+- Schema attribute modification (enum options, min/max ranges, validation rules)
+- Conditional field transformation
+
+#### 5.7.2 Rule Definition Schema
+```ts
+interface FieldRule {
+  id: string
+  description?: string
+  condition: RuleCondition
+  action: RuleAction
+  priority?: number  // Higher numbers execute first
+}
+
+interface RuleCondition {
+  type: 'and' | 'or' | 'not' | 'equals' | 'contains' | 'range' | 'exists' | 'custom'
+  field?: string     // JSONPath to field being evaluated
+  value?: any        // Expected value for comparison
+  min?: number       // For range conditions
+  max?: number
+  conditions?: RuleCondition[]  // For and/or/not
+  script?: string    // For custom conditions (sandboxed)
+}
+
+interface RuleAction {
+  type: 'visibility' | 'enabled' | 'schema' | 'transform' | 'custom'
+  field: string      // JSONPath to target field
+  
+  // Visibility actions
+  visible?: boolean
+  
+  // Enabled actions  
+  enabled?: boolean
+  readonly?: boolean
+  
+  // Schema modification actions
+  schemaUpdates?: {
+    enum?: any[]     // Update enum options
+    minimum?: number // Update range constraints
+    maximum?: number
+    required?: boolean
+    pattern?: string // Update validation pattern
+    format?: string
+    [key: string]: any // Other schema properties
+  }
+  
+  // Transform actions
+  transformScript?: string // Sandboxed script to modify field value
+  
+  // Custom actions
+  script?: string    // Custom sandboxed script
+}
+```
+
+#### 5.7.3 Rule Engine Architecture
+```ts
+interface RuleEngine {
+  // Rule management
+  addRule(rule: FieldRule): void
+  removeRule(ruleId: string): void
+  getRules(fieldPath?: string): FieldRule[]
+  
+  // Evaluation
+  evaluateRules(formData: any, changedField?: string): RuleEvaluationResult
+  evaluateCondition(condition: RuleCondition, formData: any): boolean
+  
+  // Schema modification
+  applySchemaRules(baseSchema: any, formData: any): any
+  
+  // Field state computation
+  computeFieldState(fieldPath: string, formData: any): FieldState
+}
+
+interface RuleEvaluationResult {
+  fieldStates: Record<string, FieldState>
+  schemaModifications: Record<string, any>
+  errors: RuleError[]
+}
+
+interface FieldState {
+  visible: boolean
+  enabled: boolean
+  readonly: boolean
+  schemaOverrides?: any
+  transformedValue?: any
+}
+```
+
+#### 5.7.4 Integration Points
+- **DynamicForm**: Rule engine evaluates on each field change, updates field states and schema
+- **Schema Registry**: Modified schemas cached with rule application context
+- **Validation Layer**: Rules can modify validation constraints dynamically
+- **Property Panel**: Visual rule builder for non-technical users
+
+#### 5.7.5 Rule Examples
+```json
+{
+  "id": "show-spouse-name",
+  "description": "Show spouse name field when marital status is married",
+  "condition": {
+    "type": "equals",
+    "field": "maritalStatus", 
+    "value": "married"
+  },
+  "action": {
+    "type": "visibility",
+    "field": "spouseName",
+    "visible": true
+  }
+}
+
+{
+  "id": "limit-age-range",
+  "description": "Limit child age based on parent type", 
+  "condition": {
+    "type": "equals",
+    "field": "parentType",
+    "value": "minor"
+  },
+  "action": {
+    "type": "schema",
+    "field": "age",
+    "schemaUpdates": {
+      "minimum": 0,
+      "maximum": 17
+    }
+  }
+}
+
+{
+  "id": "filter-country-states",
+  "description": "Update state options based on selected country",
+  "condition": {
+    "type": "exists",
+    "field": "country"
+  },
+  "action": {
+    "type": "schema", 
+    "field": "state",
+    "schemaUpdates": {
+      "enum": "@script:getStatesByCountry(data.country)"
+    }
+  }
+}
+```
+
+#### 5.7.6 Performance Optimizations
+- Rule dependency graph prevents unnecessary re-evaluations
+- Incremental evaluation: only re-evaluate rules affected by changed fields
+- Schema modification caching with invalidation
+- Batch rule execution to minimize renders
+
+### 5.8 Transform Sandbox
 | Safeguard | Description |
 |-----------|-------------|
 | Timeout | Abort after N ms (configurable) |

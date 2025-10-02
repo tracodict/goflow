@@ -5,6 +5,7 @@ import { schemaRegistry } from '@/lib/schema-registry';
 import { fetchPreSupportedSchema } from '@/components/petri/pre-supported-schemas';
 import { useSystemSettings } from '@/components/petri/system-settings-context';
 import { getAtPath as jsonGet, setAtPath as jsonSet } from '@/lib/jsonpath-lite';
+import { globalRuleEngine, type FieldRule, type FieldState } from '@/lib/rule-engine';
 
 export interface DynamicFormProps {
   schemaId: string;
@@ -19,6 +20,8 @@ export interface DynamicFormProps {
     ['ui:order']?: string[];
     [field: string]: any;
   };
+  /** Dynamic rules for field visibility, enabling, and schema modification */
+  rules?: FieldRule[];
   /** Unique component instance id (for event payload context) */
   componentId?: string;
   /** Optional event emitter bridge (eventName, payload) -> void */
@@ -42,6 +45,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   model,
   bindings,
   uiSchema,
+  rules,
   componentId,
   emitEvent,
   readOnly,
@@ -70,6 +74,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   const [errors, setErrors] = useState<ErrorObject[] | null>(null);
   const [isDirty, setDirty] = useState(false);
   const [isValid, setIsValid] = useState<boolean | null>(null);
+  // Rule engine state
+  const [fieldStates, setFieldStates] = useState<Record<string, FieldState>>({});
+  const [ruleEvaluationId, setRuleEvaluationId] = useState(0);
   // Track open accordions for nested objects/arrays in auto layout mode
   const [openAccordions, setOpenAccordions] = useState<Set<string>>(() => new Set());
   const toggleAccordion = (path: string, force?: boolean) => {
@@ -80,6 +87,41 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       return next;
     });
   };
+
+  // Setup rules when component mounts or rules change
+  useEffect(() => {
+    if (rules && rules.length > 0) {
+      // Clear existing rules for this form instance
+      globalRuleEngine.getRules().forEach(rule => {
+        if (rule.id.startsWith(`${schemaId}-`)) {
+          globalRuleEngine.removeRule(rule.id);
+        }
+      });
+      
+      // Add new rules with form-specific prefixes
+      rules.forEach(rule => {
+        globalRuleEngine.addRule({
+          ...rule,
+          id: `${schemaId}-${rule.id}`
+        });
+      });
+      
+      // Force rule re-evaluation
+      setRuleEvaluationId(prev => prev + 1);
+    }
+  }, [rules, schemaId]);
+
+  // Evaluate rules when data or rule evaluation is triggered
+  useEffect(() => {
+    if (rules && rules.length > 0) {
+      const evaluation = globalRuleEngine.evaluateRules(data);
+      setFieldStates(evaluation.fieldStates);
+      
+      if (evaluation.errors.length > 0) {
+        console.warn('[DynamicForm] Rule evaluation errors:', evaluation.errors);
+      }
+    }
+  }, [data, rules, ruleEvaluationId]);
 
   // Compile schema (very naive; later phases should cache)
   const validator = useMemo(() => {
@@ -191,6 +233,16 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     setData(next);
     setDirty(true);
     onChange?.(next);
+    
+    // Trigger rule re-evaluation when data changes
+    if (rules && rules.length > 0 && meta?.path) {
+      // Use setTimeout to batch rapid changes
+      setTimeout(() => {
+        const evaluation = globalRuleEngine.evaluateRules(next, meta.path);
+        setFieldStates(evaluation.fieldStates);
+      }, 0);
+    }
+    
     if (emitEvent && componentId && meta?.path) {
       emitEvent('onChange', {
         timestamp: Date.now(),
@@ -272,6 +324,14 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     const depth = path ? path.split('.').length - 1 : 0;
     const accordionIndent = depth * 8; // px
     const isAuto = useAutoLayout;
+    
+    // Apply rule-based field state
+    const fieldState = fieldStates[path] || { visible: true, enabled: true, readonly: false };
+    if (!fieldState.visible) {
+      return null; // Hide field if rule says so
+    }
+    const effectiveReadOnly = readOnly || fieldState.readonly || !fieldState.enabled;
+    const fieldValue = fieldState.transformedValue !== undefined ? fieldState.transformedValue : val;
 
     const objectSummary = (definition: any, value: any): string => {
       if (!definition || !definition.properties) return '';
@@ -482,8 +542,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         input = (
           <textarea
             id={fieldId}
-            value={val ?? ''}
-            disabled={readOnly}
+            value={fieldValue ?? ''}
+            disabled={effectiveReadOnly}
             onChange={(e) => updateAtPath(path, e.target.value)}
             rows={fieldUi?.rows || 3}
             className="w-full border rounded px-2 py-1 text-sm bg-background"
@@ -494,8 +554,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           <input
             id={fieldId}
             type="text"
-            value={val ?? ''}
-            disabled={readOnly}
+            value={fieldValue ?? ''}
+            disabled={effectiveReadOnly}
             onChange={(e) => updateAtPath(path, e.target.value)}
             className="w-full border rounded px-2 py-1 text-sm bg-background"
           />
@@ -506,8 +566,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         <input
           id={fieldId}
           type="number"
-          value={val ?? ''}
-          disabled={readOnly}
+          value={fieldValue ?? ''}
+          disabled={effectiveReadOnly}
           onChange={(e) => updateAtPath(path, e.target.value === '' ? undefined : Number(e.target.value))}
           className="w-full border rounded px-2 py-1 text-sm bg-background"
         />
@@ -517,8 +577,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         <input
           id={fieldId}
           type="checkbox"
-          checked={!!val}
-          disabled={readOnly}
+          checked={!!fieldValue}
+          disabled={effectiveReadOnly}
           onChange={(e) => updateAtPath(path, e.target.checked)}
           className="rounded"
         />
