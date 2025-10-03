@@ -347,3 +347,7 @@ export function logRegistry(): void {
 
 // React import for the hook
 import React from 'react'
+
+// Auto-register VIAForm component interface
+import { VIAFormComponentInterface } from '@/vComponents/VIAForm/interface'
+componentRegistry.register(VIAFormComponentInterface)

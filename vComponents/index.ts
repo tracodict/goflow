@@ -12,6 +12,7 @@ import './DataGrid'
 import './S3Explorer'
 import './DynamicForm'
 import './DialogFormLauncher'
+import './VIAForm'
 
 // Re-export the registry for external use
 export { componentRendererRegistry, registerComponentRenderer, createComponentRenderer } from './component-renderer-registry'
@@ -27,3 +28,4 @@ export * from './DataGrid'
 export * from './S3Explorer'
 export * from './DynamicForm'
 export * from './DialogFormLauncher'
+export * from './VIAForm'

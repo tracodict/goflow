@@ -70,10 +70,6 @@ export const AgGridWrapper: React.FC<AgGridWrapperProps> = ({
   const baseTheme = `ag-theme-${theme} custom-grid`
 
   useEffect(() => {
-    if (gridProps.theme) {
-      console.warn('[AgGridWrapper] Detected "theme" prop while using CSS theme class. Remove this prop or migrate fully to new Theming API.')
-      delete gridProps.theme
-    }
     if (gridProps.gridOptions?.theme) {
       console.warn('[AgGridWrapper] Detected gridOptions.theme while also using CSS theme class. Remove gridOptions.theme or migrate fully to Theming API to avoid error #239.')
       gridProps.gridOptions = { ...gridProps.gridOptions }
@@ -90,6 +86,7 @@ export const AgGridWrapper: React.FC<AgGridWrapperProps> = ({
         rowHeight={rowHeight}
         headerHeight={headerHeight}
         suppressCellFocus={false}
+        theme="legacy"
         {...gridProps}
       />
       {children}

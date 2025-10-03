@@ -256,22 +256,39 @@ export const ViaTokenGrid: React.FC<{ baseUrl: string; color: string; dictionary
   }, [inspectRow, color, dictionaryUrl])
 
   return (
-    <div className="flex flex-col h-full min-h-0">
-      <div className="flex items-center gap-2 border-b px-2 py-1 text-[11px] bg-white">
-        <span className="font-medium">Color: {color}</span>
-        <button className="ml-auto text-[10px] px-2 py-0.5 rounded border hover:bg-neutral-50" onClick={()=>{ setLoading(true); fetchTokensForColor(baseUrl, color).then(list => { setRows(list); setLoading(false) }) }}>Refresh</button>
-      </div>
-      {loading && <div className="flex-1 flex items-center justify-center text-neutral-400 text-xs"><Loader2 className="h-4 w-4 animate-spin" /></div>}
-      {error && <div className="p-4 text-xs text-red-600 flex-1 overflow-auto">{error}</div>}
+    <div className="h-full min-h-0 flex flex-col">
+      {loading && (
+        <div className="flex-1 flex items-center justify-center text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="text-sm">Loading tokens...</span>
+          </div>
+        </div>
+      )}
+      {error && (
+        <div className="p-4 bg-destructive/10 border-b flex items-center gap-2">
+          <span className="text-sm text-destructive">{error}</span>
+        </div>
+      )}
       {!loading && !error && (
-        <AgGridWrapper
-          rowData={rows}
-          columnDefs={columnDefs}
-          fullHeight
-          rowHeight={28}
-          headerHeight={30}
-          theme="quartz"
-        />
+        <>
+          {rows.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center text-muted-foreground">
+              <span className="text-sm">No tokens to display</span>
+            </div>
+          ) : (
+            <>
+              <AgGridWrapper
+                rowData={rows}
+                columnDefs={columnDefs}
+                fullHeight
+                rowHeight={28}
+                headerHeight={30}
+                theme="quartz"
+              />
+            </>
+          )}
+        </>
       )}
       {inspectRow && (
         <div

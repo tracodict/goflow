@@ -1,7 +1,7 @@
 /* Minimal, safe AG Grid customizations (reset from scratch) */
 /* Scope */
 .ag-theme-quartz.custom-grid {
-  --ag-font-size: 11px;
+  --ag-font-size: 14px;
   --ag-header-height: 30px;
   /* Force grid to use app font (quartz theme ships its own) */
   --ag-font-family: inherit;
@@ -19,8 +19,8 @@
 .ag-theme-quartz.custom-grid .ag-side-bar { font-family: inherit !important; }
 
 /* Normalize header font weight & size to match typical shadcn tailwind (font-medium ~500) */
-.ag-theme-quartz.custom-grid .ag-header-cell-text { font-weight: 500; font-size: 11px; }
-.ag-theme-quartz.custom-grid .ag-cell { font-size: 11px; }
+.ag-theme-quartz.custom-grid .ag-header-cell-text { font-weight: 500; font-size: 14px; }
+.ag-theme-quartz.custom-grid .ag-cell { font-size: 14px; }
 
 /* Remove all grid lines (outer + inner) */
 .ag-theme-quartz.custom-grid .ag-root-wrapper { border: none !important; }

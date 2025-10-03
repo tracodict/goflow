@@ -6,12 +6,12 @@
  * in the component library of the PageBuilder.
  */
 
-import { MousePointer, Navigation, Table, FolderTree, Workflow } from 'lucide-react'
+import { MousePointer, Navigation, Table, FolderTree, Eye } from 'lucide-react'
 import { ButtonComponent, ButtonComponentInterface } from './Button'
 import { NavigationMenuComponent } from './NavigationMenu'
 import { DataGridComponent } from './DataGrid'
 import { S3ExplorerComponent } from './S3Explorer'
-import { WorkflowTokens } from './WorkflowTokens'
+import { VIAFormComponentInterface } from './VIAForm'
 
 // Define the component registration interface
 export interface ComponentRegistration {
@@ -217,29 +217,34 @@ export const componentRegistry: Record<string, ComponentRegistration[]> = {
   ],
   workflow: [
     {
-      name: 'WorkflowTokens',
+      name: 'VIAForm',
       category: 'Workflow',
-      description: 'Display workflow tokens with color-based filtering',
-      icon: Workflow,
+      description: 'View, Inspect, and Act on workflow tokens by color/schema',
+      icon: Eye,
       template: {
         tagName: 'div',
         attributes: {
-          'data-component-type': 'workflow-tokens',
+          'data-component-type': 'VIAForm',
           'data-scriptable': 'true',
-          'data-workflow-color': 'red',
-          'data-workflow-base-url': '',
-          'data-workflow-dictionary-url': ''
+          'data-initial-color': '',
+          'data-show-color-selector': 'true',
+          'data-show-action-buttons': 'true',
+          'data-height': '400px',
+          'data-width': '100%'
         },
         styles: {
           width: '100%',
-          minHeight: '200px',
+          minHeight: '400px',
           margin: '8px 0',
           border: '1px solid #e5e7eb',
           borderRadius: '6px',
-          padding: '16px'
+          padding: '0',
+          display: 'flex',
+          flexDirection: 'column'
         },
         content: ''
-      }
+      },
+      interface: VIAFormComponentInterface
     }
   ]
 }

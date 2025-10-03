@@ -114,9 +114,9 @@ export const LocalDataGrid: React.FC<LocalDataGridProps> = ({
 
     return (
       <div className="overflow-auto max-h-96">
-        <table className="w-full text-sm">
-          <thead className="bg-muted sticky top-0">
-            <tr>
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-muted/50">
               {columns.map((col, index) => (
                 <th key={index} className="p-2 text-left font-medium border">
                   {col.name}
