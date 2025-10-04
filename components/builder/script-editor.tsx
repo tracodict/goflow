@@ -9,8 +9,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { PlayCircle, Save, X, AlertCircle, CheckCircle } from 'lucide-react'
-import { ScriptSandbox } from '../../lib/script/script-sandbox'
-import type { ComponentEventInterface } from '../../lib/types/component-interface'
+import { globalSandbox } from '../../lib/script-sandbox'
+import { createMockEventContext } from '../../lib/sandbox-examples'
+import type { ComponentEventInterface } from '../../lib/component-interface'
 
 export interface ScriptEditorProps {
   /** Component interface definition */
@@ -102,29 +103,9 @@ function execute${actionName ? actionName.charAt(0).toUpperCase() + actionName.s
   const handleTest = async () => {
     setIsRunning(true)
     try {
-      const sandbox = new ScriptSandbox()
       
       // Create mock context based on component interface
-      const mockContext = {
-        component: {
-          id: 'test-component',
-          getProps: () => ({ id: 'test-component', className: 'test' }),
-          setProps: (props: any) => console.log('Props updated:', props),
-          emit: (event: string, payload: any) => console.log('Event emitted:', event, payload)
-        },
-        data: {
-          query: (queryId: string) => Promise.resolve({ data: [], queryId }),
-          mutate: (mutation: any) => Promise.resolve({ success: true }),
-          subscribe: (callback: Function) => () => {} // Unsubscribe function
-        },
-        createAction: (type: string, payload: any) => ({ type, payload, id: Math.random().toString() }),
-        dispatch: (action: any) => console.log('Action dispatched:', action),
-        utils: {
-          formatDate: (date: Date) => date.toISOString(),
-          validateSchema: (data: any, schema: any) => ({ valid: true }),
-          log: (message: string) => console.log('Script log:', message)
-        }
-      }
+      const mockContext = createMockEventContext()
 
       // Create mock event payload for testing
       const mockEventPayload = selectedEvent ? {
@@ -133,7 +114,7 @@ function execute${actionName ? actionName.charAt(0).toUpperCase() + actionName.s
         ...generateMockDataForSchema(selectedEvent.payload)
       } : {}
 
-      const result = await sandbox.executeScript(currentScript, mockEventPayload, mockContext)
+      const result = await globalSandbox.executeScript('test-script', currentScript, mockContext, mockEventPayload)
       
       setTestResult({
         success: true,

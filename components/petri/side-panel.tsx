@@ -17,7 +17,7 @@ import type { PetriEdgeData, PetriNodeData, TransitionType, Token, PlaceData } f
 import { GripVertical, Minimize2, Maximize2, PanelRightOpen, ChevronsUpDown, Check, Plus, Trash2 } from "lucide-react"
 // Removed static FORM_SCHEMAS; dynamic list comes from workflow declarations jsonSchemas
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-import CodeMirror from '@uiw/react-codemirror'
+import { ResizableCodeMirror } from '@/components/ui/resizable-codemirror'
 import { LlmMessagesEditor } from './llm-messages-editor'
 import { useSystemSettings } from './system-settings-context'
 import { listMcpTools, listRegisteredMcpTools } from './petri-client'
@@ -28,6 +28,92 @@ import { json } from '@codemirror/lang-json'
 import { usePreSupportedSchemas } from './pre-supported-schemas'
 
 type SelectedResolved = { type: "node"; node: Node<PetriNodeData> } | { type: "edge"; edge: Edge<PetriEdgeData> } | null
+
+// Hoisted: keep component identity stable across renders to avoid remounting children
+function ResizableMessagesContainer({ children, storageKey }: { children: React.ReactNode; storageKey: string }) {
+  const [height, setHeight] = React.useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(`messages-height-${storageKey}`)
+      if (saved) {
+        const h = parseInt(saved, 10)
+        if (!isNaN(h) && h >= 200 && h <= 800) return h
+      }
+    }
+    return 300
+  })
+  const [isResizing, setIsResizing] = React.useState(false)
+  const startYRef = React.useRef(0)
+  const startHeightRef = React.useRef(0)
+
+  const handleMouseDown = React.useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizing(true)
+    startYRef.current = e.clientY
+    startHeightRef.current = height
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'ns-resize'
+  }, [height])
+
+  const handleMouseMove = React.useCallback((e: MouseEvent) => {
+    if (!isResizing) return
+    e.preventDefault()
+    const deltaY = e.clientY - startYRef.current
+    const newHeight = Math.max(200, Math.min(800, startHeightRef.current + deltaY))
+    setHeight(newHeight)
+  }, [isResizing])
+
+  const handleMouseUp = React.useCallback(() => {
+    if (isResizing) {
+      setIsResizing(false)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      localStorage.setItem(`messages-height-${storageKey}`, height.toString())
+    }
+  }, [isResizing, height, storageKey])
+
+  React.useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove, { passive: false })
+      document.addEventListener('mouseup', handleMouseUp, { passive: false })
+      window.addEventListener('mouseup', handleMouseUp, { passive: false })
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove)
+        document.removeEventListener('mouseup', handleMouseUp)
+        window.removeEventListener('mouseup', handleMouseUp)
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+      }
+    }
+  }, [isResizing, handleMouseMove, handleMouseUp])
+
+  React.useEffect(() => {
+    return () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [])
+
+  return (
+    <div className="relative border rounded-md overflow-hidden bg-white" style={{ height: `${height}px` }}>
+      <div style={{ height: `${height - 8}px`, overflow: 'auto', padding: '8px' }}>{children}</div>
+      <div
+        className={`absolute bottom-0 left-0 right-0 h-2 cursor-row-resize flex items-center justify-center bg-transparent hover:bg-gray-100/50 transition-colors group ${
+          isResizing ? 'bg-blue-100/50' : ''
+        }`}
+        onMouseDown={handleMouseDown}
+      >
+        <div
+          className={`w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity ${
+            isResizing ? 'opacity-100 text-blue-500' : ''
+          }`}
+        >
+          ⋯
+        </div>
+      </div>
+      {isResizing && <div className="fixed inset-0 z-50 cursor-row-resize pointer-events-none" />}
+    </div>
+  )
+}
 
 export function SidePanel({
   open,
@@ -459,28 +545,14 @@ function TokenEditor({
   return (
     <div className="space-y-2">
       <Label className="text-xs">Data (JSON)</Label>
-      <div className="relative rounded border bg-white" style={{ height: editorHeight }}>
-        <CodeMirror
-          value={text}
-          height={`${editorHeight - 8}px`}
-          theme="light"
-          extensions={[EditorView.lineWrapping, json()]}
-          onChange={(val: string) => { lastLocalEditRef.current = Date.now(); setText(val) }}
-          basicSetup={{
-            lineNumbers: true,
-            bracketMatching: true,
-            closeBrackets: true,
-            highlightActiveLine: true,
-            indentOnInput: true,
-            defaultKeymap: true,
-          }}
-        />
-        <div
-          onMouseDown={(e) => { dragState.current = { startY: e.clientY, startH: editorHeight, dragging: true } }}
-          className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize bg-gradient-to-b from-transparent to-neutral-200"
-          aria-label="Resize token JSON editor"
-        />
-      </div>
+      <ResizableCodeMirror
+        value={text}
+        initialHeight={180}
+        extensions={[EditorView.lineWrapping, json()]}
+        onChange={(val: string) => { lastLocalEditRef.current = Date.now(); setText(val) }}
+        storageKey="side-panel-json-data"
+        placeholder="JSON token data..."
+      />
       {error ? <div className="text-xs text-red-600">{error}</div> : null}
       <div className="flex items-center justify-between">
         <Button size="sm" variant="secondary" onClick={tryApply}>
@@ -615,29 +687,14 @@ function TransitionEditor({
       {tType !== 'Tools' && (
         <div ref={inscRef} className="space-y-2">
           <Label className="text-sm">Guard Expression</Label>
-          <div className="relative rounded border bg-white" style={{ height: editorHeight }}>
-            <CodeMirror
-              value={guardText}
-              height={`${editorHeight - 8}px`}
-              theme="light"
-              extensions={[EditorView.lineWrapping, StreamLanguage.define(lua)]}
-              onChange={(val) => setGuardText(val)}
-              basicSetup={{
-                lineNumbers: true,
-                bracketMatching: true,
-                closeBrackets: true,
-                highlightActiveLine: true,
-                indentOnInput: true,
-                defaultKeymap: true,
-              }}
-            />
-            <div
-              ref={resizeRef}
-              onMouseDown={(e) => { dragState.current = { startY: e.clientY, startH: editorHeight, dragging: true } }}
-              className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize bg-gradient-to-b from-transparent to-neutral-200"
-              aria-label="Resize guard editor"
-            />
-          </div>
+          <ResizableCodeMirror
+            value={guardText}
+            initialHeight={160}
+            extensions={[EditorView.lineWrapping, StreamLanguage.define(lua) as any]}
+            onChange={(val: string) => setGuardText(val)}
+            storageKey="side-panel-guard-expression"
+            placeholder="Lua guard expression..."
+          />
           <p className="text-xs text-neutral-500">
             Lua-like guard expression. Example: <code>if amount &gt; 1000 then return "review" else return "auto" end</code>
           </p>
@@ -1111,29 +1168,14 @@ function ActionFunctionEditor({ node, onUpdate }: { node: Node<PetriNodeData>; o
   return (
     <div className="space-y-2 mt-6">
       <Label htmlFor="transition-action-function">Action Function</Label>
-      <div className="relative rounded border bg-white" style={{ height: editorHeight }}>
-        <CodeMirror
-          value={actionFunction}
-          height={`${editorHeight - 8}px`}
-          theme="light"
-          extensions={[EditorView.lineWrapping, StreamLanguage.define(lua)]}
-          onChange={(val) => onUpdate(node.id, { actionFunction: val } as any)}
-          basicSetup={{
-            lineNumbers: true,
-            bracketMatching: true,
-            closeBrackets: true,
-            highlightActiveLine: true,
-            indentOnInput: true,
-            defaultKeymap: true,
-          }}
-        />
-        <div
-          ref={resizeRef}
-          onMouseDown={(e) => { dragState.current = { startY: e.clientY, startH: editorHeight, dragging: true } }}
-          className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize bg-gradient-to-b from-transparent to-neutral-200"
-          aria-label="Resize action function editor"
-        />
-      </div>
+      <ResizableCodeMirror
+        value={actionFunction}
+        initialHeight={160}
+        extensions={[EditorView.lineWrapping, StreamLanguage.define(lua) as any]}
+        onChange={(val: string) => onUpdate(node.id, { actionFunction: val } as any)}
+        storageKey="side-panel-action-function"
+        placeholder="Lua action function..."
+      />
       <p className="text-xs text-neutral-500">Define a Lua function named <code>{`${node.id}_action`}</code>. Example: <code>{`function ${node.id}_action(a,b) return a+b end`}</code></p>
     </div>
   )
@@ -1288,18 +1330,16 @@ function LLMEditor({
     } catch {}
   }, [node.id, (node.data as any).llm?.vars])
 
-  const [editorHeight, setEditorHeight] = React.useState<number>(260)
-
   return (
     <div className="space-y-4">
       <div className="grid gap-1">
         <Label className="text-sm">Messages (Jinja-enabled)</Label>
-  <div className="relative rounded border bg-white p-2" style={{ height: editorHeight, overflow: 'auto' }}>
+        <ResizableMessagesContainer storageKey={`llm-messages-${node.id}`}>
           <LlmMessagesEditor
             value={llm.templateObj || { messages: [] }}
             onChange={(v)=> update({ templateObj: v })}
           />
-        </div>
+        </ResizableMessagesContainer>
         <p className="text-xs text-neutral-500 mt-1">Compose the prompt as a list of messages. Use Jinja placeholders like <code>{"{{ vars.name }}"}</code> or <code>{"{{ input.q }}"}</code>.</p>
       </div>
 
@@ -1366,19 +1406,18 @@ function EdgeEditor({
         placeholder="e.g., guard or weight"
       />
       <Label className="text-sm mt-2">Arc Expression</Label>
-      <CodeMirror
+      <ResizableCodeMirror
         value={expr}
-        height="80px"
+        initialHeight={80}
         extensions={[
-          StreamLanguage.define(lua),
+          StreamLanguage.define(lua) as any,
           EditorView.lineWrapping,
         ]}
-        onChange={v => {
+        onChange={(v: string) => {
           setExpr(v);
           onUpdate(edge.id, { expression: v } as any);
         }}
-        theme="light"
-        basicSetup={{ lineNumbers: true }}
+        storageKey="side-panel-arc-expression"
         placeholder="Lua expression for arc (e.g., amount > 0)"
       />
       <div className="text-xs text-neutral-500 mt-1">Lua-like arc expression. Example: <code>amount &gt; 0</code></div>

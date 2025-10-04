@@ -35,6 +35,11 @@ export function useSimulation({ flowServiceUrl, workflowId }: UseSimulationOptio
 
   const activeSim = sims.find(s => s.caseId === activeSimId) || null
 
+  // Cheap deep compare via JSON for small payloads
+  const jsonEq = (a: any, b: any) => {
+    try { return JSON.stringify(a) === JSON.stringify(b) } catch { return a === b }
+  }
+
   const fetchSim = useCallback(async (caseId: string) => {
     if (!flowServiceUrl) return null
   const resp = await fetchWithAuth(`${flowServiceUrl}/api/sim/get?caseId=${encodeURIComponent(caseId)}`)
@@ -48,7 +53,17 @@ export function useSimulation({ flowServiceUrl, workflowId }: UseSimulationOptio
     try {
       const data = await fetchSim(activeSimId)
       if (data) {
-  setSims(prev => prev.map(s => s.caseId === activeSimId ? { ...s, ...data, enabledTransitions: data.enabledTransitions } : s))
+        setSims(prev => prev.map(s => {
+          if (s.caseId !== activeSimId) return s
+          const stepUnchanged = (data.currentStep ?? 0) === (s.currentStep ?? 0)
+          const markingUnchanged = jsonEq(data.marking, s.marking)
+          const enabledUnchanged = jsonEq(data.enabledTransitions, s.enabledTransitions)
+          // If nothing changed, keep the same object to avoid re-renders
+          if (stepUnchanged && markingUnchanged && enabledUnchanged) return s
+          // If step did not advance, preserve local marking to avoid reverting UI edits
+          const nextMarking = stepUnchanged ? s.marking : data.marking
+          return { ...s, ...data, marking: nextMarking, enabledTransitions: data.enabledTransitions }
+        }))
       }
     } catch (e:any) {
       // swallow transient errors

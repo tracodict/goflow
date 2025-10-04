@@ -6,7 +6,7 @@ import { useSavedQueriesStore } from '@/stores/saved-queries'
 import { useDatasourceSchema } from '@/hooks/use-schema'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import CodeMirror from '@uiw/react-codemirror'
+import { ResizableCodeMirror } from '@/components/ui/resizable-codemirror'
 import { json } from '@codemirror/lang-json'
 import { sql } from '@codemirror/lang-sql'
 import { cn } from '@/lib/utils'
@@ -102,26 +102,32 @@ export function QueryEditor() {
         </div>
       )}
       
-        <div className="flex-1 border rounded bg-white overflow-hidden [&_.cm-editor]:bg-white [&_.cm-content]:bg-white [&_.cm-editor]:h-full">
+        <div className="flex-1 min-h-0 [&_.cm-editor]:bg-white [&_.cm-content]:bg-white">
           {current?.type==='mongo' && (
-          <CodeMirror
+          <ResizableCodeMirror
             value={mongoInput || '[\n  { "$limit": 50 }\n]'}
-            height="100%"
+            flex={true}
+            initialHeight={300}
             extensions={[json()]}
             basicSetup={{ lineNumbers:true, highlightActiveLine:true }}
             onChange={(v)=> setMongoInput(v)}
+            storageKey="query-editor-mongo"
+            placeholder="MongoDB aggregation pipeline..."
           />
           )}
           {current && current.type!=='mongo' && (
-          <CodeMirror
+          <ResizableCodeMirror
             value={sqlInput || 'SELECT 1'}
-            height="100%"
+            flex={true}
+            initialHeight={300}
             extensions={[sql()]}
             basicSetup={{ lineNumbers:true, highlightActiveLine:true }}
             onChange={(v)=> setSqlInput(v)}
+            storageKey="query-editor-sql"
+            placeholder="SQL query..."
           />
           )}
-          {!current && <div className="p-4 text-sm text-muted-foreground bg-white h-full flex items-center justify-center">Choose a datasource to begin</div>}
+          {!current && <div className="p-4 text-sm text-muted-foreground bg-white h-full flex items-center justify-center border rounded-md">Choose a datasource to begin</div>}
         </div>
     </div>
   )

@@ -5,7 +5,7 @@
 import React from "react"
 import { useDialog } from '@/lib/dialog/context'
 import { PropertyTabConfig, CustomPropertyRenderProps } from "../property-config-types"
-import CodeMirror from '@uiw/react-codemirror'
+import { ResizableCodeMirror } from '@/components/ui/resizable-codemirror'
 import { json } from '@codemirror/lang-json'
 
 const NavigationMenuCustomRenderer: React.FC<CustomPropertyRenderProps> = ({ 
@@ -54,14 +54,14 @@ const NavigationMenuCustomRenderer: React.FC<CustomPropertyRenderProps> = ({
           className="text-xs px-2 py-1 border rounded bg-background hover:bg-accent"
         >Configure Menu…</button>
       </div>
-      <div className="border rounded-md overflow-hidden">
-        <CodeMirror
-          value={JSON.stringify(getConfigValue('items', []), null, 2)}
-          onChange={(value) => updateConfigProperty('items', value)}
-          height="300px"
-          extensions={[json()]}
-        />
-      </div>
+      <ResizableCodeMirror
+        value={JSON.stringify(getConfigValue('items', []), null, 2)}
+        onChange={(value: string) => updateConfigProperty('items', value)}
+        initialHeight={300}
+        extensions={[json()]}
+        storageKey="navigation-menu-items"
+        placeholder="Menu items JSON configuration..."
+      />
       
       <div>
         <label className="block text-xs font-medium mb-1 text-muted-foreground">Orientation</label>

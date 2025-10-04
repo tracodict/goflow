@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 // @ts-ignore dynamic form shared component (run mode)
 import { DynamicForm } from '@/components/run/forms/dynamic-form'
 import "@xyflow/react/dist/style.css"
@@ -325,12 +326,13 @@ function CanvasInner() {
             (decls as any).jsonSchemas = (swf as any).jsonSchemas
           }
           const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
-          const colorSetNames = allServerColorSetLines.map(l => { const m = l.match(nameRegex); return m? m[1]: l })
+          const colorSetNames = allServerColorSetLines.map(l => { const m = l.match(nameRegex); return m? m[1]: '' }).filter(Boolean)
           setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: colorSetNames, declarations: decls } }))
           requestAnimationFrame(() => { setNodes(g.graph.nodes); setEdges(g.graph.edges) })
           historyRef.current = { past: [], present: { nodes: g.graph.nodes.map(n => ({ ...n })), edges: g.graph.edges.map(e => ({ ...e })) }, future: [] }
           isLoadingWorkflowRef.current = true
-          window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: swf!.colorSets || [] } }))
+          // Broadcast parsed names including built-ins
+          window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: Array.from(new Set([ ...DEFAULT_COLOR_SETS, ...colorSetNames ])) } }))
         } catch(e:any) { return }
       } else {
         const graph = workflowGraphCache[workflowId] || serverToGraph(swf).graph
@@ -347,12 +349,21 @@ function CanvasInner() {
             (decls as any).jsonSchemas = (swf as any).jsonSchemas
           }
           const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
-          const colorSetNames = allServerColorSetLines.map(l => { const m = l.match(nameRegex); return m? m[1]: l })
+          const colorSetNames = allServerColorSetLines.map(l => { const m = l.match(nameRegex); return m? m[1]: '' }).filter(Boolean)
           setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: colorSetNames, declarations: decls } }))
         }
         historyRef.current = { past: [], present: { nodes: graph.nodes.map(n => ({ ...n })), edges: graph.edges.map(e => ({ ...e })) }, future: [] }
         isLoadingWorkflowRef.current = true
-        window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: swf!.colorSets || [] } }))
+        // Broadcast parsed names including built-ins. If meta already existed, reuse its list.
+        const broadcastNames = (() => {
+          if (workflowMeta[workflowId]) return Array.from(new Set([ ...DEFAULT_COLOR_SETS, ...((workflowMeta[workflowId]?.colorSets)||[]) ]))
+          // If meta did not exist, we have just computed colorSetNames above
+          const allServerColorSetLines = (swf!.colorSets || []).filter(cs => /^\s*colset\s+/i.test(cs))
+          const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
+          const parsed = allServerColorSetLines.map(l => { const m = l.match(nameRegex); return m? m[1]: '' }).filter(Boolean)
+          return Array.from(new Set([ ...DEFAULT_COLOR_SETS, ...parsed ]))
+        })()
+        window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: broadcastNames } }))
       }
       setSelectedRef(null); setTokensOpenForPlaceId(null); setGuardOpenForTransitionId(null)
       setActiveWorkflowId(workflowId)
@@ -601,7 +612,9 @@ function CanvasInner() {
       if (!activeWorkflowId) return
       const next = ce.detail?.next || []
       setWorkflowMeta(meta => {
-        const updated = { ...meta, [activeWorkflowId]: { ...(meta[activeWorkflowId]||{ name: activeWorkflowId, description:'', colorSets: [] }), colorSets: next } }
+        // Sanitize inputs to only valid identifiers
+        const cleaned = next.filter(n => typeof n === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(n))
+        const updated = { ...meta, [activeWorkflowId]: { ...(meta[activeWorkflowId]||{ name: activeWorkflowId, description:'', colorSets: [] }), colorSets: cleaned } }
         broadcastMergedColors(updated, activeWorkflowId)
         return updated
       })
@@ -616,15 +629,11 @@ function CanvasInner() {
   // Extract color declarations and merge into colorSets (avoid duplicates)
   const colorLines: string[] = Array.isArray(next.color) ? next.color.filter((l: any) => typeof l === 'string' && l.trim().length) : []
   const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
-  const colorNames = colorLines.map(l => { const m = l.match(nameRegex); return m? m[1]: l }).filter(Boolean)
-  // Dedupe while preserving first occurrence order: existing colorSets first, then new names not already present
-  const seen = new Set<string>()
-  const ordered: string[] = []
-  ;[...(prevMeta.colorSets||[]), ...colorNames].forEach(n => {
-    if (!n) return
-    if (!seen.has(n)) { seen.add(n); ordered.push(n) }
-  })
-  const mergedColorSets = ordered
+  const colorNames = colorLines.map(l => { const m = l.match(nameRegex); return m? m[1]: '' }).filter(Boolean)
+  // Remove previously declaration-derived names from colorSets, then add current valid names
+  const prevDeclNames = extractDeclarationColorNames(prevMeta.declarations)
+  const base = (prevMeta.colorSets || []).filter(n => !prevDeclNames.includes(n))
+  const mergedColorSets = Array.from(new Set([...base, ...colorNames]))
   const updated = { ...meta, [activeWorkflowId]: { ...prevMeta, colorSets: mergedColorSets, declarations: next } }
   try { localStorage.setItem('goflow.declarations.'+activeWorkflowId, JSON.stringify(next)) } catch {}
   broadcastMergedColors(updated, activeWorkflowId)
@@ -714,7 +723,8 @@ function CanvasInner() {
       if (node.type !== "transition" && node.type !== 'place') return
       event.preventDefault()
       const { clientX, clientY } = event
-      setContextMenu({ open: true, x: clientX, y: clientY, nodeId: node.id })
+      // Offset slightly to appear just below/right of the clicked node
+      setContextMenu({ open: true, x: clientX + 8, y: clientY + 12, nodeId: node.id })
     },
     [setContextMenu],
   )
@@ -1002,12 +1012,22 @@ function CanvasInner() {
       const prevMeta = meta[activeWorkflowId] || { name: activeWorkflowId, description:'', colorSets: [] }
       const colorLines: string[] = Array.isArray(next.color) ? next.color.filter((l: any) => typeof l === 'string' && l.trim().length) : []
       const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
-      const colorNames = colorLines.map(l => { const m = l.match(nameRegex); return m? m[1]: l }).filter(Boolean)
-      const mergedColorSets = Array.from(new Set([...(prevMeta.colorSets||[]), ...colorNames]))
+      const colorNames = colorLines.map(l => { const m = l.match(nameRegex); return m? m[1]: '' }).filter(Boolean)
+      // Remove declaration-derived names from previous meta, then add current valid names
+      const prevDeclNames = (() => {
+        const decls = prevMeta.declarations
+        if (!decls || !Array.isArray((decls as any).color)) return [] as string[]
+        return (decls as any).color
+          .filter((ln: any) => typeof ln === 'string' && ln.trim().length)
+          .map((ln: string) => { const m = ln.match(nameRegex); return m? m[1]: '' })
+          .filter(Boolean)
+      })()
+      const base = (prevMeta.colorSets || []).filter(n => !prevDeclNames.includes(n))
+      const mergedColorSets = Array.from(new Set([...base, ...colorNames]))
       const updated = { ...meta, [activeWorkflowId]: { ...prevMeta, colorSets: mergedColorSets, declarations: next } }
       try { localStorage.setItem('goflow.declarations.'+activeWorkflowId, JSON.stringify(next)) } catch {}
-      // Broadcast merged color set names (include defaults)
-      const broadcastNames = Array.from(new Set([ ...DEFAULT_COLOR_SETS, ...mergedColorSets ]))
+      // Broadcast merged color set names (include defaults) – sanitize again
+      const broadcastNames = Array.from(new Set([ ...DEFAULT_COLOR_SETS, ...mergedColorSets ])).filter(n => /^[A-Za-z_][A-Za-z0-9_]*$/.test(n))
       window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: broadcastNames } }))
       return updated
     })
@@ -1311,6 +1331,7 @@ function CanvasInner() {
 
 
         {contextMenu.open && contextMenu.nodeId && (
+          createPortal((
           <div
             className="z-50 rounded-md border bg-white shadow-lg"
             style={{ position: "fixed", top: contextMenu.y, left: contextMenu.x, minWidth: 200 }}
@@ -1383,7 +1404,8 @@ function CanvasInner() {
                     }
                   } catch { /* ignore runtime require issues */ }
                   // Ensure built-ins always available even if user removed from meta
-                  const all = Array.from(new Set([...DEFAULT_COLOR_SETS, ...custom, ...preSupportedNames]))
+                  const idRe = /^[A-Za-z_][A-Za-z0-9_]*$/
+                  const all = Array.from(new Set([...DEFAULT_COLOR_SETS, ...custom, ...preSupportedNames].filter(n => idRe.test(n))))
                   return all.length === 0 ? (
                     <div className="px-3 py-2 text-xs text-neutral-400">No color sets defined</div>
                   ) : (
@@ -1415,7 +1437,7 @@ function CanvasInner() {
                 </button>
               </>
             )}
-          </div>
+          </div>), document.body)
         )}
       </div>
 

@@ -101,7 +101,6 @@ export async function saveWorkflow(flowServiceUrl: string, workflowData: any) {
   // Strip CDN-backed jsonSchema bodies to keep payload lean. Retain only { name } for schemas
   // whose $id (or inferred path) matches the configured dictionaryUrl. Allow opt-out with _local flag.
   let payload = workflowData
-  debugger
   try {
     if (workflowData && Array.isArray(workflowData.jsonSchemas)) {
       // Determine dictionaryUrl from localStorage (system settings) or fallback constant.
