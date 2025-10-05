@@ -10,7 +10,7 @@ import { SchemaTab } from "../via/schema-tab"
 import { usePreSupportedSchemas } from "../petri/pre-supported-schemas"
 import ExplorerPanel from "../petri/explorer-panel"
 import type { JSONSchema } from "@/jsonjoy-builder/src/types/jsonSchema"
-import { Layers, FileText, TreePine, Database, BookText, Workflow, X, Wrench, MoreVertical, RefreshCw, Plus, Play, Beaker, Trash2 } from "lucide-react"
+import { Layers, FileText, TreePine, Database, BookText, Workflow, X, Wrench, MoreVertical, RefreshCw, Plus, Play, Beaker, Trash2, MessageSquare } from "lucide-react"
 import { Button } from "../ui/button"
 import { useDatasourceStore } from '@/stores/datasource'
 import { useSavedQueriesStore, SavedQuery } from '@/stores/saved-queries'
@@ -27,9 +27,11 @@ const tabs = [
 	{ id: "schema", label: "Schema", icon: BookText },
 	{ id: "workflow", label: "Workflow", icon: Workflow },
 	{ id: "mcp-tools", label: "MCP Tools", icon: Wrench },
+  { id: "chat", label: "Chat", icon: MessageSquare },
 ]
 
-import { fetchWorkflowList, fetchWorkflow, deleteWorkflowApi, listMcpTools, registerMcpServer, withApiErrorToast, listRegisteredMcpServers, deregisterMcpServer, fetchColorsList } from "../petri/petri-client"
+import { fetchWorkflowList, fetchWorkflow, deleteWorkflowApi, listMcpTools, registerMcpServer, withApiErrorToast, listRegisteredMcpServers, deregisterMcpServer, fetchColorsList, saveWorkflow } from "../petri/petri-client"
+import ChatPanel from "@/components/chat/Chat"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "../ui/dropdown-menu"
 import { serverToGraph } from "@/lib/workflow-conversion"
 import { useSystemSettings } from "../petri/system-settings-context"
@@ -249,6 +251,27 @@ type LeftPanelProps = {
 			}
 		}
 
+		const handleCreateWorkflow = async () => {
+			if (!settings.flowServiceUrl) return
+			setLoading(true)
+			try {
+				const newId = `wf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`
+				const name = `Workflow ${newId.slice(-4)}`
+				const empty = { id: newId, name, description: '', colorSets: [], places: [], transitions: [], arcs: [], initialMarking: {}, declarations: {} }
+				await withApiErrorToast(saveWorkflow(settings.flowServiceUrl, empty), toast, 'Create workflow')
+				setWorkflows((list) => ([...(Array.isArray(list) ? list : []), { id: newId, name }]))
+				setWorkflowGraphCache(prev => ({ ...prev, [newId]: { nodes: [], edges: [] } }))
+				setSelectedWorkflowId(newId)
+				// notify canvas and fetch details for the new workflow
+				try { window.dispatchEvent(new CustomEvent('goflow-explorer-select', { detail: { id: newId } })) } catch {}
+				await handleWorkflowSelect(newId)
+			} catch (e:any) {
+				setError(e?.message || 'Failed to create workflow')
+			} finally {
+				setLoading(false)
+			}
+		}
+
 		const handleRefresh = () => fetchList()
 
 		useEffect(() => {
@@ -299,6 +322,7 @@ type LeftPanelProps = {
 						workflowGraphs={workflowGraphCache}
 						activeWorkflowId={selectedWorkflowId}
 						onWorkflowSelect={handleWorkflowSelect}
+						onCreateWorkflow={handleCreateWorkflow}
 						onDeleteWorkflow={handleDeleteWorkflow}
 						onRefreshWorkflows={handleRefresh}
 						onSelectEntity={(kind,id) => { try { window.dispatchEvent(new CustomEvent('goflow-explorer-entity-select', { detail: { kind, id } })); } catch {} }}
@@ -308,6 +332,8 @@ type LeftPanelProps = {
 						onDeleteTransition={(id: string) => { try { window.dispatchEvent(new CustomEvent('goflow-explorer-delete-transition', { detail: { id, workflowId: selectedWorkflowId } })); } catch {} }}
 						onDeleteArc={(id: string) => { try { window.dispatchEvent(new CustomEvent('goflow-explorer-delete-arc', { detail: { id, workflowId: selectedWorkflowId } })); } catch {} }}
 					/>
+				case "chat":
+					return <div className="flex-1 overflow-hidden"><ChatPanel /></div>
 				case "mcp-tools":
 					return (
 						<>

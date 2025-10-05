@@ -297,5 +297,556 @@ Validation rules front-end: required fields engine-specific, port numeric, host 
 * See `BackendAPI.md` for full endpoint schemas, error codes, mock behaviors.
 
 ---
+
+## 12. S3 Data Source Enhancement (Phase 1.5)
+
+### 12.1 Overview
+Enhanced S3 data source implementation with separate providers, query-based folder navigation, and file upload capabilities. This extends the current data source architecture to support object storage as first-class data sources.
+
+### 12.2 Provider Separation
+Split the current generic "S3" datasource into distinct provider types:
+
+| Provider | Type ID | Description | Configuration |
+|----------|---------|-------------|---------------|
+| AWS S3 | `aws-s3` | Amazon S3 buckets | Access Key, Secret Key, Region, Bucket |
+| Google Cloud Storage | `gcs` | GCS buckets | Service Account JSON, Project ID, Bucket |
+| S3-Compatible | `s3-compatible` | MinIO, DigitalOcean Spaces, etc. | Endpoint URL, Access Key, Secret Key, Bucket |
+
+### 12.3 Query Model for Object Storage
+Extend the QueryAST to support object storage queries:
+
+```ts
+type ObjectStorageQuery = {
+  datasourceId: string
+  engine: 'object-storage'
+  bucket: string
+  prefix?: string           // Folder path filter
+  delimiter?: string        // Usually '/' for folder navigation
+  maxKeys?: number         // Limit results (default 1000)
+  recursive?: boolean      // Include all subdirectories
+  includeMetadata?: boolean // Return size, lastModified, etc.
+  filters?: {
+    extension?: string[]   // File extension filter
+    sizeMin?: number      // Minimum file size in bytes
+    sizeMax?: number      // Maximum file size in bytes
+    modifiedAfter?: string // ISO date string
+    modifiedBefore?: string // ISO date string
+  }
+}
+```
+
+### 12.4 Backend Persistence Architecture
+Move from Next.js API routes to dedicated Go+MongoDB backend service:
+
+#### 12.4.1 Required Backend APIs
+
+Base path: `{flowServiceUrl}/api/ds`
+
+| Method | Path | Purpose | Request Body | Response |
+|--------|------|---------|--------------|----------|
+| POST | `/datasources` | Create datasource | `{ type: 'aws-s3'|'gcs'|'s3-compatible', name, config }` | `{ id, name, type }` |
+| GET | `/datasources` | List datasources | — | `{ datasources: [...] }` |
+| GET | `/datasources/:id` | Get datasource detail | — | `{ id, name, type, configPublic }` |
+| PATCH | `/datasources/:id` | Update datasource | Partial config | `{ id }` |
+| DELETE | `/datasources/:id` | Delete datasource | — | `{ ok: true }` |
+| POST | `/datasources/:id/test` | Test connection | Optional override config | `{ ok: true, latencyMs }` |
+| POST | `/datasources/:id/query` | List objects | `ObjectStorageQuery` | `{ objects: [...], truncated: boolean }` |
+| POST | `/datasources/:id/upload` | Upload file(s) | Multipart form with metadata | `{ uploaded: [...] }` |
+| DELETE | `/datasources/:id/objects` | Delete objects | `{ keys: string[] }` | `{ deleted: [...] }` |
+
+#### 12.4.2 MongoDB Schema
+
+```js
+// Datasources collection
+{
+  _id: ObjectId,
+  type: "aws-s3" | "gcs" | "s3-compatible",
+  name: string,
+  userId: string,  // Owner reference
+  config: {
+    // Provider-specific encrypted config
+    aws_s3: {
+      accessKeyId: string,     // Encrypted
+      secretAccessKey: string, // Encrypted
+      region: string,
+      bucket: string
+    },
+    gcs: {
+      serviceAccountJson: string, // Encrypted
+      projectId: string,
+      bucket: string
+    },
+    s3_compatible: {
+      endpoint: string,
+      accessKeyId: string,     // Encrypted
+      secretAccessKey: string, // Encrypted
+      bucket: string,
+      region?: string
+    }
+  },
+  status: {
+    lastTest: Date,
+    healthy: boolean,
+    error?: string,
+    latencyMs?: number
+  },
+  createdAt: Date,
+  updatedAt: Date
+}
+
+// Saved Queries collection (enhanced for object storage)
+{
+  _id: ObjectId,
+  name: string,
+  userId: string,
+  datasourceId: ObjectId,
+  queryType: "sql" | "mongodb" | "object-storage",
+  query: ObjectStorageQuery | QueryAST,
+  createdAt: Date,
+  updatedAt: Date,
+  lastRun?: Date,
+  runCount: number
+}
+```
+
+### 12.5 Frontend Component Enhancements
+
+#### 12.5.1 Datasource Configuration UI
+Enhanced configuration forms for each provider:
+
+```tsx
+// AWS S3 Configuration
+interface AWSS3Config {
+  accessKeyId: string
+  secretAccessKey: string
+  region: string
+  bucket: string
+}
+
+// GCS Configuration  
+interface GCSConfig {
+  serviceAccountJson: string  // JSON key file content
+  projectId: string
+  bucket: string
+}
+
+// S3-Compatible Configuration
+interface S3CompatibleConfig {
+  endpoint: string
+  accessKeyId: string
+  secretAccessKey: string
+  bucket: string
+  region?: string
+}
+```
+
+#### 12.5.2 Enhanced S3Explorer Component
+
+```tsx
+interface S3ExplorerProps {
+  datasourceId?: string
+  query?: Partial<ObjectStorageQuery>  // Query-based folder navigation
+  
+  // Navigation features
+  enableNavigation?: boolean
+  showBreadcrumbs?: boolean
+  enableUpload?: boolean
+  enableDelete?: boolean
+  
+  // Display options
+  viewMode?: 'list' | 'grid' | 'tree'
+  showMetadata?: boolean
+  sortBy?: 'name' | 'size' | 'modified'
+  sortOrder?: 'asc' | 'desc'
+  
+  // Event handlers
+  onFileSelect?: (file: S3Object) => void
+  onFolderNavigate?: (path: string) => void
+  onUploadComplete?: (files: S3Object[]) => void
+  onError?: (error: string) => void
+}
+```
+
+### 12.6 File Upload Implementation
+
+#### 12.6.1 Upload API
+```ts
+// POST /datasources/:id/upload
+interface UploadRequest {
+  files: File[]           // Multipart form files
+  prefix?: string         // Target folder path
+  overwrite?: boolean     // Overwrite existing files
+  metadata?: Record<string, string>  // Custom metadata
+}
+
+interface UploadResponse {
+  uploaded: Array<{
+    key: string
+    size: number
+    etag: string
+    url?: string  // Public URL if applicable
+  }>
+  errors?: Array<{
+    file: string
+    error: string
+  }>
+}
+```
+
+#### 12.6.2 Upload Component
+```tsx
+const S3Uploader: React.FC<{
+  datasourceId: string
+  targetPath?: string
+  onUploadComplete?: (files: S3Object[]) => void
+}> = ({ datasourceId, targetPath, onUploadComplete }) => {
+  // Drag & drop file upload with progress
+  // Support multiple files
+  // Show upload progress per file
+  // Handle errors gracefully
+}
+```
+
+### 12.7 Navigation Features
+
+#### 12.7.1 Folder Navigation
+- Breadcrumb navigation showing current path
+- Click folders to navigate deeper
+- Back/up navigation
+- URL-based deep linking to specific paths
+
+#### 12.7.2 Query-Based Exploration
+Users can define queries to explore specific portions of buckets:
+- Set prefix to start in a specific "folder"
+- Apply filters (file type, size, date ranges)
+- Save common navigation patterns as queries
+
+### 12.8 Security Considerations
+
+#### 12.8.1 Credential Management
+- All cloud provider credentials encrypted at rest in MongoDB
+- Credentials never returned to frontend
+- Support IAM roles for AWS (future)
+- Support service account impersonation for GCS (future)
+
+#### 12.8.2 Access Control
+- Per-datasource access control (future)
+- Upload/delete permissions configurable per datasource
+- File size limits configurable
+- Allowed file type restrictions
+
+---
+
+## 13. S3 Enhancement Execution Plan
+
+### Phase 1: Backend Infrastructure (2-3 days)
+1. **Database Schema Setup**
+   - Create MongoDB collections for enhanced datasources
+   - Implement encryption for credentials
+   - Add migration scripts for existing S3 datasources
+
+2. **Backend API Implementation**
+   - Implement Go handlers for datasource CRUD operations
+   - Add provider-specific connection logic (AWS SDK, GCS client)
+   - Implement object listing with query filters
+   - Add file upload endpoint with multipart support
+   - Add test connection endpoints
+
+3. **Provider Abstraction**
+   - Create provider interface for consistent API
+   - Implement AWS S3 provider
+   - Implement GCS provider  
+   - Implement S3-compatible provider (MinIO, etc.)
+
+### Phase 2: Frontend Core Components (3-4 days)
+1. **Datasource Configuration UI**
+   - Create provider-specific configuration forms
+   - Add validation for each provider type
+   - Integrate with backend test endpoint
+   - Update datasource list to show provider types
+
+2. **Enhanced Query Builder**
+   - Extend QueryAST for object storage
+   - Create object storage query builder UI
+   - Add filters for file type, size, date
+   - Implement query preview
+
+3. **Core S3Explorer Refactor**
+   - Split S3Explorer into provider-agnostic component
+   - Implement query-based navigation
+   - Add breadcrumb navigation
+   - Support different view modes (list/grid)
+
+### Phase 3: Advanced Features (2-3 days)
+1. **File Upload Component**
+   - Implement drag & drop upload
+   - Add upload progress tracking
+   - Handle multiple file uploads
+   - Error handling and retry logic
+
+2. **Navigation & UX**
+   - Implement folder navigation
+   - Add search within current folder
+   - Sorting and filtering options
+   - File preview capabilities (images, text)
+
+3. **Integration & Polish**
+   - Update property configuration
+   - Add event handlers for all actions
+   - Performance optimizations
+   - Documentation and examples
+
+### Phase 4: Testing & Deployment (1-2 days)
+1. **Testing**
+   - Unit tests for all components
+   - Integration tests with mock providers
+   - End-to-end testing with real cloud accounts
+
+2. **Documentation**
+   - Update component documentation
+   - Add configuration guides for each provider
+   - Create migration guide from old S3 datasources
+
+### Total Estimated Time: 8-12 days
+
+---
 END
+
+
+## 12. S3 Data Source Enhancement (Phase 1.5)
+
+### 12.1 Overview
+Enhanced S3 data source implementation with separate providers, query-based folder navigation, and file upload capabilities. This extends the current data source architecture to support object storage as first-class data sources.
+
+### 12.2 Provider Separation
+Split the current generic "S3" datasource into distinct provider types:
+
+| Provider | Type ID | Description | Configuration |
+|----------|---------|-------------|---------------|
+| AWS S3 | `aws-s3` | Amazon S3 buckets | Access Key, Secret Key, Region, Bucket |
+| Google Cloud Storage | `gcs` | GCS buckets | Service Account JSON, Project ID, Bucket |
+| S3-Compatible | `s3-compatible` | MinIO, DigitalOcean Spaces, etc. | Endpoint URL, Access Key, Secret Key, Bucket |
+
+### 12.3 Query Model for Object Storage
+Extend the QueryAST to support object storage queries:
+
+```ts
+type ObjectStorageQuery = {
+  datasourceId: string
+  engine: 'object-storage'
+  bucket: string
+  prefix?: string           // Folder path filter
+  delimiter?: string        // Usually '/' for folder navigation
+  maxKeys?: number         // Limit results (default 1000)
+  recursive?: boolean      // Include all subdirectories
+  includeMetadata?: boolean // Return size, lastModified, etc.
+  filters?: {
+    extension?: string[]   // File extension filter
+    sizeMin?: number      // Minimum file size in bytes
+    sizeMax?: number      // Maximum file size in bytes
+    modifiedAfter?: string // ISO date string
+    modifiedBefore?: string // ISO date string
+  }
+}
+```
+
+### 12.4 Backend Persistence Architecture
+Move from Next.js API routes to dedicated Go+MongoDB backend service:
+
+#### 12.4.1 Required Backend APIs
+
+Base path: `{flowServiceUrl}/api/ds`
+
+| Method | Path | Purpose | Request Body | Response |
+|--------|------|---------|--------------|----------|
+| POST | `/datasources` | Create datasource | `{ type: 'aws-s3'|'gcs'|'s3-compatible', name, config }` | `{ id, name, type }` |
+| GET | `/datasources` | List datasources | — | `{ datasources: [...] }` |
+| GET | `/datasources/:id` | Get datasource detail | — | `{ id, name, type, configPublic }` |
+| PATCH | `/datasources/:id` | Update datasource | Partial config | `{ id }` |
+| DELETE | `/datasources/:id` | Delete datasource | — | `{ ok: true }` |
+| POST | `/datasources/:id/test` | Test connection | Optional override config | `{ ok: true, latencyMs }` |
+| POST | `/datasources/:id/query` | List objects | `ObjectStorageQuery` | `{ objects: [...], truncated: boolean }` |
+| POST | `/datasources/:id/upload` | Upload file(s) | Multipart form with metadata | `{ uploaded: [...] }` |
+| DELETE | `/datasources/:id/objects` | Delete objects | `{ keys: string[] }` | `{ deleted: [...] }` |
+
+#### 12.4.2 MongoDB Schema
+
+```js
+// Datasources collection
+{
+  _id: ObjectId,
+  type: "aws-s3" | "gcs" | "s3-compatible",
+  name: string,
+  userId: string,  // Owner reference
+  config: {
+    // Provider-specific encrypted config
+    aws_s3: {
+      accessKeyId: string,     // Encrypted
+      secretAccessKey: string, // Encrypted
+      region: string,
+      bucket: string
+    },
+    gcs: {
+      serviceAccountJson: string, // Encrypted
+      projectId: string,
+      bucket: string
+    },
+    s3_compatible: {
+      endpoint: string,
+      accessKeyId: string,     // Encrypted
+      secretAccessKey: string, // Encrypted
+      bucket: string,
+      region?: string
+    }
+  },
+  status: {
+    lastTest: Date,
+    healthy: boolean,
+    error?: string,
+    latencyMs?: number
+  },
+  createdAt: Date,
+  updatedAt: Date
+}
+
+// Saved Queries collection (enhanced for object storage)
+{
+  _id: ObjectId,
+  name: string,
+  userId: string,
+  datasourceId: ObjectId,
+  queryType: "sql" | "mongodb" | "object-storage",
+  query: ObjectStorageQuery | QueryAST,
+  createdAt: Date,
+  updatedAt: Date,
+  lastRun?: Date,
+  runCount: number
+}
+```
+
+### 12.5 Frontend Component Enhancements
+
+#### 12.5.1 Datasource Configuration UI
+Enhanced configuration forms for each provider:
+
+```tsx
+// AWS S3 Configuration
+interface AWSS3Config {
+  accessKeyId: string
+  secretAccessKey: string
+  region: string
+  bucket: string
+}
+
+// GCS Configuration  
+interface GCSConfig {
+  serviceAccountJson: string  // JSON key file content
+  projectId: string
+  bucket: string
+}
+
+// S3-Compatible Configuration
+interface S3CompatibleConfig {
+  endpoint: string
+  accessKeyId: string
+  secretAccessKey: string
+  bucket: string
+  region?: string
+}
+```
+
+#### 12.5.2 Enhanced S3Explorer Component
+
+```tsx
+interface S3ExplorerProps {
+  datasourceId?: string
+  query?: Partial<ObjectStorageQuery>  // Query-based folder navigation
+  
+  // Navigation features
+  enableNavigation?: boolean
+  showBreadcrumbs?: boolean
+  enableUpload?: boolean
+  enableDelete?: boolean
+  
+  // Display options
+  viewMode?: 'list' | 'grid' | 'tree'
+  showMetadata?: boolean
+  sortBy?: 'name' | 'size' | 'modified'
+  sortOrder?: 'asc' | 'desc'
+  
+  // Event handlers
+  onFileSelect?: (file: S3Object) => void
+  onFolderNavigate?: (path: string) => void
+  onUploadComplete?: (files: S3Object[]) => void
+  onError?: (error: string) => void
+}
+```
+
+### 12.6 File Upload Implementation
+
+#### 12.6.1 Upload API
+```ts
+// POST /datasources/:id/upload
+interface UploadRequest {
+  files: File[]           // Multipart form files
+  prefix?: string         // Target folder path
+  overwrite?: boolean     // Overwrite existing files
+  metadata?: Record<string, string>  // Custom metadata
+}
+
+interface UploadResponse {
+  uploaded: Array<{
+    key: string
+    size: number
+    etag: string
+    url?: string  // Public URL if applicable
+  }>
+  errors?: Array<{
+    file: string
+    error: string
+  }>
+}
+```
+
+#### 12.6.2 Upload Component
+```tsx
+const S3Uploader: React.FC<{
+  datasourceId: string
+  targetPath?: string
+  onUploadComplete?: (files: S3Object[]) => void
+}> = ({ datasourceId, targetPath, onUploadComplete }) => {
+  // Drag & drop file upload with progress
+  // Support multiple files
+  // Show upload progress per file
+  // Handle errors gracefully
+}
+```
+
+### 12.7 Navigation Features
+
+#### 12.7.1 Folder Navigation
+- Breadcrumb navigation showing current path
+- Click folders to navigate deeper
+- Back/up navigation
+- URL-based deep linking to specific paths
+
+#### 12.7.2 Query-Based Exploration
+Users can define queries to explore specific portions of buckets:
+- Set prefix to start in a specific "folder"
+- Apply filters (file type, size, date ranges)
+- Save common navigation patterns as queries
+
+### 12.8 Security Considerations
+
+#### 12.8.1 Credential Management
+- All cloud provider credentials encrypted at rest in MongoDB
+- Credentials never returned to frontend
+- Support IAM roles for AWS (future)
+- Support service account impersonation for GCS (future)
+
+#### 12.8.2 Access Control
+- Per-datasource access control (future)
+- Upload/delete permissions configurable per datasource
+- File size limits configurable
+- Allowed file type restrictions
 
