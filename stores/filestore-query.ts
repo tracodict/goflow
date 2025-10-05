@@ -10,7 +10,7 @@ import {
 } from '@/lib/filestore-client'
 
 interface QueryState {
-  queries: QueryDefinition[]
+  queries: QueryDefinition[] // Always an array, never null
   loading: boolean
   error?: string
   executingIds: Set<string>
@@ -47,7 +47,7 @@ export const useQueryStore = create<QueryState>((set, get) => ({
         flowServiceUrl,
         dataSourceId ? { data_source_id: dataSourceId } : undefined
       )
-      set({ queries: response.queries, loading: false })
+      set({ queries: response.queries || [], loading: false })
     } catch (error: any) {
       set({ 
         error: error?.message || 'Failed to fetch queries', 

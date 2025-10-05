@@ -1082,7 +1082,7 @@ const QueriesSection: React.FC<{
 	const { setResult, setS3Result, setDatasource, setS3Input, setGcsQueryParams, setMongoInput, setSqlInput } = useQueryExecutionStore()
 	const [searchTerm, setSearchTerm] = useState('')
 	
-	const filteredQueries = queries.filter((q: QueryDefinition) => 
+	const filteredQueries = (queries || []).filter((q: QueryDefinition) =>
 		q.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
 		(q.description && q.description.toLowerCase().includes(searchTerm.toLowerCase()))
 	)
