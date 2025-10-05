@@ -139,7 +139,7 @@ const S3Explorer = React.forwardRef<HTMLDivElement, S3ExplorerProps>(
           // Use ad-hoc query for legacy compatibility
           const queryAst = {
             type: 'folder',
-            datasourceId,
+            datasource_id: datasourceId,
             parameters: {
               folderPath: path,
               recursive,
@@ -182,7 +182,7 @@ const S3Explorer = React.forwardRef<HTMLDivElement, S3ExplorerProps>(
       if (queryId || datasourceId) {
         runGCSQuery(currentPath)
       }
-    }, [queryId, datasourceId, currentPath, runGCSQuery])
+    }, [queryId, datasourceId, currentPath])
     
     // Handle path navigation
     const navigateToPath = React.useCallback((newPath: string) => {
