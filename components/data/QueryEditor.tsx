@@ -2,8 +2,9 @@
 import React, { useCallback, useState } from 'react'
 import { useDatasourceStore } from '@/stores/datasource'
 import { useQueryStore } from '@/stores/query'
-import { useSavedQueriesStore } from '@/stores/saved-queries'
+import { useQueryStore as useFilestoreQueryStore } from '@/stores/filestore-query'
 import { useDatasourceSchema } from '@/hooks/use-schema'
+import { useSystemSettings, DEFAULT_SETTINGS } from '@/components/petri/system-settings-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ResizableCodeMirror } from '@/components/ui/resizable-codemirror'
@@ -11,36 +12,93 @@ import { json } from '@codemirror/lang-json'
 import { sql } from '@codemirror/lang-sql'
 import { cn } from '@/lib/utils'
 import { Save, Play, Trash2 } from 'lucide-react'
+import { S3Explorer } from '@/vComponents/S3Explorer'
+import { GCSQueryInput, type GCSQueryParams } from './GCSQueryInput'
 
 export function QueryEditor() {
-  const { datasources } = useDatasourceStore()
-  const { activeDatasourceId, setDatasource, mongoInput, setMongoInput, sqlInput, setSqlInput, runMongo, runSql, running, error, result, clearResult, collection, setCollection, table, setTable } = useQueryStore()
-  const { saveQuery } = useSavedQueriesStore()
+  const { datasources, fetchDatasources } = useDatasourceStore()
+  const { activeDatasourceId, setDatasource, mongoInput, setMongoInput, sqlInput, setSqlInput, runMongo, runSql, runS3, running, error, result, clearResult, collection, setCollection, table, setTable, s3Input, setS3Input, setGcsQueryParams, gcsQueryParams } = useQueryStore()
+  const { createQuery, fetchQueries } = useFilestoreQueryStore()
+  const { settings } = useSystemSettings()
   const current = datasources.find(d=> d.id===activeDatasourceId)
   const { collections, tables } = useDatasourceSchema(activeDatasourceId)
   
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [saveName, setSaveName] = useState('')
   
+  // Load datasources when component mounts
+  React.useEffect(() => {
+    fetchDatasources()
+  }, [fetchDatasources])
+  
+  // Handle GCS query execution
+  const handleGCSQuery = useCallback(async (params: GCSQueryParams) => {
+    if (!current) return
+    
+    // Get flowServiceUrl from settings
+    const flowServiceUrl = settings?.flowServiceUrl || DEFAULT_SETTINGS.flowServiceUrl
+    
+    // Store GCS query parameters for FileStore API
+    setGcsQueryParams(params)
+    
+    // Also set s3Input for backward compatibility
+    const prefix = params.folderPath.startsWith('/') ? params.folderPath.slice(1) : params.folderPath
+    setS3Input(prefix)
+    
+    // Execute query with FileStore API
+    await runS3(flowServiceUrl)
+  }, [current, setGcsQueryParams, setS3Input, runS3, settings?.flowServiceUrl])
+  
     const handleSaveQuery = async () => {
-    const currentQuery = current?.type === 'mongo' ? mongoInput : sqlInput
+    let currentQuery = ''
+    let queryType = 'sql'
+    
+    if (current?.type === 'mongo') {
+      currentQuery = mongoInput
+      queryType = 'mongo'
+    } else if (current?.type === 's3' || current?.type === 'gcs') {
+      currentQuery = s3Input || '/'
+      queryType = 's3'
+    } else {
+      currentQuery = sqlInput
+      queryType = 'sql'
+    }
+    
     if (!currentQuery?.trim()) return
     
     const queryName = saveName.trim() || 'Untitled Query'
-    await saveQuery({
-      name: queryName,
-      type: current?.type === 'mongo' ? 'mongo' : 'sql',
-      datasourceId: activeDatasourceId || '',
-      content: currentQuery,
-      collection: current?.type === 'mongo' ? collection : undefined,
-      table: current?.type !== 'mongo' ? table : undefined
-    })
+    const flowServiceUrl = settings?.flowServiceUrl || DEFAULT_SETTINGS.flowServiceUrl
     
-    setShowSaveDialog(false)
-    setSaveName('')
-    
-    // Optionally show a toast or feedback that the query was saved
-    console.log('Query saved:', queryName)
+    try {
+      // Create query definition using filestore-query store
+      const queryDefinition = {
+        name: queryName,
+        data_source_id: activeDatasourceId || '',
+        query_type: queryType === 's3' ? 'folder' : queryType as any,
+        query: queryType === 'sql' ? currentQuery : undefined,
+        parameters: {
+          ...(queryType === 'mongo' ? { pipeline: JSON.parse(currentQuery) } : {}),
+          ...(queryType === 's3' ? { folder_path: currentQuery } : {}),
+          ...(current?.type === 'mongo' && collection ? { collection } : {}),
+          ...(current?.type !== 'mongo' && current?.type !== 's3' && current?.type !== 'gcs' && table ? { table } : {})
+        },
+        enabled: true
+      }
+      
+      await createQuery(flowServiceUrl, queryDefinition)
+      
+      // Refresh the queries list to update LeftPanel immediately
+      await fetchQueries(flowServiceUrl)
+      
+      setShowSaveDialog(false)
+      setSaveName('')
+      
+      // Show success message
+      console.log('Query saved to server:', queryName)
+    } catch (error: any) {
+      console.error('Failed to save query:', error)
+      // Keep dialog open on error so user can retry
+    }
   }
 
   return (
@@ -69,13 +127,18 @@ export function QueryEditor() {
               Run Pipeline
             </Button>
           }
-          {current?.type!=='mongo' && current?.type!=='s3' && current && 
+          {current?.type!=='mongo' && current?.type!=='s3' && current?.type!=='gcs' && current && 
             <Button size="sm" onClick={()=> runSql()} disabled={running || !sqlInput?.trim()}>
               <Play className="w-3 h-3 mr-1" />
               Run SQL
             </Button>
           }
-          <Button size="sm" variant="outline" onClick={()=> setShowSaveDialog(true)} disabled={!current || (!mongoInput?.trim() && !sqlInput?.trim())}>
+          {current && (current.type === 's3' || current.type === 'gcs') && 
+            <span className="text-xs text-gray-600">
+              Use the form below to query {current.type === 'gcs' ? 'GCS' : 'S3'} objects
+            </span>
+          }
+          <Button size="sm" variant="outline" onClick={()=> setShowSaveDialog(true)} disabled={!current || (!mongoInput?.trim() && !sqlInput?.trim() && !s3Input?.trim())}>
             <Save className="w-3 h-3 mr-1" />
             Save
           </Button>
@@ -115,7 +178,7 @@ export function QueryEditor() {
             placeholder="MongoDB aggregation pipeline..."
           />
           )}
-          {current && current.type!=='mongo' && (
+          {current && current.type!=='mongo' && current.type!=='s3' && current.type!=='gcs' && (
           <ResizableCodeMirror
             value={sqlInput || 'SELECT 1'}
             flex={true}
@@ -127,6 +190,14 @@ export function QueryEditor() {
             placeholder="SQL query..."
           />
           )}
+          {current && (current.type === 's3' || current.type === 'gcs') && (
+            <GCSQueryInput
+              onExecute={handleGCSQuery}
+              disabled={!current}
+              loading={running}
+              initialValues={gcsQueryParams}
+            />
+          )}
           {!current && <div className="p-4 text-sm text-muted-foreground bg-white h-full flex items-center justify-center border rounded-md">Choose a datasource to begin</div>}
         </div>
     </div>
@@ -134,10 +205,105 @@ export function QueryEditor() {
 }
 
 export function QueryResultViewer() {
-  const { result, error, running } = useQueryStore()
+  const { result, s3Result, error, running, activeDatasourceId } = useQueryStore()
+  const { datasources } = useDatasourceStore()
+  const currentDatasource = datasources.find(d => d.id === activeDatasourceId)
+  
   if (running) return <div className="p-4 text-sm text-muted-foreground h-full flex items-center justify-center">Executing…</div>
   if (error) return <div className="p-4 text-sm text-red-600 h-full overflow-auto">{error}</div>
+  if (!result && !s3Result) return <div className="p-4 text-xs text-muted-foreground h-full flex items-center justify-center">No results yet</div>
+  
+  // For S3/GCS datasources, show results in S3Explorer format if s3Result is available
+  if ((currentDatasource?.type === 's3' || currentDatasource?.type === 'gcs') && s3Result) {
+    return (
+      <div className="h-full bg-white border rounded">
+        <div className="p-3 border-b bg-gray-50">
+          <div className="text-sm font-medium">
+            {currentDatasource.type === 'gcs' ? 'GCS' : 'S3'} Query Results
+          </div>
+          <div className="text-xs text-gray-600">
+            {s3Result.files.length} items • {s3Result.meta.executionMs}ms • {s3Result.prefix}
+          </div>
+        </div>
+        <div className="overflow-auto h-full p-4">
+          <div className="space-y-2">
+            {s3Result.files.map((file: any, index: number) => (
+              <div key={index} className="flex items-center justify-between p-3 border rounded hover:bg-gray-50">
+                <div className="flex items-center space-x-3">
+                  <span className="text-lg">
+                    {file.isFolder ? '📁' : '📄'}
+                  </span>
+                  <div>
+                    <div className="text-sm font-medium">
+                      {file.key}
+                    </div>
+                    {!file.isFolder && file.size && (
+                      <div className="text-xs text-gray-500">
+                        {(file.size / 1024).toFixed(1)} KB
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {file.lastModified && (
+                  <div className="text-xs text-gray-500">
+                    {new Date(file.lastModified).toLocaleDateString()}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+  
+  // For S3/GCS datasources with regular result format (fallback)
+  if ((currentDatasource?.type === 's3' || currentDatasource?.type === 'gcs') && result && result.rows) {
+    return (
+      <div className="h-full bg-white border rounded">
+        <div className="p-3 border-b bg-gray-50">
+          <div className="text-sm font-medium">
+            {currentDatasource.type === 'gcs' ? 'GCS' : 'S3'} Query Results
+          </div>
+          <div className="text-xs text-gray-600">
+            {result.rows.length} items • {result.meta.executionMs}ms
+          </div>
+        </div>
+        <div className="overflow-auto h-full p-4">
+          <div className="space-y-2">
+            {result.rows.map((row: any, index: number) => (
+              <div key={index} className="flex items-center justify-between p-3 border rounded hover:bg-gray-50">
+                <div className="flex items-center space-x-3">
+                  <span className="text-lg">
+                    {row.isFolder || row.type === 'folder' ? '📁' : '📄'}
+                  </span>
+                  <div>
+                    <div className="text-sm font-medium">
+                      {row.name || row.key || row.filename || 'Unknown'}
+                    </div>
+                    {!row.isFolder && row.size && (
+                      <div className="text-xs text-gray-500">
+                        {(row.size / 1024).toFixed(1)} KB
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {row.lastModified && (
+                  <div className="text-xs text-gray-500">
+                    {new Date(row.lastModified).toLocaleDateString()}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+  
+  // If no result available, show empty state
   if (!result) return <div className="p-4 text-xs text-muted-foreground h-full flex items-center justify-center">No results yet</div>
+  
   const cols = result.columns
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -148,12 +314,12 @@ export function QueryResultViewer() {
               <tr>
                 {cols.map((c, index) => (
                   <th 
-                    key={c.name} 
+                    key={c} 
                     className="text-left px-2 py-1 font-semibold border-b border-neutral-200 min-w-[80px] max-w-[200px] truncate"
                     style={{ width: index < cols.length - 1 ? '150px' : 'auto' }}
-                    title={c.name}
+                    title={c}
                   >
-                    {c.name}
+                    {c}
                   </th>
                 ))}
               </tr>
@@ -163,13 +329,13 @@ export function QueryResultViewer() {
                 <tr key={i} className={cn(i%2?'bg-neutral-50/40':'bg-white')}>
                   {cols.map((c, index) => (
                     <td 
-                      key={c.name} 
+                      key={c} 
                       className="px-2 py-1 align-top border-b border-neutral-100 truncate max-w-[200px]"
                       style={{ width: index < cols.length - 1 ? '150px' : 'auto' }}
-                      title={formatCell(r[c.name])}
+                      title={formatCell(r[c])}
                     >
                       <div className="truncate">
-                        {formatCell(r[c.name])}
+                        {formatCell(r[c])}
                       </div>
                     </td>
                   ))}

@@ -21,9 +21,15 @@ export interface PageBuilderS3ExplorerProps extends S3ExplorerProps {
   "data-script-folder-toggle"?: string
   "data-script-download"?: string
   "data-script-error"?: string
+  // Query execution props
+  "data-query-id"?: string
   "data-datasource-id"?: string
+  // Query parameters
   "data-initial-path"?: string
   "data-show-hidden"?: string
+  "data-recursive"?: string
+  "data-max-file-size"?: string
+  "data-allowed-extensions"?: string
 }
 
 /**
@@ -37,13 +43,22 @@ export const PageBuilderS3Explorer: React.FC<PageBuilderS3ExplorerProps> = ({
   "data-script-folder-toggle": scriptFolderToggle,
   "data-script-download": scriptDownload,
   "data-script-error": scriptError,
+  "data-query-id": queryId,
   "data-datasource-id": datasourceId,
   "data-initial-path": initialPath,
   "data-show-hidden": showHiddenString,
+  "data-recursive": recursiveString,
+  "data-max-file-size": maxFileSizeString,
+  "data-allowed-extensions": allowedExtensionsString,
   ...props 
 }) => {
-  // Parse boolean values from strings
+  // Parse values from strings
   const showHidden = showHiddenString === "true"
+  const recursive = recursiveString !== "false" // default true
+  const maxFileSize = maxFileSizeString ? parseInt(maxFileSizeString) : undefined
+  const allowedExtensions = allowedExtensionsString ? 
+    allowedExtensionsString.split(',').map(ext => ext.trim()) : 
+    undefined
   
   // Create context for script execution  
   const createContext = React.useCallback(() => ({
@@ -153,9 +168,13 @@ export const PageBuilderS3Explorer: React.FC<PageBuilderS3ExplorerProps> = ({
   return (
     <S3Explorer
       {...props}
+      queryId={queryId}
       datasourceId={datasourceId}
       initialPath={initialPath}
       showHidden={showHidden}
+      recursive={recursive}
+      maxFileSize={maxFileSize}
+      allowedExtensions={allowedExtensions}
       elementId={elementId}
       onScriptFileSelect={handleScriptFileSelect}
       onScriptFolderToggle={handleScriptFolderToggle}

@@ -1,21 +1,40 @@
 /**
  * S3Explorer Component
  * 
- * Enhanced S3 explorer component with event system and dynamic configuration.
- * Uses datasources directly with local state to avoid conflicts between multiple instances.
+ * Enhanced GCS/S3 explorer component with FileStore API integration.
+ * Uses FileStore API for querying GCS buckets and displaying file listings.
+ * Supports both saved query execution and ad-hoc folder queries.
  */
 
 import * as React from "react"
-import { runDatasourceQuery } from "../../lib/datasource-client"
+import { executeQuery, executeAdhocQuery, type QueryResult } from "../../lib/filestore-client"
 import { BaseEventPayload } from "@/lib/component-interface"
 import { S3ExplorerEventPayload } from "./interface"
-import type { S3QueryResult } from "@/lib/datasource-types"
+import { useSystemSettings, DEFAULT_SETTINGS } from "@/components/petri/system-settings-context"
+
+// GCS File item interface (based on FileStore API response)
+export interface GCSFile {
+  name: string
+  path: string
+  size: number
+  modified: string
+  type: 'file' | 'folder'
+  extension?: string
+  content_type?: string
+}
 
 // Component props interface
 export interface S3ExplorerProps extends React.HTMLAttributes<HTMLDivElement> {
-  datasourceId?: string
+  // Query execution modes (use one of these)
+  queryId?: string        // For saved query execution (/api/queries/:id/run)
+  datasourceId?: string   // For ad-hoc queries (legacy compatibility)
+  
+  // Query parameters
   initialPath?: string
   showHidden?: boolean
+  recursive?: boolean
+  maxFileSize?: number
+  allowedExtensions?: string[]
   
   // Script integration props
   isPreview?: boolean
@@ -33,9 +52,13 @@ export interface S3ExplorerProps extends React.HTMLAttributes<HTMLDivElement> {
 // S3Explorer component implementation
 const S3Explorer = React.forwardRef<HTMLDivElement, S3ExplorerProps>(
   ({ 
+    queryId,
     datasourceId,
     initialPath = "/",
     showHidden = false,
+    recursive = true,
+    maxFileSize = 10485760, // 10MB default
+    allowedExtensions = [".md", ".txt", ".json", ".yaml", ".pdf", ".csv", ".xml"],
     className,
     style,
     isPreview = false,
@@ -49,42 +72,93 @@ const S3Explorer = React.forwardRef<HTMLDivElement, S3ExplorerProps>(
     ...props 
   }, ref) => {
     
+    // System settings for flowServiceUrl
+    const { settings } = useSystemSettings()  
+    
     // Local state for this S3Explorer instance
-    const [s3Result, setS3Result] = React.useState<S3QueryResult | null>(null)
+    const [queryResult, setQueryResult] = React.useState<QueryResult | null>(null)
+    const [gcsFiles, setGcsFiles] = React.useState<GCSFile[]>([])
     const [running, setRunning] = React.useState(false)
     const [error, setError] = React.useState<string | null>(null)
+    const [currentPath, setCurrentPath] = React.useState(initialPath)
     
     // Generate element ID
     const finalElementId = elementId || `s3-explorer-${React.useId()}`
     
-    // Local query function for this instance
-    const runLocalS3Query = React.useCallback(async (dsId: string, prefix: string) => {
-      if (!dsId) return
+    // Get flowServiceUrl with fallbacks
+    const getFlowServiceUrl = React.useCallback(() => {
+      return settings?.flowServiceUrl || DEFAULT_SETTINGS.flowServiceUrl
+    }, [settings?.flowServiceUrl])
+    
+    // Convert QueryResult to GCSFile format
+    const parseQueryResultToFiles = React.useCallback((result: QueryResult): GCSFile[] => {
+      if (!result.rows || result.rows.length === 0) return []
+      
+      return result.rows.map((row: any, index: number) => {
+        // Handle different possible row formats from GCS queries
+        const fileName = row.name || row.key || row.filename || `file_${index}`
+        const filePath = row.path || row.key || fileName
+        const fileSize = typeof row.size === 'number' ? row.size : (parseInt(row.size) || 0)
+        const lastModified = row.modified || row.lastModified || row.updated || new Date().toISOString()
+        const isFolder = row.type === 'folder' || row.isFolder || fileName.endsWith('/')
+        
+        return {
+          name: fileName,
+          path: filePath,
+          size: fileSize,
+          modified: lastModified,
+          type: isFolder ? 'folder' : 'file',
+          extension: isFolder ? undefined : fileName.split('.').pop()?.toLowerCase(),
+          content_type: row.content_type || row.contentType || (isFolder ? 'folder' : 'application/octet-stream')
+        }
+      })
+    }, [])
+    
+    // Local query function using FileStore API
+    const runGCSQuery = React.useCallback(async (path: string) => {
+      const flowServiceUrl = getFlowServiceUrl()
+      if (!flowServiceUrl) {
+        setError('No flow service URL configured')
+        return
+      }
       
       setRunning(true)
       setError(null)
       
       try {
-        // For S3 datasources, the API returns S3QueryResult directly, not wrapped in QueryResult
-        const response = await fetch(`/api/ds/datasources/${dsId}/query`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prefix })
-        })
+        let result: QueryResult
         
-        if (!response.ok) {
-          let errorMessage = `Query failed: ${response.statusText}`
-          try {
-            const errorBody = await response.json()
-            errorMessage = errorBody?.error || errorMessage
-          } catch {}
-          throw new Error(errorMessage)
+        if (queryId) {
+          // Use saved query execution
+          result = await executeQuery(flowServiceUrl, queryId, { 
+            folderPath: path,
+            recursive,
+            includeMetadata: true 
+          })
+        } else if (datasourceId) {
+          // Use ad-hoc query for legacy compatibility
+          const queryAst = {
+            type: 'folder',
+            datasourceId,
+            parameters: {
+              folderPath: path,
+              recursive,
+              includeMetadata: true,
+              maxFileSize,
+              allowedExtensions
+            }
+          }
+          result = await executeAdhocQuery(flowServiceUrl, queryAst, { folderPath: path })
+        } else {
+          throw new Error('Either queryId or datasourceId must be provided')
         }
         
-        const result = await response.json() as S3QueryResult
-        setS3Result(result)
+        setQueryResult(result)
+        const files = parseQueryResultToFiles(result)
+        setGcsFiles(files)
+        
       } catch (e: any) {
-        const errorMessage = e?.message || 'S3 query failed'
+        const errorMessage = e?.message || 'GCS query failed'
         setError(errorMessage)
         
         // Trigger error event
@@ -93,7 +167,7 @@ const S3Explorer = React.forwardRef<HTMLDivElement, S3ExplorerProps>(
             timestamp: Date.now(),
             componentId: finalElementId,
             eventType: 'error',
-            datasourceId: dsId,
+            datasourceId: datasourceId,
             error: errorMessage
           }
           onScriptError(payload)
@@ -101,14 +175,63 @@ const S3Explorer = React.forwardRef<HTMLDivElement, S3ExplorerProps>(
       } finally {
         setRunning(false)
       }
-    }, [isPreview, onScriptError, finalElementId])
+    }, [queryId, datasourceId, recursive, maxFileSize, allowedExtensions, getFlowServiceUrl, parseQueryResultToFiles, isPreview, onScriptError, finalElementId])
     
-    // Set up datasource and trigger query when datasourceId or initialPath changes
+    // Trigger query when parameters change
     React.useEffect(() => {
-      if (datasourceId) {
-        runLocalS3Query(datasourceId, initialPath)
+      if (queryId || datasourceId) {
+        runGCSQuery(currentPath)
       }
-    }, [datasourceId, initialPath, runLocalS3Query])
+    }, [queryId, datasourceId, currentPath, runGCSQuery])
+    
+    // Handle path navigation
+    const navigateToPath = React.useCallback((newPath: string) => {
+      setCurrentPath(newPath)
+    }, [])
+    
+    // Handle folder click
+    const handleFolderClick = React.useCallback((folder: GCSFile) => {
+      if (folder.type === 'folder') {
+        const newPath = folder.path.endsWith('/') ? folder.path : `${folder.path}/`
+        navigateToPath(newPath)
+        
+        // Trigger folder toggle event
+        if (isPreview && onScriptFolderToggle) {
+          const payload: S3ExplorerEventPayload = {
+            timestamp: Date.now(),
+            componentId: finalElementId,
+            eventType: 'folderToggle',
+            datasourceId,
+            fileName: folder.name,
+            filePath: folder.path,
+            fileSize: folder.size,
+            fileType: folder.content_type,
+            isFolder: true,
+            action: 'expand'
+          }
+          onScriptFolderToggle(payload)
+        }
+      }
+    }, [navigateToPath, isPreview, onScriptFolderToggle, finalElementId, datasourceId])
+    
+    // Handle file selection
+    const handleFileSelect = React.useCallback((file: GCSFile) => {
+      if (isPreview && onScriptFileSelect) {
+        const payload: S3ExplorerEventPayload = {
+          timestamp: Date.now(),
+          componentId: finalElementId,
+          eventType: 'fileSelect',
+          datasourceId,
+          fileName: file.name,
+          filePath: file.path,
+          fileSize: file.size,
+          fileType: file.content_type,
+          isFolder: file.type === 'folder',
+          action: 'select'
+        }
+        onScriptFileSelect(payload)
+      }
+    }, [isPreview, onScriptFileSelect, finalElementId, datasourceId])
     
     // Handle component mount/unmount events
     React.useEffect(() => {
@@ -150,57 +273,117 @@ const S3Explorer = React.forwardRef<HTMLDivElement, S3ExplorerProps>(
     return (
       <div 
         ref={ref}
-        className={className}
+        className={`space-y-4 ${className || ''}`}
         style={style}
         data-element-id={finalElementId}
         {...props}
       >
-        {/* We'll render the S3 files directly here instead of using the original component */}
-        {running && <div>Loading S3 files...</div>}
-        {error && <div className="text-red-500">Error: {error}</div>}
-        {s3Result && (
+        {/* Header with current path */}
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium text-gray-700">
+            📁 {currentPath}
+          </div>
+          {currentPath !== '/' && (
+            <button
+              onClick={() => {
+                const parentPath = currentPath.split('/').slice(0, -2).join('/') + '/'
+                navigateToPath(parentPath === '/' ? '/' : parentPath)
+              }}
+              className="text-sm text-blue-600 hover:text-blue-800"
+            >
+              ⬆️ Parent
+            </button>
+          )}
+        </div>
+        
+        {/* Loading state */}
+        {running && (
+          <div className="flex items-center space-x-2 text-gray-600">
+            <div className="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+            <span>Loading GCS files...</span>
+          </div>
+        )}
+        
+        {/* Error state */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-md p-3">
+            <div className="text-red-700 text-sm">
+              <strong>Error:</strong> {error}
+            </div>
+          </div>
+        )}
+        
+        {/* Results display */}
+        {!running && gcsFiles.length > 0 && (
           <div className="space-y-2">
             <div className="text-sm text-gray-600">
-              Found {s3Result.files.length} items in {s3Result.prefix || '/'}
+              Found {gcsFiles.length} items
+              {queryResult?.meta?.executionMs && (
+                <span className="ml-2 text-xs text-gray-500">
+                  ({queryResult.meta.executionMs}ms)
+                </span>
+              )}
             </div>
-            <div className="space-y-1">
-              {s3Result.files.map((file, index) => (
+            
+            <div className="border border-gray-200 rounded-md divide-y divide-gray-200 max-h-96 overflow-y-auto">
+              {gcsFiles.map((file, index) => (
                 <div 
-                  key={index}
-                  className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded"
+                  key={`${file.path}-${index}`}
+                  className={`flex items-center justify-between p-3 hover:bg-gray-50 cursor-pointer transition-colors ${
+                    file.type === 'folder' ? 'bg-blue-50' : ''
+                  }`}
                   onClick={() => {
-                    if (isPreview && onScriptFileSelect) {
-                      const payload: S3ExplorerEventPayload = {
-                        timestamp: Date.now(),
-                        componentId: finalElementId,
-                        eventType: 'fileSelect',
-                        datasourceId,
-                        fileName: file.key.split('/').pop() || file.key,
-                        filePath: file.key,
-                        fileSize: file.size,
-                        fileType: file.contentType,
-                        isFolder: file.isFolder,
-                        action: 'select'
-                      }
-                      onScriptFileSelect(payload)
+                    if (file.type === 'folder') {
+                      handleFolderClick(file)
+                    } else {
+                      handleFileSelect(file)
                     }
                   }}
                 >
-                  <span className="text-sm">
-                    {file.isFolder ? '📁' : '📄'} {file.key}
-                  </span>
-                  {!file.isFolder && (
-                    <span className="text-xs text-gray-500">
-                      ({(file.size / 1024).toFixed(1)} KB)
+                  <div className="flex items-center space-x-3 flex-1 min-w-0">
+                    <span className="text-lg flex-shrink-0">
+                      {file.type === 'folder' ? '📁' : '📄'}
                     </span>
-                  )}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-gray-900 truncate">
+                        {file.name}
+                      </div>
+                      {file.type === 'file' && file.extension && (
+                        <div className="text-xs text-gray-500">
+                          {file.extension.toUpperCase()} • {(file.size / 1024).toFixed(1)} KB
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center space-x-2 text-xs text-gray-500">
+                    {file.type === 'file' && (
+                      <span>{new Date(file.modified).toLocaleDateString()}</span>
+                    )}
+                    {file.type === 'folder' && (
+                      <span className="text-blue-600">→</span>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           </div>
         )}
-        {!running && !s3Result && !error && datasourceId && (
-          <div className="text-gray-500">No S3 datasource selected</div>
+        
+        {/* Empty state */}
+        {!running && !error && gcsFiles.length === 0 && (queryId || datasourceId) && (
+          <div className="text-center py-8 text-gray-500">
+            <div className="text-4xl mb-2">📂</div>
+            <div className="text-sm">No files found in this location</div>
+          </div>
+        )}
+        
+        {/* No configuration state */}
+        {!running && !error && !queryId && !datasourceId && (
+          <div className="text-center py-8 text-gray-500">
+            <div className="text-4xl mb-2">⚙️</div>
+            <div className="text-sm">No query or datasource configured</div>
+          </div>
         )}
       </div>
     )

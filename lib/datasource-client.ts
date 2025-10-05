@@ -1,7 +1,7 @@
 // Thin REST client wrappers – Phase 1 (Mongo only implemented server side later)
 import { DatasourceDetail, DatasourceSummary, QueryAST, QueryResult } from './datasource-types'
 
-const BASE = '/api/ds'
+const BASE = '/api'
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {

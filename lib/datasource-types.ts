@@ -1,4 +1,4 @@
-export type DatasourceType = 'mongo' | 'postgres' | 'mysql' | 's3'
+export type DatasourceType = 'mongo' | 'postgres' | 'mysql' | 's3' | 'gcs'
 
 export interface DatasourceSummary {
   id: string

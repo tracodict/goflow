@@ -1,9 +1,10 @@
 // TEMP MINIMAL STORE to isolate syntax error
 import { create } from 'zustand'
-import { runDatasourceQuery } from '@/lib/datasource-client'
-import type { QueryResult, S3QueryResult } from '@/lib/datasource-types'
+import { executeAdhocQuery, type QueryResult } from '@/lib/filestore-client'
+import type { S3QueryResult } from '@/lib/datasource-types'
+import { DEFAULT_SETTINGS } from '@/components/petri/system-settings-context'
 
-type Engine = 'mongo' | 'postgres' | 'mysql' | 's3'
+type Engine = 'mongo' | 'postgres' | 'mysql' | 's3' | 'gcs'
 
 export interface QueryHistoryItem { id: string; datasourceId: string; engine: Engine; input: unknown; started: number; durationMs: number; error?: string }
 
@@ -20,6 +21,14 @@ export interface QueryState {
   s3Result?: S3QueryResult
   error?: string
   history: QueryHistoryItem[]
+  gcsQueryParams?: {
+    folderPath: string
+    recursive: boolean
+    includeMetadata: boolean
+    maxFileSize?: number
+    allowedExtensions: string[]
+    showHidden: boolean
+  }
   setDatasource(id: string | undefined): void
   setMongoInput(v: string): void
   setSqlInput(v: string): void
@@ -27,10 +36,13 @@ export interface QueryState {
   setCollection(v: string | undefined): void
   setTable(v: string | undefined): void
   setS3Prefix(v: string | undefined): void
+  setGcsQueryParams(params: QueryState['gcsQueryParams']): void
+  setResult(result: QueryResult): void
+  setS3Result(result: S3QueryResult): void
   clearResult(): void
   runMongo(): Promise<void>
   runSql(): Promise<void>
-  runS3(): Promise<void>
+  runS3(flowServiceUrl?: string): Promise<void>
 }
 
 export const useQueryStore = create<QueryState>((set, get) => {
@@ -93,6 +105,9 @@ export const useQueryStore = create<QueryState>((set, get) => {
     setCollection(v) { set({ collection: v }); persistState() },
     setTable(v) { set({ table: v }); persistState() },
     setS3Prefix(v) { set({ s3Prefix: v }); persistState() },
+    setGcsQueryParams(params) { set({ gcsQueryParams: params }); persistState() },
+    setResult(result) { set({ result, s3Result: undefined, error: undefined }) },
+    setS3Result(result) { set({ s3Result: result, result: undefined, error: undefined }) },
     clearResult() { set({ result: undefined, s3Result: undefined, error: undefined }) },
     async runMongo() {
       const dsId = get().activeDatasourceId; if (!dsId) return
@@ -101,9 +116,9 @@ export const useQueryStore = create<QueryState>((set, get) => {
       set({ running: true, error: undefined })
       const started = Date.now()
       try {
-  const result = await runDatasourceQuery(dsId, { pipeline, collection: get().collection })
-        pushHistory({ id: Math.random().toString(36).slice(2), datasourceId: dsId, engine: 'mongo', input: pipeline, started, durationMs: Date.now() - started })
-        set({ running: false, result })
+        // TODO: Migrate MongoDB queries to FileStore API
+        set({ running: false, error: 'MongoDB queries not yet migrated to FileStore API' })
+        pushHistory({ id: Math.random().toString(36).slice(2), datasourceId: dsId, engine: 'mongo', input: pipeline, started, durationMs: Date.now() - started, error: 'Not migrated to FileStore API' })
       } catch(e:any) {
         pushHistory({ id: Math.random().toString(36).slice(2), datasourceId: dsId, engine: 'mongo', input: pipeline, started, durationMs: Date.now() - started, error: e?.message })
         set({ running: false, error: e?.message || 'Query failed' })
@@ -115,26 +130,83 @@ export const useQueryStore = create<QueryState>((set, get) => {
       set({ running: true, error: undefined })
       const started = Date.now()
       try {
-  const result = await runDatasourceQuery(dsId, { sql })
-        pushHistory({ id: Math.random().toString(36).slice(2), datasourceId: dsId, engine: 'postgres', input: sql, started, durationMs: Date.now() - started })
-        set({ running: false, result })
+        // TODO: Migrate SQL queries to FileStore API
+        set({ running: false, error: 'SQL queries not yet migrated to FileStore API' })
+        pushHistory({ id: Math.random().toString(36).slice(2), datasourceId: dsId, engine: 'postgres', input: sql, started, durationMs: Date.now() - started, error: 'Not migrated to FileStore API' })
       } catch(e:any) {
         pushHistory({ id: Math.random().toString(36).slice(2), datasourceId: dsId, engine: 'postgres', input: sql, started, durationMs: Date.now() - started, error: e?.message })
         set({ running: false, error: e?.message || 'Query failed' })
       }
     },
-    async runS3() {
+    async runS3(flowServiceUrl?: string) {
       const dsId = get().activeDatasourceId; if (!dsId) return
+      const gcsParams = get().gcsQueryParams
       const s3Query = get().s3Input || get().s3Prefix || ''
+      
       set({ running: true, error: undefined })
       const started = Date.now()
+      
       try {
-        const result = await runDatasourceQuery(dsId, { prefix: s3Query })
-        pushHistory({ id: Math.random().toString(36).slice(2), datasourceId: dsId, engine: 's3', input: s3Query, started, durationMs: Date.now() - started })
-        set({ running: false, s3Result: result as any })
+        const serviceUrl = flowServiceUrl || DEFAULT_SETTINGS.flowServiceUrl
+        
+        // Create query AST for FileStore API folder query
+        const queryAST = {
+          type: 'folder',
+          datasource_id: dsId,
+          query_config: {
+            folder_path: gcsParams?.folderPath || s3Query || '/',
+            recursive: gcsParams?.recursive ?? true,
+            include_metadata: gcsParams?.includeMetadata ?? true,
+            show_hidden: gcsParams?.showHidden ?? false,
+            filters: {
+              max_file_size: gcsParams?.maxFileSize,
+              allowed_extensions: gcsParams?.allowedExtensions || ['.pdf', '.txt', '.json', '.md', '.csv', '.xml']
+            }
+          }
+        }
+        
+        const result = await executeAdhocQuery(serviceUrl, queryAST)
+        
+        // Transform FileStore QueryResult into S3QueryResult format for backward compatibility
+        const s3Result = {
+          files: result.rows.map((row: any) => ({
+            key: row.name || row.key || row.filename || 'Unknown',
+            size: Number(row.size) || 0,
+            lastModified: new Date(row.modified || row.lastModified || row.last_modified || Date.now()),
+            etag: row.etag || row.hash || 'unknown',
+            isFolder: row.type === 'folder' || row.isFolder || false,
+            contentType: row.content_type || row.contentType
+          })),
+          prefix: gcsParams?.folderPath || s3Query || '/',
+          totalFiles: result.rows.length,
+          meta: {
+            executionMs: result.meta.executionMs,
+            datasourceId: result.meta.datasourceId || dsId
+          }
+        }
+        
+        // Use 's3' as engine type for both S3 and GCS for backward compatibility in history
+        pushHistory({ 
+          id: Math.random().toString(36).slice(2), 
+          datasourceId: dsId, 
+          engine: 's3', 
+          input: gcsParams || s3Query, 
+          started, 
+          durationMs: Date.now() - started 
+        })
+        
+        set({ running: false, s3Result })
       } catch(e:any) {
-        pushHistory({ id: Math.random().toString(36).slice(2), datasourceId: dsId, engine: 's3', input: s3Query, started, durationMs: Date.now() - started, error: e?.message })
-        set({ running: false, error: e?.message || 'S3 query failed' })
+        pushHistory({ 
+          id: Math.random().toString(36).slice(2), 
+          datasourceId: dsId, 
+          engine: 's3', 
+          input: gcsParams || s3Query, 
+          started, 
+          durationMs: Date.now() - started, 
+          error: e?.message 
+        })
+        set({ running: false, error: e?.message || 'S3/GCS query failed' })
       }
     }
   }

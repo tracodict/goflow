@@ -19,7 +19,7 @@ registerComponentRenderer(
 export const S3ExplorerComponent = {
   name: 'S3Explorer',
   category: 'Data',
-  description: 'Interactive S3 file explorer with browsing capabilities',
+  description: 'Interactive GCS/S3 file explorer with FileStore API integration for browsing cloud storage',
   icon: 'FolderTree',
-  version: '1.0.0'
+  version: '2.0.0'
 }

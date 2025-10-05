@@ -1,6 +1,8 @@
 import { create } from 'zustand'
-import { DatasourceSummary, QueryAST, QueryResult, DatasourceError, DatasourceDetail } from '@/lib/datasource-types'
+import { DatasourceSummary, DatasourceType, QueryAST, QueryResult, DatasourceError, DatasourceDetail } from '@/lib/datasource-types'
 import { listDatasources, executeAdhoc, getDatasource, updateDatasource, deleteDatasource, testDatasource } from '@/lib/datasource-client'
+import { listDataSources } from '@/lib/filestore-client'
+import { useSystemSettings } from '@/components/petri/system-settings-context'
 
 interface ExecutionState {
   running: boolean
@@ -31,7 +33,28 @@ export const useDatasourceStore = create<DatasourceState>((set, get) => ({
   async fetchDatasources() {
     set({ loading: true, error: undefined })
     try {
-      const list = await listDatasources().catch(() => []) // backend not ready fallback
+      // Try new FileStore API first, fall back to old client
+      let list: DatasourceSummary[] = []
+      
+      try {
+        // Try to get flowServiceUrl from a global event or fallback
+        const flowServiceUrl = (window as any).__goflow_flowServiceUrl || 'http://localhost:8080'
+        const response = await listDataSources(flowServiceUrl)
+        
+        // Transform FileStore DataSource[] to DatasourceSummary[]
+        list = response.data_sources.map(ds => ({
+          id: ds.id,
+          name: ds.name,
+          type: ds.type === 'mongodb' ? 'mongo' : ds.type as DatasourceType,
+          status: ds.test_status as 'unknown' | 'healthy' | 'error' | undefined,
+          lastTestMs: ds.test_latency_ms
+        }))
+      } catch (fileStoreError) {
+        console.log('FileStore API failed, falling back to old client:', fileStoreError)
+        // Fall back to old client if FileStore fails
+        list = await listDatasources().catch(() => [])
+      }
+      
       set({ datasources: list, loading: false })
     } catch (e:any) {
       set({ error: e?.message || 'Failed to load datasources', loading: false })
@@ -88,3 +111,19 @@ export const useDatasourceStore = create<DatasourceState>((set, get) => ({
     }
   }
 }))
+
+// Auto-sync with FileStore data when available
+if (typeof window !== 'undefined') {
+  window.addEventListener('goflow-filestore-datasources-updated', (e: any) => {
+    const fileStoreDatasources = e.detail?.dataSources || []
+    const compatibleDatasources: DatasourceSummary[] = fileStoreDatasources.map((ds: any) => ({
+      id: ds.id,
+      name: ds.name,
+      type: ds.type === 'mongodb' ? 'mongo' : ds.type as DatasourceType,
+      status: ds.test_status as 'unknown' | 'healthy' | 'error' | undefined,
+      lastTestMs: ds.test_latency_ms
+    }))
+    
+    useDatasourceStore.setState({ datasources: compatibleDatasources })
+  })
+}

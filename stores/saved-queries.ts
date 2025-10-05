@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { useQueryStore } from './query'
+import { createQueryDefinition, updateQueryDefinition, deleteQueryDefinition, listQueryDefinitions, type QueryDefinition } from '@/lib/filestore-client'
+import { DEFAULT_SETTINGS } from '@/components/petri/system-settings-context'
 
 export interface SavedQuery {
   name: string // Primary key - query name must be unique
@@ -20,12 +22,13 @@ interface SavedQueriesState {
   hydrated: boolean
   
   // Actions
-  loadQueries(): Promise<void>
-  saveQuery(query: Omit<SavedQuery, 'createdAt' | 'updatedAt'>): Promise<void>
-  updateQuery(name: string, updates: Partial<SavedQuery>): Promise<void>
-  deleteQuery(name: string): Promise<void>
+  loadQueries(flowServiceUrl?: string): Promise<void>
+  saveQuery(query: Omit<SavedQuery, 'createdAt' | 'updatedAt'>, flowServiceUrl?: string): Promise<void>
+  updateQuery(name: string, updates: Partial<SavedQuery>, flowServiceUrl?: string): Promise<void>
+  deleteQuery(name: string, flowServiceUrl?: string): Promise<void>
   openQuery(query: SavedQuery): void
   hydrate(): void
+  syncWithServer(flowServiceUrl?: string): Promise<void>
 }
 
 export const useSavedQueriesStore = create<SavedQueriesState>((set, get) => {
@@ -83,18 +86,47 @@ export const useSavedQueriesStore = create<SavedQueriesState>((set, get) => {
       }
     },
 
-    async loadQueries() {
-      // Load from localStorage on demand
-      if (typeof window !== 'undefined') {
-        try {
-          const saved = localStorage.getItem('goflow.savedQueries')
-          if (saved) {
-            const queries = JSON.parse(saved)
-            set({ queries: Array.isArray(queries) ? queries : [] })
+    async loadQueries(flowServiceUrl?: string) {
+      set({ loading: true, error: undefined })
+      
+      try {
+        const serviceUrl = flowServiceUrl || DEFAULT_SETTINGS.flowServiceUrl
+        const result = await listQueryDefinitions(serviceUrl, { limit: 100 })
+        
+        // Transform QueryDefinition[] to SavedQuery[]
+        const queries: SavedQuery[] = result.queries.map((qd: QueryDefinition) => ({
+          name: qd.name,
+          type: qd.query_type === 'folder' ? 's3' : qd.query_type as 'mongo' | 'sql' | 's3',
+          datasourceId: qd.data_source_id,
+          content: qd.query || JSON.stringify(qd.parameters) || '/',
+          collection: qd.parameters?.collection,
+          table: qd.parameters?.table,
+          s3Prefix: qd.parameters?.folder_path,
+          createdAt: qd.createdAt || new Date().toISOString(),
+          updatedAt: qd.updatedAt || new Date().toISOString()
+        }))
+        
+        set({ queries, loading: false })
+        persistQueries()
+      } catch (error: any) {
+        console.warn('Failed to load queries from server, falling back to localStorage:', error)
+        
+        // Fallback to localStorage
+        if (typeof window !== 'undefined') {
+          try {
+            const saved = localStorage.getItem('goflow.savedQueries')
+            if (saved) {
+              const queries = JSON.parse(saved)
+              set({ queries: Array.isArray(queries) ? queries : [], loading: false })
+            } else {
+              set({ queries: [], loading: false })
+            }
+          } catch (localError) {
+            console.warn('Failed to load from localStorage:', localError)
+            set({ queries: [], loading: false, error: 'Failed to load saved queries' })
           }
-        } catch (error) {
-          console.warn('Failed to load saved queries:', error)
-          set({ queries: [] })
+        } else {
+          set({ loading: false, error: error.message || 'Failed to load queries' })
         }
       }
     },
@@ -103,18 +135,59 @@ export const useSavedQueriesStore = create<SavedQueriesState>((set, get) => {
 
   return {
     ...initialState,
-    async saveQuery(queryData) {
-      const newQuery: SavedQuery = {
-        ...queryData,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }
-
-      set(state => ({
-        queries: [newQuery, ...state.queries.filter(q => q.name !== queryData.name)]
-      }))
+    async saveQuery(queryData, flowServiceUrl?: string) {
+      set({ loading: true, error: undefined })
       
-      persistQueries()
+      try {
+        const serviceUrl = flowServiceUrl || DEFAULT_SETTINGS.flowServiceUrl
+        
+        // Transform SavedQuery to QueryDefinition format
+        const queryDefinition: Partial<QueryDefinition> = {
+          name: queryData.name,
+          data_source_id: queryData.datasourceId,
+          query_type: queryData.type === 's3' ? 'folder' : (queryData.type as any),
+          query: queryData.type === 'sql' ? queryData.content : undefined,
+          parameters: {
+            ...(queryData.type === 'mongo' ? { pipeline: JSON.parse(queryData.content) } : {}),
+            ...(queryData.type === 's3' ? { folder_path: queryData.content } : {}),
+            ...(queryData.collection ? { collection: queryData.collection } : {}),
+            ...(queryData.table ? { table: queryData.table } : {})
+          },
+          enabled: true
+        }
+        
+        await createQueryDefinition(serviceUrl, queryDefinition)
+        
+        const newQuery: SavedQuery = {
+          ...queryData,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+
+        set(state => ({
+          queries: [newQuery, ...state.queries.filter(q => q.name !== queryData.name)],
+          loading: false
+        }))
+        
+        persistQueries()
+      } catch (error: any) {
+        console.error('Failed to save query to server:', error)
+        
+        // Fallback to localStorage only
+        const newQuery: SavedQuery = {
+          ...queryData,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+
+        set(state => ({
+          queries: [newQuery, ...state.queries.filter(q => q.name !== queryData.name)],
+          loading: false,
+          error: 'Query saved locally only (server sync failed)'
+        }))
+        
+        persistQueries()
+      }
     },
 
     async updateQuery(name, updates) {
@@ -135,6 +208,11 @@ export const useSavedQueriesStore = create<SavedQueriesState>((set, get) => {
       }))
       
       persistQueries()
+    },
+
+    async syncWithServer(flowServiceUrl?: string) {
+      // Load fresh data from server
+      await get().loadQueries(flowServiceUrl)
     },
 
     openQuery(query) {
