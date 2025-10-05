@@ -10,7 +10,7 @@ import {
 } from '@/lib/filestore-client'
 
 interface DataSourceState {
-  dataSources: DataSource[]
+  dataSources: DataSource[] // Always an array, never null
   loading: boolean
   error?: string
   testingIds: Set<string>
@@ -36,7 +36,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     set({ loading: true, error: undefined })
     try {
       const response = await listDataSources(flowServiceUrl)
-      set({ dataSources: response.data_sources, loading: false })
+      set({ dataSources: response.data_sources || [], loading: false })
       
       // Broadcast to old datasource store for compatibility
       if (typeof window !== 'undefined') {

@@ -616,7 +616,7 @@ const DataSidebar: React.FC = () => {
 		setSavingConfig(true)
 		try {
 			if (!configDsId) return
-			const current = dataSources.find(d => d.id === configDsId)
+			const current = (dataSources || []).find(d => d.id === configDsId)
 			if (!current) return
 			
 			const payload: Partial<DataSource> = {
@@ -740,7 +740,7 @@ const DataSidebar: React.FC = () => {
 	return (
 		<>
 		<div className="flex-1 flex flex-col overflow-auto p-3 gap-3 text-xs">
-			<Section id="ds" title={`Data Sources (${dataSources.length})`} expanded={expanded} setExpanded={setExpanded} actions={
+			<Section id="ds" title={`Data Sources (${(dataSources || []).length})`} expanded={expanded} setExpanded={setExpanded} actions={
 				<div className="flex items-center gap-1 pr-1">
 					<Button size="icon" variant="ghost" className="h-6 w-6" onClick={()=> fetchDataSources(settings?.flowServiceUrl || '')} disabled={dsLoading} title="Refresh data sources"><RefreshCw className={cn('h-3.5 w-3.5', dsLoading && 'animate-spin')} /></Button>
 					<Button size="icon" variant="ghost" className="h-6 w-6" onClick={()=> setAdding(true)} title="Add data source"><Plus className="h-3.5 w-3.5" /></Button>
@@ -748,9 +748,9 @@ const DataSidebar: React.FC = () => {
 			}>
 				{dsLoading && <div className="text-muted-foreground">Loading…</div>}
 				{dsError && <div className="text-destructive">{dsError}</div>}
-				{!dsLoading && dataSources.length === 0 && <div className="text-muted-foreground">No data sources yet</div>}
+				{!dsLoading && (dataSources || []).length === 0 && <div className="text-muted-foreground">No data sources yet</div>}
 				<div className="space-y-1">
-					{dataSources.map((ds: DataSource) => {
+					{(dataSources || []).map((ds: DataSource) => {
 						const statusColor = ds.test_status === 'healthy' ? 'bg-green-500' : ds.test_status === 'error' ? 'bg-red-500' : 'bg-neutral-400'
 						return (
 							<div key={ds.id} className="group border rounded px-2 py-1 flex flex-col gap-1 hover:bg-accent/40">
@@ -812,7 +812,7 @@ const DataSidebar: React.FC = () => {
 					<DialogDescription>Edit connection parameters (stored securely server-side).</DialogDescription>
 				</DialogHeader>
 				{(() => {
-					const current = dataSources.find((d: DataSource) => d.id === configDsId)
+					const current = (dataSources || []).find((d: DataSource) => d.id === configDsId)
 					if (!current) return <div>Data source not found</div>
 					
 					return (
@@ -918,7 +918,7 @@ const DataSidebar: React.FC = () => {
 					)
 				})()}
 				<DialogFooter className="flex items-center justify-between gap-2">
-					{(() => { const current = dataSources.find((d: DataSource) => d.id === configDsId); return (
+					{(() => { const current = (dataSources || []).find((d: DataSource) => d.id === configDsId); return (
 						<div className="flex flex-col mr-auto text-[11px] gap-1 max-w-[240px]">
 							<div className="flex items-center gap-2">
 								{current?.test_status && <span className={cn('px-2 py-0.5 rounded border', current.test_status==='healthy' ? 'bg-green-50 border-green-300 text-green-700' : current.test_status==='error' ? 'bg-red-50 border-red-300 text-red-700' : 'bg-neutral-50 border-neutral-300 text-neutral-600')}>{current.test_status}</span>}
@@ -975,7 +975,7 @@ const DataSidebar: React.FC = () => {
 							onChange={e => setQueryForm(f => ({ ...f, data_source_id: e.target.value }))}
 						>
 							<option value="">Select data source...</option>
-							{dataSources.map(ds => (
+							{(dataSources || []).map(ds => (
 								<option key={ds.id} value={ds.id}>{ds.name} ({ds.type})</option>
 							))}
 						</select>
