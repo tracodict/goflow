@@ -22,4 +22,5 @@ export interface ChatSession {
   title?: string
   createdAt: string | Date
   updatedAt: string | Date
+  isActive?: boolean
 }

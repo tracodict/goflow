@@ -10,12 +10,14 @@ export function Composer({
   model,
   setModel,
   models,
+  onCloseSession,
 }: {
   onSubmit: (text: string) => Promise<void> | void
   onUpload: (files: File[]) => Promise<void> | void
   model: string
   setModel: (m: string) => void
   models: Model[]
+  onCloseSession?: () => void
 }) {
   const [text, setText] = useState('')
   const [pending, setPending] = useState(false)
@@ -52,6 +54,9 @@ export function Composer({
     }
   }
 
+  // ...existing code...
+  // Add close session button left of attach files
+  // Accepts optional onCloseSession prop
   return (
     <form
       ref={containerRef}
@@ -106,6 +111,17 @@ export function Composer({
 
         {/* Right: Action buttons */}
         <div className="flex items-center gap-1 justify-self-end">
+          {/* Close session button, only if onCloseSession prop is provided */}
+          {typeof (onCloseSession) === 'function' && (
+            <button
+              type="button"
+              title="Close session"
+              className="size-9 rounded-full border flex items-center justify-center hover:bg-yellow-50 text-yellow-700"
+              onClick={() => onCloseSession()}
+            >
+              <span aria-label="close" title="Close">&#x274C;</span>
+            </button>
+          )}
           <input
             ref={fileRef}
             type="file"
