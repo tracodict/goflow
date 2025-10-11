@@ -1,15 +1,17 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { useBuilderStore } from "../../../stores/pagebuilder/editor"
 import { useSavedQueriesStore } from "../../../stores/saved-queries" 
-import { useDatasourceStore } from "../../../stores/datasource"
+import { useDataSourceStore } from "../../../stores/filestore-datasource"
+import { useSystemSettings, DEFAULT_SETTINGS } from "../../petri/system-settings-context"
 import { getPropertyConfig, PropertyConfigRenderer } from "../../../vComponents/property-config-registry"
 
 export const PropertiesTab: React.FC = () => {
 	const { elements, selectedElementId, updateElement } = useBuilderStore()
 	const { queries, hydrated, hydrate } = useSavedQueriesStore()
-	const { datasources, loading: datasourcesLoading, fetchDatasources } = useDatasourceStore()
+	const { dataSources, loading: datasourcesLoading, fetchDataSources } = useDataSourceStore()
+	const { settings } = useSystemSettings()
 	const selectedElement = selectedElementId ? elements[selectedElementId] : null
 
 	// Hydrate queries and datasources
@@ -20,10 +22,11 @@ export const PropertiesTab: React.FC = () => {
 	}, [hydrated, hydrate])
 	
 	useEffect(() => {
-		if (!datasourcesLoading && datasources.length === 0) {
-			fetchDatasources()
+		if (!datasourcesLoading && dataSources.length === 0) {
+			const flowServiceUrl = settings?.flowServiceUrl || DEFAULT_SETTINGS.flowServiceUrl
+			fetchDataSources(flowServiceUrl)
 		}
-	}, [datasourcesLoading, datasources.length, fetchDatasources])
+	}, [datasourcesLoading, dataSources.length, fetchDataSources, settings?.flowServiceUrl])
 
 	if (!selectedElement) return null
 
@@ -60,8 +63,22 @@ export const PropertiesTab: React.FC = () => {
 	const componentType = getComponentType()
 	const propertyConfig = componentType ? getPropertyConfig(componentType) : null
 
+	const handlePropertyKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => {
+		if (event.key !== "Backspace" && event.key !== "Delete") return
+		const target = event.target as HTMLElement | null
+		if (!target) return
+		const isFormElement =
+			target instanceof HTMLInputElement ||
+			target instanceof HTMLTextAreaElement ||
+			target instanceof HTMLSelectElement ||
+			target.isContentEditable
+		if (!isFormElement) return
+		event.stopPropagation()
+		;(event.nativeEvent as KeyboardEvent | undefined)?.stopImmediatePropagation?.()
+	}, [])
+
 	return (
-		<div className="h-full overflow-y-auto">
+		<div className="h-full overflow-y-auto" onKeyDown={handlePropertyKeyDown}>
 			{/* Content field for elements that support it */}
 			{selectedElement.content !== undefined && (
 				<div className="px-4 py-2 border-b border-border bg-card">
@@ -203,13 +220,13 @@ export const PropertiesTab: React.FC = () => {
 
 				{/* vComponent properties - use decoupled property configs */}
 				{propertyConfig && (
-					<PropertyConfigRenderer
-						config={propertyConfig}
-						attributes={selectedElement.attributes || {}}
-						onAttributeUpdate={handleAttributeUpdate}
-						queries={queries}
-						datasources={datasources}
-					/>
+								<PropertyConfigRenderer
+									config={propertyConfig}
+									attributes={selectedElement.attributes || {}}
+									onAttributeUpdate={handleAttributeUpdate}
+									queries={queries}
+									datasources={dataSources}
+								/>
 				)}
 			</div>
 

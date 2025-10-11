@@ -7,7 +7,7 @@ import {
   updateQueryDefinition,
   deleteQueryDefinition,
   executeQuery
-} from '@/lib/filestore-client'
+} from '@/lib/datastore-client'
 
 interface QueryState {
   queries: QueryDefinition[] // Always an array, never null

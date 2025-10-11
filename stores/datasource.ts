@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { DatasourceSummary, DatasourceType, QueryAST, QueryResult, DatasourceError, DatasourceDetail } from '@/lib/datasource-types'
 import { listDatasources, executeAdhoc, getDatasource, updateDatasource, deleteDatasource, testDatasource } from '@/lib/datasource-client'
-import { listDataSources } from '@/lib/filestore-client'
+import { listDataSources } from '@/lib/datastore-client'
 import { useSystemSettings } from '@/components/petri/system-settings-context'
 
 interface ExecutionState {

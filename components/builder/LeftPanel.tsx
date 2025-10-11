@@ -15,7 +15,7 @@ import { Button } from "../ui/button"
 import { useDataSourceStore } from '@/stores/filestore-datasource'
 import { useQueryStore } from '@/stores/filestore-query'
 import { useQueryStore as useQueryExecutionStore } from '@/stores/query'
-import { DataSource, QueryDefinition } from '@/lib/filestore-client'
+import { DataSource, QueryDefinition } from '@/lib/datastore-client'
 import { cn } from '@/lib/utils'
 
 
@@ -1114,7 +1114,7 @@ const QueriesSection: React.FC<{
 					includeMetadata: query.parameters?.include_metadata ?? true,
 					showHidden: query.parameters?.show_hidden ?? false,
 					maxFileSize: query.parameters?.max_file_size,
-					allowedExtensions: query.parameters?.allowed_extensions || ['.pdf', '.txt', '.json', '.md', '.csv', '.xml']
+					allowedExtensions: query.parameters?.allowed_extensions || ['.pdf', '.txt', '.json', '.md', '.csv', '.xml', '.dat']
 				})
 			} else if (query.query_type === 'sql') {
 				// For SQL queries

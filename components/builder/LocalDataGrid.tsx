@@ -5,12 +5,14 @@
  * Uses saved queries and executes them with isolated state management.
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useSavedQueriesStore } from '../../stores/saved-queries'
-import { runDatasourceQuery } from '../../lib/datasource-client'
+import { useQueryStore as useFilestoreQueryStore } from '../../stores/filestore-query'
+import { executeAdhocQuery, executeQuery as runSavedQuery } from '../../lib/datastore-client'
 import { QueryResult } from '../../lib/datasource-types'
 import { Loader2, RefreshCw, AlertCircle } from 'lucide-react'
 import { Button } from '../ui/button'
+import { useSystemSettings, DEFAULT_SETTINGS } from '../petri/system-settings-context'
 
 interface LocalDataGridProps {
   queryName?: string
@@ -30,6 +32,8 @@ export const LocalDataGrid: React.FC<LocalDataGridProps> = ({
   onMouseEnter
 }) => {
   const { queries, hydrated, hydrate } = useSavedQueriesStore()
+  const { queries: remoteQueries, fetchQueries } = useFilestoreQueryStore()
+  const { settings } = useSystemSettings()
   
   // Local state for this instance
   const [result, setResult] = useState<QueryResult | null>(null)
@@ -43,7 +47,45 @@ export const LocalDataGrid: React.FC<LocalDataGridProps> = ({
     }
   }, [hydrated, hydrate])
 
-  const selectedQuery = queryName ? queries.find(q => q.name === queryName) : null
+  useEffect(() => {
+    if (!queryName) return
+
+    const flowServiceUrl = settings?.flowServiceUrl || DEFAULT_SETTINGS.flowServiceUrl
+    if (remoteQueries.length === 0) {
+      fetchQueries(flowServiceUrl).catch(() => {})
+    }
+  }, [fetchQueries, remoteQueries.length, queryName, settings?.flowServiceUrl])
+
+  const remoteQuery = useMemo(() => {
+    return queryName ? remoteQueries.find((query) => query.name === queryName) : undefined
+  }, [queryName, remoteQueries])
+
+  const selectedQuery = useMemo(() => {
+    if (queryName == null) return null
+
+    const saved = queries.find(q => q.name === queryName)
+    if (saved) return saved
+
+    if (!remoteQuery) return null
+
+    const normalizedType = remoteQuery.query_type === 'folder' ? 's3' : remoteQuery.query_type as any
+    const pipeline = remoteQuery.parameters?.pipeline
+    const normalizedContent = remoteQuery.query
+      ?? (pipeline ? JSON.stringify(pipeline, null, 2) : JSON.stringify(remoteQuery.parameters ?? {}))
+
+    return {
+      id: remoteQuery.id,
+      name: remoteQuery.name,
+      type: normalizedType,
+      datasourceId: remoteQuery.data_source_id,
+      content: normalizedContent || '',
+      collection: remoteQuery.parameters?.collection,
+      table: remoteQuery.parameters?.table,
+      s3Prefix: remoteQuery.parameters?.folder_path,
+      createdAt: remoteQuery.createdAt || new Date().toISOString(),
+      updatedAt: remoteQuery.updatedAt || new Date().toISOString()
+    } as const
+  }, [queries, queryName, remoteQuery])
 
   const executeQuery = async () => {
     if (!selectedQuery) return
@@ -52,32 +94,73 @@ export const LocalDataGrid: React.FC<LocalDataGridProps> = ({
     setError(null)
     
     try {
-      let queryResult: QueryResult
-      
-      if (selectedQuery.type === 'mongo') {
-        // For MongoDB queries, parse the content as pipeline
-        let pipeline
-        try {
-          pipeline = JSON.parse(selectedQuery.content)
-          if (!Array.isArray(pipeline)) {
-            pipeline = [pipeline]
-          }
-        } catch {
-          throw new Error('Invalid MongoDB pipeline JSON')
-        }
-        
-        queryResult = await runDatasourceQuery(selectedQuery.datasourceId, {
-          pipeline,
-          collection: selectedQuery.collection
-        })
+      const flowServiceUrl = settings?.flowServiceUrl || DEFAULT_SETTINGS.flowServiceUrl
+
+  const queryId = selectedQuery.id || remoteQuery?.id
+  let apiResult: import('../../lib/datastore-client').QueryResult
+
+      if (queryId) {
+        apiResult = await runSavedQuery(flowServiceUrl, queryId, {})
       } else {
-        // For SQL queries
-        queryResult = await runDatasourceQuery(selectedQuery.datasourceId, {
-          sql: selectedQuery.content
-        })
+        let ast: any
+
+        if (selectedQuery.type === 'mongo') {
+          let pipeline
+          try {
+            pipeline = JSON.parse(selectedQuery.content)
+          } catch {
+            throw new Error('Invalid MongoDB pipeline JSON')
+          }
+          ast = {
+            type: 'mongo',
+            datasource_id: selectedQuery.datasourceId,
+            parameters: {
+              pipeline,
+              collection: selectedQuery.collection
+            }
+          }
+        } else if (selectedQuery.type === 's3') {
+          ast = {
+            type: 'folder',
+            datasource_id: selectedQuery.datasourceId,
+            parameters: {
+              folderPath: selectedQuery.s3Prefix || selectedQuery.content || '/',
+              recursive: true,
+              includeMetadata: true,
+              showHidden: false
+            }
+          }
+        } else {
+          ast = {
+            type: 'sql',
+            datasource_id: selectedQuery.datasourceId,
+            parameters: {
+              sql: selectedQuery.content,
+              table: selectedQuery.table
+            }
+          }
+        }
+
+        apiResult = await executeAdhocQuery(flowServiceUrl, ast)
       }
-      
-      setResult(queryResult)
+
+      const normalized: QueryResult = {
+        columns: Array.isArray(apiResult.columns)
+          ? apiResult.columns.map((col: any, index: number) => {
+              if (typeof col === 'string') {
+                const name = col?.trim().length ? col : `column_${index}`
+                return { name }
+              }
+              const keyCandidates = [col?.name, col?.key, col?.field, col?.label].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+              const name = keyCandidates[0] || `column_${index}`
+              return { ...col, name }
+            })
+          : [],
+        rows: apiResult.rows || [],
+        meta: apiResult.meta || { executionMs: 0, datasourceId: selectedQuery.datasourceId }
+      }
+
+      setResult(normalized)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Query execution failed')
     } finally {
@@ -112,6 +195,26 @@ export const LocalDataGrid: React.FC<LocalDataGridProps> = ({
     const columns = result.columns || []
     const rows = result.rows
 
+    const getCellValue = (row: any, column: any, columnIndex: number) => {
+      if (row === null || row === undefined) return ''
+
+      const keyCandidates: string[] = [column?.name, column?.key, column?.field, column?.label].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+
+      if (Array.isArray(row)) {
+        return row[columnIndex]
+      }
+
+      if (typeof row === 'object') {
+        for (const key of keyCandidates) {
+          if (key in row) {
+            return (row as Record<string, unknown>)[key]
+          }
+        }
+      }
+
+      return ''
+    }
+
     return (
       <div className="overflow-auto max-h-96">
         <table className="w-full border-collapse text-sm">
@@ -129,10 +232,13 @@ export const LocalDataGrid: React.FC<LocalDataGridProps> = ({
               <tr key={rowIndex} className="hover:bg-muted/50">
                 {columns.map((col, colIndex) => (
                   <td key={colIndex} className="p-2 border">
-                    {typeof row[col.name] === 'object' 
-                      ? JSON.stringify(row[col.name]) 
-                      : String(row[col.name] ?? '')
-                    }
+                    {(() => {
+                      const value = getCellValue(row, col, colIndex)
+                      if (value === null) return 'null'
+                      if (value === undefined) return ''
+                      if (typeof value === 'object') return JSON.stringify(value)
+                      return String(value)
+                    })()}
                   </td>
                 ))}
               </tr>

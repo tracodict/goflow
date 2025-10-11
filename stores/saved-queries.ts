@@ -1,9 +1,10 @@
 import { create } from 'zustand'
 import { useQueryStore } from './query'
-import { createQueryDefinition, updateQueryDefinition, deleteQueryDefinition, listQueryDefinitions, type QueryDefinition } from '@/lib/filestore-client'
+import { createQueryDefinition, updateQueryDefinition, deleteQueryDefinition, listQueryDefinitions, type QueryDefinition } from '@/lib/datastore-client'
 import { DEFAULT_SETTINGS } from '@/components/petri/system-settings-context'
 
 export interface SavedQuery {
+  id?: string
   name: string // Primary key - query name must be unique
   type: 'mongo' | 'sql' | 's3'
   datasourceId: string
@@ -65,6 +66,7 @@ export const useSavedQueriesStore = create<SavedQueriesState>((set, get) => {
         const hasMockQuery = queries.some(q => q.name === 'Mock Query')
         if (!hasMockQuery) {
           const defaultMockQuery: SavedQuery = {
+            id: 'mock_query',
             name: 'Mock Query',
             type: 'mongo',
             datasourceId: 'ds_mock_mongo',
@@ -94,17 +96,26 @@ export const useSavedQueriesStore = create<SavedQueriesState>((set, get) => {
         const result = await listQueryDefinitions(serviceUrl, { limit: 100 })
         
         // Transform QueryDefinition[] to SavedQuery[]
-        const queries: SavedQuery[] = result.queries.map((qd: QueryDefinition) => ({
-          name: qd.name,
-          type: qd.query_type === 'folder' ? 's3' : qd.query_type as 'mongo' | 'sql' | 's3',
-          datasourceId: qd.data_source_id,
-          content: qd.query || JSON.stringify(qd.parameters) || '/',
-          collection: qd.parameters?.collection,
-          table: qd.parameters?.table,
-          s3Prefix: qd.parameters?.folder_path,
-          createdAt: qd.createdAt || new Date().toISOString(),
-          updatedAt: qd.updatedAt || new Date().toISOString()
-        }))
+        const queries: SavedQuery[] = result.queries.map((qd: QueryDefinition) => {
+          const normalizedType = qd.query_type === 'folder' ? 's3' : qd.query_type as 'mongo' | 'sql' | 's3'
+          const pipeline = qd.parameters?.pipeline
+          const normalizedContent = qd.query 
+            ?? (pipeline ? JSON.stringify(pipeline, null, 2) : JSON.stringify(qd.parameters ?? {}))
+            ?? '/'
+
+          return {
+            id: qd.id,
+            name: qd.name,
+            type: normalizedType,
+            datasourceId: qd.data_source_id,
+            content: normalizedContent,
+            collection: qd.parameters?.collection,
+            table: qd.parameters?.table,
+            s3Prefix: qd.parameters?.folder_path,
+            createdAt: qd.createdAt || new Date().toISOString(),
+            updatedAt: qd.updatedAt || new Date().toISOString()
+          }
+        })
         
         set({ queries, loading: false })
         persistQueries()
@@ -156,12 +167,20 @@ export const useSavedQueriesStore = create<SavedQueriesState>((set, get) => {
           enabled: true
         }
         
-        await createQueryDefinition(serviceUrl, queryDefinition)
-        
+  const created = await createQueryDefinition(serviceUrl, queryDefinition)
+  const normalizedType = created.query_type === 'folder' ? 's3' : created.query_type as 'mongo' | 'sql' | 's3'
+
         const newQuery: SavedQuery = {
-          ...queryData,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
+          id: created.id,
+          name: created.name,
+          type: normalizedType,
+          datasourceId: created.data_source_id,
+          content: queryData.content,
+          collection: created.parameters?.collection ?? queryData.collection,
+          table: created.parameters?.table ?? queryData.table,
+          s3Prefix: created.parameters?.folder_path ?? queryData.s3Prefix,
+          createdAt: created.createdAt || new Date().toISOString(),
+          updatedAt: created.updatedAt || new Date().toISOString()
         }
 
         set(state => ({
@@ -176,6 +195,7 @@ export const useSavedQueriesStore = create<SavedQueriesState>((set, get) => {
         // Fallback to localStorage only
         const newQuery: SavedQuery = {
           ...queryData,
+          id: queryData.id || `local_${Date.now()}`,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         }

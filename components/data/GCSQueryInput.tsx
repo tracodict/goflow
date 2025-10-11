@@ -34,7 +34,7 @@ export function GCSQueryInput({ onExecute, disabled = false, loading = false, in
   const [includeMetadata, setIncludeMetadata] = useState(initialValues?.includeMetadata ?? true)
   const [showHidden, setShowHidden] = useState(initialValues?.showHidden ?? false)
   const [maxFileSize, setMaxFileSize] = useState<string>(initialValues?.maxFileSize?.toString() || '')
-  const [allowedExtensions, setAllowedExtensions] = useState(initialValues?.allowedExtensions?.join(',') || '.pdf,.txt,.json,.md,.csv,.xml')
+  const [allowedExtensions, setAllowedExtensions] = useState(initialValues?.allowedExtensions?.join(',') || '.pdf,.txt,.json,.md,.csv,.xml,.dat')
   const [showAdvanced, setShowAdvanced] = useState(false)
   
   // Update state when initialValues change
@@ -45,7 +45,7 @@ export function GCSQueryInput({ onExecute, disabled = false, loading = false, in
       setIncludeMetadata(initialValues.includeMetadata ?? true)
       setShowHidden(initialValues.showHidden ?? false)
       setMaxFileSize(initialValues.maxFileSize?.toString() || '')
-      setAllowedExtensions(initialValues.allowedExtensions?.join(',') || '.pdf,.txt,.json,.md,.csv,.xml')
+      setAllowedExtensions(initialValues.allowedExtensions?.join(',') || '.pdf,.txt,.json,.md,.csv,.xml,.dat')
     }
   }, [initialValues])
 

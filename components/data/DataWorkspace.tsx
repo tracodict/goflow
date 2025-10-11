@@ -4,13 +4,13 @@ import React from 'react'
 import { QueryEditor, QueryResultViewer } from './QueryEditor'
 import { S3Explorer } from '@/vComponents/S3Explorer'
 import { ResizablePanels } from '@/components/ui/resizable-panels'
-import { useDatasourceStore } from '@/stores/datasource'
+import { useDataSourceStore } from '@/stores/filestore-datasource'
 import { useQueryStore } from '@/stores/query'
 
 export default function DataWorkspace() {
-  const { datasources } = useDatasourceStore()
+  const { dataSources } = useDataSourceStore()
   const { activeDatasourceId } = useQueryStore()
-  const currentDatasource = datasources.find(d => d.id === activeDatasourceId)
+  const currentDatasource = dataSources.find(ds => ds.id === activeDatasourceId)
   
   const isS3Datasource = currentDatasource?.type === 's3'
 

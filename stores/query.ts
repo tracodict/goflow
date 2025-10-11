@@ -1,6 +1,6 @@
 // TEMP MINIMAL STORE to isolate syntax error
 import { create } from 'zustand'
-import { executeAdhocQuery, type QueryResult } from '@/lib/filestore-client'
+import { executeAdhocQuery, type QueryResult } from '@/lib/datastore-client'
 import type { S3QueryResult } from '@/lib/datasource-types'
 import { DEFAULT_SETTINGS } from '@/components/petri/system-settings-context'
 
@@ -40,7 +40,7 @@ export interface QueryState {
   setResult(result: QueryResult): void
   setS3Result(result: S3QueryResult): void
   clearResult(): void
-  runMongo(): Promise<void>
+  runMongo(flowServiceUrl?: string): Promise<void>
   runSql(): Promise<void>
   runS3(flowServiceUrl?: string): Promise<void>
 }
@@ -109,16 +109,30 @@ export const useQueryStore = create<QueryState>((set, get) => {
     setResult(result) { set({ result, s3Result: undefined, error: undefined }) },
     setS3Result(result) { set({ s3Result: result, result: undefined, error: undefined }) },
     clearResult() { set({ result: undefined, s3Result: undefined, error: undefined }) },
-    async runMongo() {
+    async runMongo(flowServiceUrl?: string) {
       const dsId = get().activeDatasourceId; if (!dsId) return
       let pipeline: any[]
       try { pipeline = JSON.parse(get().mongoInput) } catch { set({ error: 'Invalid JSON pipeline' }); return }
       set({ running: true, error: undefined })
       const started = Date.now()
       try {
-        // TODO: Migrate MongoDB queries to FileStore API
-        set({ running: false, error: 'MongoDB queries not yet migrated to FileStore API' })
-        pushHistory({ id: Math.random().toString(36).slice(2), datasourceId: dsId, engine: 'mongo', input: pipeline, started, durationMs: Date.now() - started, error: 'Not migrated to FileStore API' })
+        const serviceUrl = flowServiceUrl || DEFAULT_SETTINGS.flowServiceUrl
+        const state = get()
+        const parameters: Record<string, unknown> = {
+          pipeline,
+          ...(state.collection ? { collection: state.collection } : {})
+        }
+
+        const queryAST = {
+          type: 'mongo',
+          datasource_id: dsId,
+          parameters
+        }
+
+        const result = await executeAdhocQuery(serviceUrl, queryAST, parameters)
+
+        pushHistory({ id: Math.random().toString(36).slice(2), datasourceId: dsId, engine: 'mongo', input: pipeline, started, durationMs: Date.now() - started })
+        set({ running: false, result, error: undefined, s3Result: undefined })
       } catch(e:any) {
         pushHistory({ id: Math.random().toString(36).slice(2), datasourceId: dsId, engine: 'mongo', input: pipeline, started, durationMs: Date.now() - started, error: e?.message })
         set({ running: false, error: e?.message || 'Query failed' })
@@ -148,23 +162,33 @@ export const useQueryStore = create<QueryState>((set, get) => {
       
       try {
         const serviceUrl = flowServiceUrl || DEFAULT_SETTINGS.flowServiceUrl
-        
-        // Create query AST for FileStore API folder query
+
+        const folderPath = gcsParams?.folderPath || s3Query || '/'
+        const allowedExtensions = gcsParams?.allowedExtensions?.length
+          ? gcsParams.allowedExtensions
+          : ['.pdf', '.txt', '.json', '.md', '.csv', '.xml', '.dat']
+
+        const parameters: Record<string, unknown> = {
+          folderPath,
+          recursive: gcsParams?.recursive ?? true,
+          includeMetadata: gcsParams?.includeMetadata ?? true,
+          allowedExtensions
+        }
+
+        if (typeof gcsParams?.maxFileSize === 'number') {
+          parameters.maxFileSize = gcsParams.maxFileSize
+        }
+
+        if (typeof gcsParams?.showHidden === 'boolean') {
+          parameters.showHidden = gcsParams.showHidden
+        }
+
         const queryAST = {
           type: 'folder',
           datasource_id: dsId,
-          query_config: {
-            folder_path: gcsParams?.folderPath || s3Query || '/',
-            recursive: gcsParams?.recursive ?? true,
-            include_metadata: gcsParams?.includeMetadata ?? true,
-            show_hidden: gcsParams?.showHidden ?? false,
-            filters: {
-              max_file_size: gcsParams?.maxFileSize,
-              allowed_extensions: gcsParams?.allowedExtensions || ['.pdf', '.txt', '.json', '.md', '.csv', '.xml']
-            }
-          }
+          parameters
         }
-        
+
         const result = await executeAdhocQuery(serviceUrl, queryAST)
         
         // Transform FileStore QueryResult into S3QueryResult format for backward compatibility
@@ -177,7 +201,7 @@ export const useQueryStore = create<QueryState>((set, get) => {
             isFolder: row.type === 'folder' || row.isFolder || false,
             contentType: row.content_type || row.contentType
           })),
-          prefix: gcsParams?.folderPath || s3Query || '/',
+          prefix: folderPath,
           totalFiles: result.rows.length,
           meta: {
             executionMs: result.meta.executionMs,

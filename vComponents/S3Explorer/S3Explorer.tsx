@@ -7,7 +7,7 @@
  */
 
 import * as React from "react"
-import { executeQuery, executeAdhocQuery, type QueryResult } from "../../lib/filestore-client"
+import { executeQuery, executeAdhocQuery, type QueryResult } from "../../lib/datastore-client"
 import { BaseEventPayload } from "@/lib/component-interface"
 import { S3ExplorerEventPayload } from "./interface"
 import { useSystemSettings, DEFAULT_SETTINGS } from "@/components/petri/system-settings-context"
@@ -58,7 +58,7 @@ const S3Explorer = React.forwardRef<HTMLDivElement, S3ExplorerProps>(
     showHidden = false,
     recursive = true,
     maxFileSize = 10485760, // 10MB default
-    allowedExtensions = [".md", ".txt", ".json", ".yaml", ".pdf", ".csv", ".xml"],
+    allowedExtensions = [".md", ".txt", ".json", ".yaml", ".pdf", ".csv", ".xml", ".dat"],
     className,
     style,
     isPreview = false,

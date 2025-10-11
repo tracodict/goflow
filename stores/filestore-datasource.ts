@@ -7,7 +7,7 @@ import {
   updateDataSource,
   deleteDataSource,
   testDataSource
-} from '@/lib/filestore-client'
+} from '@/lib/datastore-client'
 
 interface DataSourceState {
   dataSources: DataSource[] // Always an array, never null

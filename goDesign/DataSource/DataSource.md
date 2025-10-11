@@ -90,7 +90,7 @@ Props Draft: `TableDataView { data: any[]; loading?: boolean; onRowSelect?: (row
 
 ### 3.1 Frontend Layers
 1. Datasource Store (Zustand) – holds list, introspection cache, queries, execution states.
-2. API Client (`lib/datasource-client.ts`) – thin wrappers around REST endpoints (modeled after existing `petri-client`).
+2. API Client (`lib/datastore-client.ts`) – thin wrappers around Flow Service REST endpoints (modeled after existing `petri-client`).
 3. Query AST Model – TS types describing a unified logical query (works for both Mongo + SQL).
 4. Query Builder UI – composable panels: SourceSelector, ProjectionPanel, FilterPanel, SortPanel, PreviewPanel, RawEditorToggle.
 5. Binding Adapter – resolves AST -> backend request payload; for Mongo builds pipeline, for SQL builds SELECT string.
@@ -205,7 +205,7 @@ Environment Flag: `DATASOURCE_MOCK_ENABLED=1` toggles acceptance of mock param; 
 | Module | File (proposed) | Purpose |
 |--------|-----------------|---------|
 | Client | `lib/datasource-client.ts` | Fetch wrappers |
-| Store | `stores/datasource.ts` | CRUD, cache, query execution state |
+| Store | `stores/filestore-datasource.ts` | CRUD, cache, query execution state |
 | Types | `lib/datasource-types.ts` | AST + entity types |
 | Builder UI | `components/data/datasource/` | Creation & edit forms |
 | Query Builder | `components/data/query-builder/` | Panels & AST editing |

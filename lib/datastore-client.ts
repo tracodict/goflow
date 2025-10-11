@@ -1,5 +1,5 @@
-// FileStore API Client - Based on filestore.sh server API patterns
-// This replaces the deprecated datasource-client.ts
+// Datastore API Client - Flow Service REST wrapper
+// Replaces the deprecated datasource-client.ts
 
 // Internal helper to always include credentials (lz_sess cookie) for cross-subdomain calls
 async function authFetch(input: string, init: RequestInit = {}) {
@@ -53,8 +53,17 @@ export interface QueryExecutionResult {
   message: string
 }
 
+export type QueryColumn = string | {
+  name?: string
+  key?: string
+  field?: string
+  label?: string
+  type?: string
+  [key: string]: any
+}
+
 export interface QueryResult {
-  columns: string[]
+  columns: QueryColumn[]
   rows: any[]
   meta: {
     executionMs: number
@@ -88,11 +97,16 @@ export interface ApiError {
   }
 }
 
+type NamedResource = string | { name?: string; key?: string; path?: string; prefix?: string; id?: string; [key: string]: any }
+
 export interface DatasourceSchemaResponse {
-  collections?: string[]
-  tables?: string[]
+  collections?: NamedResource[]
+  tables?: NamedResource[]
+  folders?: NamedResource[]
+  views?: NamedResource[]
   columns?: Array<{ name: string; type: string; [key: string]: any }>
-  views?: string[]
+  database?: string
+  [key: string]: unknown
 }
 
 async function handleResponse<T>(response: Response): Promise<T> {

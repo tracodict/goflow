@@ -132,7 +132,7 @@ const S3ExplorerCustomRenderer: React.FC<CustomPropertyRenderProps> = ({
               value={attributes?.["data-allowed-extensions"] || ""}
               onChange={(e) => onAttributeUpdate("data-allowed-extensions", e.target.value)}
               className="w-full p-2 border border-input rounded text-xs bg-background text-foreground"
-              placeholder=".pdf,.txt,.json,.md,.csv"
+              placeholder=".pdf,.txt,.json,.md,.csv,.dat"
             />
             <div className="text-xs text-muted-foreground mt-1">
               Comma-separated list of file extensions
