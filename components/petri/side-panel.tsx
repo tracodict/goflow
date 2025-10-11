@@ -831,7 +831,7 @@ function ToolsEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: 
   const tools = ((node.data as any).tools || []) as Array<{ name: string; config?: any }>
   const [mcpEndpoints, setMcpEndpoints] = useState<string[]>([])
   const [mcpToolsByEndpoint, setMcpToolsByEndpoint] = useState<Record<string, { name: string; enabled?: boolean }[]>>({})
-  const builtins = ["duckduckgo", "wikipedia"]
+  const builtins = ["duckduckgo_v2", "wikipedia", "download_url"]
   const { settings } = useSystemSettings()
 
   // Load enabled MCP tools grouped by endpoint

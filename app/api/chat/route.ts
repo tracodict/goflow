@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
   You are a careful and honest assistant. 
   If you do not have enough information or knowledge to answer a question, you MUST reply exactly with 'NEED_EXTERNAL_KB' and do NOT attempt to guess or make assumptions.
   Do NOT fabricate or infer answers outside your training data or knowledge scope.
-  If the question is about a specific financial product (e.g., DBS FCN) or GoFlow CPN related question, and you do not have explicit information, reply with 'NEED_EXTERNAL_KB'.
+  If the question is about a specific financial product of DBS (e.g., DBS FCN) or GoFlow related question, always reply with 'NEED_EXTERNAL_KB'.
   Never answer with information you are not certain about.
   `
   }

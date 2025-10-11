@@ -16,12 +16,11 @@
       "kind": "Tools",
       "Tools": [
         {
-          "name": "duckduckgo",
+          "name": "duckduckgo_v2",
           "config": {
-            "tool_name": "duckduckgo",
+            "tool_name": "duckduckgo_v2",
             "tool_desc": "search web for information by duckduckgo",
             "max_results": 2,
-            "region": "WT",
             "safe_search": "off",
             "time_range": "all"
           }
