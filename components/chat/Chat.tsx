@@ -1,5 +1,5 @@
 "use client"
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Composer } from './Composer'
 import type { ChatMessage } from './types'
 import CodeMirror from '@uiw/react-codemirror'
@@ -309,8 +309,8 @@ function splitContent(content: string): Array<{ kind: 'text' | 'code' | 'markdow
   let m: RegExpExecArray | null
   fenceRe.lastIndex = 0
   while ((m = fenceRe.exec(content))) {
-    const before = content.slice(lastIndex, m.index)
-    if (before) parts.push({ kind: 'markdown', text: before })
+  const before = content.slice(lastIndex, m.index)
+  if (before) parts.push({ kind: 'markdown', code: before, lang: 'markdown' })
     const lang = (m[1] || '').trim().toLowerCase()
     const code = m[2] || ''
     if (lang === 'md' || lang === 'markdown') {
@@ -333,28 +333,48 @@ function splitContent(content: string): Array<{ kind: 'text' | 'code' | 'markdow
     lastIndex = fenceRe.lastIndex
   }
   const rest = content.slice(lastIndex)
-  if (rest) parts.push({ kind: 'text', text: rest })
+  if (rest) parts.push({ kind: 'markdown', code: rest, lang: 'markdown' })
   return parts
 }
 
 function MessageBody({ content }: { content: string }) {
-  const converter = useMemo(() => new showdown.Converter({
-    tables: true,
-    ghCodeBlocks: true,
-    strikethrough: true,
-    simpleLineBreaks: true,
-  }), [])
+  const converter = useMemo(() => {
+    const instance = new showdown.Converter({
+      tables: true,
+      ghCodeBlocks: true,
+      strikethrough: true,
+      simpleLineBreaks: true,
+      tasklists: true,
+      openLinksInNewWindow: true,
+    })
+    instance.setFlavor('github')
+    instance.setOption('emoji', true)
+    instance.setOption('smartLists', true)
+    instance.setOption('sanitize', true)
+    return instance
+  }, [])
+
+  const toHtml = useCallback((markdown: string) => {
+    if (!markdown) return ''
+    try {
+      return converter.makeHtml(markdown)
+    } catch (error) {
+      console.warn('[Chat] Failed to convert markdown', error)
+      return markdown
+    }
+  }, [converter])
 
   const pieces = useMemo(() => splitContent(content), [content])
   return (
     <div className="space-y-2 text-left max-w-[80ch]">
       {pieces.map((p, i) => {
         if (p.kind === 'text') {
-          return <div key={i} className="whitespace-pre-wrap">{p.text}</div>
+          const html = toHtml(p.text || '')
+          return <div key={i} className="markdown-renderer" dangerouslySetInnerHTML={{ __html: html }} />
         }
         if (p.kind === 'markdown' && p.code != null) {
-          const html = converter.makeHtml(p.code)
-          return <div key={i} className="markdown-body prose prose-sm" dangerouslySetInnerHTML={{ __html: html }} />
+          const html = toHtml(p.code)
+          return <div key={i} className="markdown-renderer" dangerouslySetInnerHTML={{ __html: html }} />
         }
         if (p.kind === 'code' && p.code != null) {
           return <CodeBlock key={i} code={p.code} lang={p.lang || 'plaintext'} />

@@ -173,6 +173,8 @@ export const PageElement: React.FC<PageElementProps> = ({ elementId, onElementCl
   }
 
   if (TagName === "img") {
+    const imgSrc = element.attributes?.src ?? textContent ?? ""
+    const imgAlt = element.attributes?.alt ?? ""
     return (
       <img
         id={elementId}
@@ -184,8 +186,8 @@ export const PageElement: React.FC<PageElementProps> = ({ elementId, onElementCl
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         onDragEnd={handleDragEnd}
-        src={textContent}
-        alt=""
+        src={imgSrc}
+        alt={imgAlt}
       />
     )
   }

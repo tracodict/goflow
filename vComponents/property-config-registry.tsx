@@ -1,25 +1,28 @@
 /**
- * Properimport { NavigationMenuPropertyConfig } from './NavigationMenu/property-config'
-import { DataGridPropertyConfig } from './DataGrid/property-config'
-import { S3ExplorerPropertyConfig } from './S3Explorer/property-config'
-import { DynamicFormPropertyConfig } from './DynamicForm/property-config'b Configuration Registry
- * 
- * This file registers all property tab configurations for vComponents
- * and provides utilities for dynamic property panel rendering.
+ * Property Configuration Registry
+ *
+ * Registers all property tab configurations for vComponents and supplies
+ * helpers that render property panels based on those configs.
  */
 
 import React from "react"
-import { ScriptEditor } from '@/components/builder/ScriptEditor'
-import { PropertyTabConfig, PropertyTabRegistry, CustomPropertyRenderProps, PropertyFieldConfig } from "./property-config-types"
+import { ScriptEditor } from "@/components/builder/ScriptEditor"
+import {
+  PropertyTabConfig,
+  PropertyTabRegistry,
+  CustomPropertyRenderProps,
+  PropertyFieldConfig,
+} from "./property-config-types"
 
 // Import property configurations
 import { ButtonPropertyConfig } from "./Button/property-config"
 import { NavigationMenuPropertyConfig } from "./NavigationMenu/property-config"
 import { DataGridPropertyConfig } from "./DataGrid/property-config"
 import { S3ExplorerPropertyConfig } from "./S3Explorer/property-config"
-import { DynamicFormPropertyConfig } from './DynamicForm/property-config'
-import { DialogFormLauncherPropertyConfig } from './DialogFormLauncher/property-config'
-import { VIAFormPropertyConfig } from './VIAForm/property-config'
+import { DynamicFormPropertyConfig } from "./DynamicForm/property-config"
+import { DialogFormLauncherPropertyConfig } from "./DialogFormLauncher/property-config"
+import { VIAFormPropertyConfig } from "./VIAForm/property-config"
+import { MarkdownPropertyConfig } from "./Markdown/property-config"
 
 // Property tab registry
 export const propertyTabRegistry: PropertyTabRegistry = {
@@ -30,6 +33,7 @@ export const propertyTabRegistry: PropertyTabRegistry = {
   [DynamicFormPropertyConfig.componentType]: DynamicFormPropertyConfig,
   [DialogFormLauncherPropertyConfig.componentType]: DialogFormLauncherPropertyConfig,
   [VIAFormPropertyConfig.componentType]: VIAFormPropertyConfig,
+  [MarkdownPropertyConfig.componentType]: MarkdownPropertyConfig,
 }
 
 // Utility to get property config for a component

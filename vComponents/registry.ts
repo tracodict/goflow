@@ -6,7 +6,7 @@
  * in the component library of the PageBuilder.
  */
 
-import { MousePointer, Navigation, Table, FolderTree, Eye } from 'lucide-react'
+import { MousePointer, Navigation, Table, FolderTree, Eye, FileText } from 'lucide-react'
 import { ButtonComponent, ButtonComponentInterface } from './Button'
 import { NavigationMenuComponent } from './NavigationMenu'
 import { DataGridComponent } from './DataGrid'
@@ -30,6 +30,31 @@ export interface ComponentRegistration {
 
 // Registry of all available components organized by category
 export const componentRegistry: Record<string, ComponentRegistration[]> = {
+  general: [
+    {
+      name: 'Markdown',
+      category: 'General',
+      description: 'Render Markdown content using the Showdown converter',
+      icon: FileText,
+      template: {
+        tagName: 'div',
+        attributes: {
+          'data-component-type': 'Markdown',
+          'data-content': '# Markdown Heading\\n\\nAdd **rich** content using markdown.',
+        },
+        styles: {
+          width: '100%',
+          minHeight: '120px',
+          margin: '8px 0',
+          border: '1px dashed #cbd5e1',
+          borderRadius: '6px',
+          padding: '12px',
+          backgroundColor: '#f8fafc',
+        },
+        content: '',
+      },
+    },
+  ],
   form: [
     {
       name: 'Button',

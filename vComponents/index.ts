@@ -13,6 +13,7 @@ import './S3Explorer'
 import './DynamicForm'
 import './DialogFormLauncher'
 import './VIAForm'
+import './Markdown'
 
 // Re-export the registry for external use
 export { componentRendererRegistry, registerComponentRenderer, createComponentRenderer } from './component-renderer-registry'
@@ -29,3 +30,4 @@ export * from './S3Explorer'
 export * from './DynamicForm'
 export * from './DialogFormLauncher'
 export * from './VIAForm'
+export * from './Markdown'

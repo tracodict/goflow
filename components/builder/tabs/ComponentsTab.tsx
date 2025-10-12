@@ -305,7 +305,7 @@ const componentCategories = [
 				template: {
 					tagName: "img",
 					attributes: {
-						src: "https://via.placeholder.com/200x150/e5e7eb/9ca3af?text=Image",
+						src: "https://raw.githubusercontent.com/tracodict/goflow/refs/heads/main/public/placeholder-user.jpg",
 						alt: "Placeholder image",
 					},
 					styles: {

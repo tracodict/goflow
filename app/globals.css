@@ -134,3 +134,144 @@
 .react-flow__controls .react-flow__controls-button svg [fill] {
   fill: none !important;
 }
+
+/* Markdown renderer typography defaults */
+.markdown-renderer {
+  color: inherit;
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.7;
+  max-width: 100%;
+}
+
+.markdown-renderer > *:first-child {
+  margin-top: 0;
+}
+
+.markdown-renderer > *:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-renderer h1,
+.markdown-renderer h2,
+.markdown-renderer h3,
+.markdown-renderer h4,
+.markdown-renderer h5,
+.markdown-renderer h6 {
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 1.25em 0 0.5em;
+}
+
+.markdown-renderer h1 {
+  font-size: 1.75rem;
+}
+
+.markdown-renderer h2 {
+  font-size: 1.5rem;
+}
+
+.markdown-renderer h3 {
+  font-size: 1.3rem;
+}
+
+.markdown-renderer h4 {
+  font-size: 1.15rem;
+}
+
+.markdown-renderer p {
+  margin: 0 0 1em;
+}
+
+.markdown-renderer ul,
+.markdown-renderer ol {
+  margin: 0 0 1em 1.25em;
+  padding-left: 1.25em;
+  list-style-position: outside;
+}
+
+.markdown-renderer ul {
+  list-style-type: disc;
+}
+
+.markdown-renderer ol {
+  list-style-type: decimal;
+}
+
+.markdown-renderer ul ul {
+  list-style-type: circle;
+}
+
+.markdown-renderer ul ul ul {
+  list-style-type: square;
+}
+
+.markdown-renderer ol ol {
+  list-style-type: lower-alpha;
+}
+
+.markdown-renderer ol ol ol {
+  list-style-type: lower-roman;
+}
+
+.markdown-renderer li + li {
+  margin-top: 0.35em;
+}
+
+.markdown-renderer blockquote {
+  border-left: 4px solid #e5e7eb;
+  margin: 1.25em 0;
+  padding-left: 1em;
+  color: inherit;
+  font-style: italic;
+}
+
+.markdown-renderer code {
+  font-family: var(--font-mono, "JetBrains Mono", "Fira Code", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
+  background-color: rgba(15, 23, 42, 0.08);
+  border-radius: 4px;
+  padding: 0.125em 0.375em;
+  font-size: 0.95em;
+}
+
+.markdown-renderer pre {
+  background-color: rgba(15, 23, 42, 0.08);
+  border-radius: 6px;
+  padding: 1em;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.markdown-renderer pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.95em;
+}
+
+.markdown-renderer table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.25em 0;
+  font-size: 0.95em;
+}
+
+.markdown-renderer th,
+.markdown-renderer td {
+  border: 1px solid #e5e7eb;
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+
+.markdown-renderer a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.markdown-renderer img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 1.25em 0;
+}
