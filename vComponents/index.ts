@@ -14,6 +14,7 @@ import './DynamicForm'
 import './DialogFormLauncher'
 import './VIAForm'
 import './Markdown'
+import './ECharts'
 
 // Re-export the registry for external use
 export { componentRendererRegistry, registerComponentRenderer, createComponentRenderer } from './component-renderer-registry'
@@ -31,3 +32,4 @@ export * from './DynamicForm'
 export * from './DialogFormLauncher'
 export * from './VIAForm'
 export * from './Markdown'
+export * from './ECharts'

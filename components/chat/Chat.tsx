@@ -6,7 +6,6 @@ import CodeMirror from '@uiw/react-codemirror'
 import { json as cmJson } from '@codemirror/lang-json'
 import { javascript as cmJavascript } from '@codemirror/lang-javascript'
 import { sql as cmSql } from '@codemirror/lang-sql'
-import { oneDark } from '@codemirror/theme-one-dark'
 import showdown from 'showdown'
 
 import { useSessions } from './useSessions'
@@ -401,7 +400,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     <div className="rounded border border-neutral-200 overflow-hidden">
       <CodeMirror
         value={code}
-        theme={oneDark}
+        theme="light"
         height="auto"
         basicSetup={{ lineNumbers: false }}
         editable={false}

@@ -6,7 +6,7 @@
  * in the component library of the PageBuilder.
  */
 
-import { MousePointer, Navigation, Table, FolderTree, Eye, FileText } from 'lucide-react'
+import { MousePointer, Navigation, Table, FolderTree, Eye, FileText, PieChart } from 'lucide-react'
 import { ButtonComponent, ButtonComponentInterface } from './Button'
 import { NavigationMenuComponent } from './NavigationMenu'
 import { DataGridComponent } from './DataGrid'
@@ -195,6 +195,43 @@ export const componentRegistry: Record<string, ComponentRegistration[]> = {
     }
   ],
   data: [
+    {
+      name: 'ECharts',
+      category: 'Data',
+      description: 'Render Apache ECharts visualizations from option JSON',
+      icon: PieChart,
+      template: {
+        tagName: 'div',
+        attributes: {
+          'data-component-type': 'ECharts',
+          'data-option': JSON.stringify({
+            title: { text: 'ECharts Example' },
+            tooltip: {},
+            grid: {
+              left: 50,
+              right: 50,
+              top: 60,
+              bottom: 50,
+              containLabel: true,
+            },
+            xAxis: { type: 'category', data: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] },
+            yAxis: { type: 'value' },
+            series: [
+              { type: 'bar', data: [120, 200, 150, 80, 70, 110, 130] }
+            ],
+          }),
+        },
+        styles: {
+          width: '100%',
+          minHeight: '320px',
+          margin: '8px 0',
+          border: '1px dashed #cbd5e1',
+          borderRadius: '6px',
+          backgroundColor: '#ffffff',
+        },
+        content: '',
+      },
+    },
     {
       name: 'DataGrid',
       category: 'Data',

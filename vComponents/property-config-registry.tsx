@@ -23,6 +23,7 @@ import { DynamicFormPropertyConfig } from "./DynamicForm/property-config"
 import { DialogFormLauncherPropertyConfig } from "./DialogFormLauncher/property-config"
 import { VIAFormPropertyConfig } from "./VIAForm/property-config"
 import { MarkdownPropertyConfig } from "./Markdown/property-config"
+import { EChartsPropertyConfig } from "./ECharts/property-config"
 
 // Property tab registry
 export const propertyTabRegistry: PropertyTabRegistry = {
@@ -34,6 +35,7 @@ export const propertyTabRegistry: PropertyTabRegistry = {
   [DialogFormLauncherPropertyConfig.componentType]: DialogFormLauncherPropertyConfig,
   [VIAFormPropertyConfig.componentType]: VIAFormPropertyConfig,
   [MarkdownPropertyConfig.componentType]: MarkdownPropertyConfig,
+  [EChartsPropertyConfig.componentType]: EChartsPropertyConfig,
 }
 
 // Utility to get property config for a component

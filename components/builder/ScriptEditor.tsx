@@ -62,6 +62,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
       <CodeMirror
         value={value || ''}
         height={height + 'px'}
+        theme="light"
         basicSetup={{ lineNumbers: true, foldGutter: true }}
         extensions={[javascript({ jsx: true, typescript: true })]}
         onChange={(val) => onChange(val)}
