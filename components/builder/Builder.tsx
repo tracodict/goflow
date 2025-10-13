@@ -29,6 +29,8 @@ export const Builder: React.FC = () => {
   const { isPreviewMode, canvasScale, leftPanelWidth, rightPanelWidth, setLeftPanelWidth, setRightPanelWidth } = useBuilderStore()
   const [isLeftPanelOpen, setLeftPanelOpen] = useState(true)
   const [isRightPanelOpen, setRightPanelOpen] = useState(true)
+  const [isLeftPanelMaximized, setLeftPanelMaximized] = useState(false)
+  const [isRightPanelMaximized, setRightPanelMaximized] = useState(false)
   const [showSystemSettings, setShowSystemSettings] = useState(false)
   const [activeTab, setActiveTab] = useState<string>("components")
   const [selectedSchema, setSelectedSchema] = useState<{ name: string; schema: JSONSchema } | null>(null)
@@ -119,79 +121,126 @@ export const Builder: React.FC = () => {
         </div>
       )}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Left Panel and vertical tab bar */}
-
-        {!isPreviewMode && (
-          <>
-            <div style={{ width: isLeftPanelOpen ? leftPanelWidth : 48, minWidth: 48, maxWidth: 600, position: 'relative' }}>
-              <LeftPanel
-                isOpen={isLeftPanelOpen}
-                onClose={() => setLeftPanelOpen(false)}
-                onOpen={() => setLeftPanelOpen(true)}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                onSchemaSelect={handleSchemaSelect}
-              />
-              {isLeftPanelOpen && (
-                <ResizeHandle direction="left" onResize={(delta) => setLeftPanelWidth(leftPanelWidth + delta)} />
-              )}
-            </div>
-          </>
-        )}
-
-        {/* Main workspace */}
-        <div className="flex-1 flex bg-muted/30 relative overflow-hidden">
-          {selectedSchema ? (
-            <div className="flex-1 h-full overflow-hidden">
-              <SchemaViewer
-                schema={selectedSchema.schema}
-                schemaName={selectedSchema.name}
-                onSchemaChange={handleSchemaChange}
-                onClose={handleSchemaClose}
-              />
-            </div>
-          ) : (
-            <div
-              style={{
-                overflow: "auto",
-                transform: `scale(${canvasScale})`,
-                transformOrigin: "0 0",
-                width: `${100 / canvasScale}%`,
-                height: `calc(${100 / canvasScale}% - 0.5rem)`,
+        {isLeftPanelMaximized ? (
+          <div className="absolute inset-0 z-40 bg-background">
+            <LeftPanel
+              isOpen
+              onClose={() => {
+                setLeftPanelMaximized(false)
+                setLeftPanelOpen(false)
               }}
-            >
-              {activeTab === "workflow" ? <FlowWorkspace /> : (activeTab === 'data' ? <DataWorkspace /> : <PageWorkspace />)}
-            </div>
-          )}
-        </div>
-
-        {/* Vertical toolbar: show when PageWorkspace is visible (not workflow). Also show in preview mode at right-bottom. */}
-        {(activeTab !== 'workflow' || isPreviewMode) && (
-          <VerticalToolbar
-            leftOffset={!isPreviewMode ? (isLeftPanelOpen ? (leftPanelWidth + 10) : 58) : undefined}
-            rightOffset={isPreviewMode ? 10 : (isRightPanelOpen ? (rightPanelWidth + 10) : 10)}
-            bottomOffset={10}
-          />
-        )}
-
-        {/* Right Panel (no vertical open bar) */}
-        {!isPreviewMode && isRightPanelOpen && (
+              onOpen={() => setLeftPanelOpen(true)}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              onSchemaSelect={handleSchemaSelect}
+              isMaximized
+              onToggleMaximize={() => {
+                setLeftPanelMaximized(false)
+                setLeftPanelOpen(true)
+              }}
+            />
+          </div>
+        ) : isRightPanelMaximized ? (
+          <div className="absolute inset-0 z-40 bg-background">
+            <RightPanel
+              isOpen
+              onClose={() => {
+                setRightPanelMaximized(false)
+                setRightPanelOpen(false)
+              }}
+              onOpen={() => setRightPanelOpen(true)}
+              activeTab={activeTab}
+              isMaximized
+              onToggleMaximize={() => {
+                setRightPanelMaximized(false)
+                setRightPanelOpen(true)
+              }}
+            />
+          </div>
+        ) : (
           <>
-            <div style={{ width: rightPanelWidth, minWidth: 200, maxWidth: 600, position: 'relative' }}>
-              {isRightPanelOpen && (
-                <ResizeHandle direction="right" onResize={(delta) => setRightPanelWidth(rightPanelWidth + delta)} />
+            {!isPreviewMode && (
+              <div style={{ width: isLeftPanelOpen ? leftPanelWidth : 48, minWidth: 48, maxWidth: 600, position: 'relative' }}>
+                <LeftPanel
+                  isOpen={isLeftPanelOpen}
+                  onClose={() => {
+                    setLeftPanelOpen(false)
+                    setLeftPanelMaximized(false)
+                  }}
+                  onOpen={() => setLeftPanelOpen(true)}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  onSchemaSelect={handleSchemaSelect}
+                  isMaximized={false}
+                  onToggleMaximize={() => {
+                    setLeftPanelOpen(true)
+                    setLeftPanelMaximized(true)
+                    setRightPanelMaximized(false)
+                  }}
+                />
+                {isLeftPanelOpen && (
+                  <ResizeHandle direction="left" onResize={(delta) => setLeftPanelWidth(leftPanelWidth + delta)} />
+                )}
+              </div>
+            )}
+
+            <div className="flex-1 flex bg-muted/30 relative overflow-hidden">
+              {selectedSchema ? (
+                <div className="flex-1 h-full overflow-hidden">
+                  <SchemaViewer
+                    schema={selectedSchema.schema}
+                    schemaName={selectedSchema.name}
+                    onSchemaChange={handleSchemaChange}
+                    onClose={handleSchemaClose}
+                  />
+                </div>
+              ) : (
+                <div
+                  style={{
+                    overflow: "auto",
+                    transform: `scale(${canvasScale})`,
+                    transformOrigin: "0 0",
+                    width: `${100 / canvasScale}%`,
+                    height: `calc(${100 / canvasScale}% - 0.5rem)`,
+                  }}
+                >
+                  {activeTab === "workflow" ? <FlowWorkspace /> : (activeTab === 'data' ? <DataWorkspace /> : <PageWorkspace />)}
+                </div>
               )}
-              <RightPanel
-                isOpen={isRightPanelOpen}
-                onClose={() => setRightPanelOpen(false)}
-                onOpen={() => setRightPanelOpen(true)}
-                activeTab={activeTab}
-              />
             </div>
+
+            {(activeTab !== 'workflow' || isPreviewMode) && (
+              <VerticalToolbar
+                leftOffset={!isPreviewMode ? (isLeftPanelOpen ? (leftPanelWidth + 10) : 58) : undefined}
+                rightOffset={isPreviewMode ? 10 : (isRightPanelOpen ? (rightPanelWidth + 10) : 10)}
+                bottomOffset={10}
+              />
+            )}
+
+            {!isPreviewMode && isRightPanelOpen && (
+              <div style={{ width: rightPanelWidth, minWidth: 200, maxWidth: 600, position: 'relative' }}>
+                {isRightPanelOpen && (
+                  <ResizeHandle direction="right" onResize={(delta) => setRightPanelWidth(rightPanelWidth + delta)} />
+                )}
+                <RightPanel
+                  isOpen={isRightPanelOpen}
+                  onClose={() => {
+                    setRightPanelOpen(false)
+                    setRightPanelMaximized(false)
+                  }}
+                  onOpen={() => setRightPanelOpen(true)}
+                  activeTab={activeTab}
+                  isMaximized={false}
+                  onToggleMaximize={() => {
+                    setRightPanelOpen(true)
+                    setRightPanelMaximized(true)
+                    setLeftPanelMaximized(false)
+                  }}
+                />
+              </div>
+            )}
           </>
         )}
-
-
       </div>
       </div>
     </SystemSettingsProvider>

@@ -7,7 +7,7 @@ import { StylesTab } from "./tabs/StylesTab"
 import { PropertiesTab } from "./tabs/PropertiesTab"
 import { SidePanel } from "../petri/side-panel"
 import { useBuilderStore } from "../../stores/pagebuilder/editor"
-import { X, GripVertical } from "lucide-react"
+import { X, GripVertical, Maximize2, Minimize2 } from "lucide-react"
 import { Button } from "../ui/button"
 
 type RightPanelProps = {
@@ -15,10 +15,12 @@ type RightPanelProps = {
 	onClose: () => void
 	onOpen: () => void
 	activeTab?: string
+  isMaximized: boolean
+  onToggleMaximize: () => void
 }
 
 
-export const RightPanel: React.FC<RightPanelProps> = ({ isOpen, onClose, onOpen, activeTab }) => {
+export const RightPanel: React.FC<RightPanelProps> = ({ isOpen, onClose, onOpen, activeTab, isMaximized, onToggleMaximize }) => {
 	const { selectedElementId } = useBuilderStore()
 	const [sidePanelProps, setSidePanelProps] = React.useState<any | null>(null)
 
@@ -39,31 +41,42 @@ export const RightPanel: React.FC<RightPanelProps> = ({ isOpen, onClose, onOpen,
 
 	if (!isOpen) return null
 
-	// If the flow workspace is active and we've received side panel props, render the migrated SidePanel.
-	if (activeTab === 'workflow' && sidePanelProps) {
-		return (
-			<div className="h-full relative">
-				<SidePanel {...sidePanelProps} />
-			</div>
-		)
-	}
+  const headerLabel = activeTab === 'workflow' && sidePanelProps ? 'Workflow' : (selectedElementId ? "Element" : "No Selection")
+  const containerClasses = [
+    "bg-background border-l border-border h-full flex flex-col relative",
+    isMaximized ? "w-full max-w-none" : "min-w-[200px] max-w-[600px]"
+  ].join(' ')
 
 	return (
-		<div className="bg-background border-l border-border h-full flex flex-col min-w-[200px] max-w-[600px] relative">
+		<div className={containerClasses}>
 			{/* visual resizer knob to match flow-workspace style (non-interactive) */}
-			<div role="presentation" className="pointer-events-none absolute left-[-6px] top-1/2 -translate-y-1/2 rounded-full bg-neutral-200 p-0.5">
-				<GripVertical className="h-3 w-3 text-neutral-500" />
-			</div>
+			{!isMaximized ? (
+				<div role="presentation" className="pointer-events-none absolute left-[-6px] top-1/2 -translate-y-1/2 rounded-full bg-neutral-200 p-0.5">
+					<GripVertical className="h-3 w-3 text-neutral-500" />
+				</div>
+			) : null}
 			{/* Reusable header bar (match side-panel style) */}
 			<div className="flex items-center justify-between border-b px-3 py-2">
-				<div className="text-sm font-semibold">{selectedElementId ? "Element" : "No Selection"}</div>
+				<div className="text-sm font-semibold">{headerLabel}</div>
 				<div className="flex items-center gap-1">
+					<Button
+						variant="ghost"
+						size="icon"
+						onClick={onToggleMaximize}
+						title={isMaximized ? "Restore panel" : "Maximize panel"}
+					>
+						{isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+					</Button>
 					<Button variant="ghost" size="icon" onClick={onClose} title="Close panel">
 						<X className="w-4 h-4" />
 					</Button>
 				</div>
 			</div>
-			{selectedElementId ? (
+			{activeTab === 'workflow' && sidePanelProps ? (
+				<div className="flex-1 overflow-hidden">
+					<SidePanel {...sidePanelProps} />
+				</div>
+			) : selectedElementId ? (
 				<Tabs defaultValue="styles" className="flex flex-col h-full">
 					<TabsList className="grid w-full grid-cols-2 m-2">
 						<TabsTrigger value="styles">Styles</TabsTrigger>

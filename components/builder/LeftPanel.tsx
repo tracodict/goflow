@@ -10,7 +10,7 @@ import { SchemaTab } from "../via/schema-tab"
 import { usePreSupportedSchemas } from "../petri/pre-supported-schemas"
 import ExplorerPanel from "../petri/explorer-panel"
 import type { JSONSchema } from "@/jsonjoy-builder/src/types/jsonSchema"
-import { Layers, FileText, TreePine, Database, BookText, Workflow, X, Wrench, MoreVertical, RefreshCw, Plus, Play, Beaker, Trash2, MessageSquare } from "lucide-react"
+import { Layers, FileText, TreePine, Database, BookText, Workflow, X, Wrench, MoreVertical, RefreshCw, Plus, Play, Beaker, Trash2, MessageSquare, Maximize2, Minimize2 } from "lucide-react"
 import { Button } from "../ui/button"
 import { useDataSourceStore } from '@/stores/filestore-datasource'
 import { useQueryStore } from '@/stores/filestore-query'
@@ -44,8 +44,10 @@ type LeftPanelProps = {
 	activeTab: string
 	setActiveTab: (tab: string) => void
 	onSchemaSelect?: (schemaName: string, schema: JSONSchema) => void
+  isMaximized: boolean
+  onToggleMaximize: () => void
 }
-	export const LeftPanel: React.FC<LeftPanelProps> = ({ isOpen, onClose, onOpen, activeTab, setActiveTab, onSchemaSelect }) => {
+	export const LeftPanel: React.FC<LeftPanelProps> = ({ isOpen, onClose, onOpen, activeTab, setActiveTab, onSchemaSelect, isMaximized, onToggleMaximize }) => {
 		const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([])
 		const [loading, setLoading] = useState(false)
 		const [error, setError] = useState<string | null>(null)
@@ -528,12 +530,20 @@ type LeftPanelProps = {
 
 				{/* Panel content, only if open */}
 				{isOpen && (
-					<div className="flex-1 flex flex-col overflow-hidden min-w-[200px] max-w-[600px]">
+					<div className={cn("flex-1 flex flex-col overflow-hidden", isMaximized ? "max-w-none w-full" : "min-w-[200px] max-w-[600px]")}>
 						{/* visual resizer handled by parent ResizeHandle; no decorative knob here to avoid duplication */}
 						{/* Reusable header bar */}
 						<div className="flex items-center justify-between border-b px-3 py-2">
 							<div className="text-sm font-semibold">{tabs.find(t => t.id === activeTab)?.label}</div>
 							<div className="flex items-center gap-1">
+								<Button
+									variant="ghost"
+									size="icon"
+									onClick={onToggleMaximize}
+									title={isMaximized ? "Restore panel" : "Maximize panel"}
+								>
+									{isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+								</Button>
 								<Button variant="ghost" size="icon" onClick={onClose} title="Close panel">
 									<X className="w-4 h-4" />
 								</Button>

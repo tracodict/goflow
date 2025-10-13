@@ -10,6 +10,26 @@ import showdown from 'showdown'
 
 import { componentRendererRegistry } from '@/vComponents'
 import { useSessions } from './useSessions'
+import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { MoreVertical, Plus } from 'lucide-react'
+
+const summarisePrompt = (source: string | undefined, fallback: string) => {
+  const text = (source || '').trim()
+  if (!text) return fallback
+  const words = text.split(/\s+/u).filter(Boolean)
+  const desiredCount = Math.min(15, Math.max(10, words.length))
+  const summaryWords = words.slice(0, desiredCount)
+  const summary = summaryWords.join(' ')
+  return words.length > desiredCount ? `${summary}…` : summary
+}
+
+const formatTimestamp = (value: string | Date | undefined) => {
+  if (!value) return ''
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+}
 
 function useStream(onDelta: (delta: string) => void) {
   // Support both AIStream token format (0:"...") and SSE JSON lines (data: {...}).
@@ -99,17 +119,22 @@ export default function ChatPanel(){
   // Use proper import for React hooks
   // import { useSessions } from './useSessions' at top
   const { sessions, loading: sessionsLoading, createSession, setActiveSession, deleteSession, reloadSessions } = useSessions()
+  const activeSession = useMemo(() => sessions.find((s: import('./types').ChatSession) => s.isActive), [sessions])
 
   // Switch session and reload messages
   useEffect(() => {
-    if (!sessions.length) return
-    const active = sessions.find((s: import('./types').ChatSession) => s.isActive)
-    if (active && active.sessionId !== sessionId) {
-      setSessionId(active.sessionId)
+    if (!sessions.length) {
+      setSessionId('')
+      return
     }
-    // If no active session, clear sessionId
-    if (!active) setSessionId('')
-  }, [sessions])
+    if (activeSession) {
+      if (activeSession.sessionId !== sessionId) {
+        setSessionId(activeSession.sessionId)
+      }
+    } else {
+      setSessionId('')
+    }
+  }, [sessions, activeSession, sessionId])
 
   const run = useStream((delta)=> {
     setMessages(m=> {
@@ -214,44 +239,79 @@ export default function ChatPanel(){
   return (
     <div className="flex flex-col h-full gap-3 p-3">
       {/* Session CRUD UI in Chat tab body, only if no active session */}
-      {!sessions.find((s: import('./types').ChatSession) => s.isActive) ? (
-        <div className="flex flex-col h-full gap-3 p-3 items-center justify-center">
-          <div className="flex gap-2 items-center">
-            {sessionsLoading ? <span>Loading…</span> : null}
-            {sessions.map((s: import('./types').ChatSession) => (
-              <span key={s.sessionId} className="flex items-center gap-1">
-                {/* Display session as shadcn card */}
-                <div className="border rounded shadow p-2 flex flex-col items-center min-w-[120px]">
-                  <span className="font-semibold text-xs mb-1">{s.title || s.sessionId.slice(0, 8)}</span>
-                  <div className="flex gap-1">
-                    <button
-                      className="p-1 rounded text-blue-700 hover:bg-blue-100"
-                      style={{ border: 'none', background: 'none' }}
-                      title="Activate session"
-                      onClick={async () => { await setActiveSession(s.sessionId); setSessionId(s.sessionId); }}
-                    >
-                      <span aria-label="activate" title="Activate">&#x25B6;</span>
-                    </button>
-                    <button
-                      className="p-1 rounded text-red-700 hover:bg-red-100"
-                      style={{ border: 'none', background: 'none' }}
-                      title="Delete session"
-                      onClick={async () => { await deleteSession(s.sessionId); setSessionId(''); }}
-                    >
-                      <span aria-label="delete" title="Delete">&#x1F5D1;</span>
-                    </button>
+      {!activeSession ? (
+        <div className="flex-1 w-full overflow-y-auto">
+          <div className="flex flex-col items-center gap-4 py-4">
+            {sessionsLoading ? <span className="text-sm text-muted-foreground">Loading…</span> : null}
+            {!sessionsLoading && sessions.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No chat sessions yet. Create one to get started.</div>
+            ) : null}
+            {sessions.map((s: import('./types').ChatSession) => {
+              const sessionTitle = summarisePrompt(s.title, `Session ${s.sessionId.slice(0, 8)}`)
+              const summaryText = (s.summary && s.summary.trim()) || 'No summary available yet. Start chatting to generate one.'
+              const created = formatTimestamp(s.createdAt)
+              return (
+                <div
+                  key={s.sessionId}
+                  className="relative w-[90%] max-w-2xl rounded-lg border border-border bg-white/90 p-4 shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <div className="text-sm font-medium leading-snug text-foreground break-words">{sessionTitle}</div>
+                      <div className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap break-words">
+                        {summaryText}
+                      </div>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground"
+                          aria-label="Session actions"
+                        >
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" sideOffset={6}>
+                        <DropdownMenuItem
+                          onClick={async () => {
+                            await setActiveSession(s.sessionId)
+                            setSessionId(s.sessionId)
+                          }}
+                        >
+                          Open
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={async () => {
+                            await deleteSession(s.sessionId)
+                            setSessionId('')
+                          }}
+                        >
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
+                  {created ? <div className="mt-2 text-xs text-muted-foreground">Created {created}</div> : null}
                 </div>
-              </span>
-            ))}
-            {/* Create session icon button */}
-            <button className="p-1 rounded text-green-700 hover:bg-green-100" style={{ border: 'none', background: 'none' }} title="New session" onClick={async () => {
-              const newId = await createSession();
-              await setActiveSession(newId);
-              setSessionId(newId);
-            }}>
-              <span aria-label="new" title="New">&#x2795;</span>
-            </button>
+              )
+            })}
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2 flex items-center gap-2"
+              onClick={async () => {
+                const newId = await createSession()
+                if (!newId) return
+                await setActiveSession(newId)
+                setSessionId(newId)
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              New session
+            </Button>
           </div>
         </div>
       ) : (
@@ -396,7 +456,7 @@ function MessageBody({ content }: { content: string }) {
 
   const pieces = useMemo(() => splitContent(content), [content])
   return (
-    <div className="space-y-2 text-left max-w-[80ch]">
+    <div className="space-y-2 text-left">
       {pieces.map((p, i) => {
         if (p.kind === 'text') {
           const html = toHtml(p.text || '')
