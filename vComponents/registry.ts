@@ -255,6 +255,45 @@ export const componentRegistry: Record<string, ComponentRegistration[]> = {
       }
     },
     {
+      name: 'PivotTable',
+      category: 'Data',
+      description: 'Server-side pivot table backed by Mongo SSRM queries',
+      icon: Table,
+      template: {
+        tagName: 'div',
+        attributes: {
+          'data-component-type': 'PivotTable',
+          'data-ssrm-endpoint': '/api/ssrm',
+          'data-ssrm-database': 'go_petri_flow',
+          'data-ssrm-collection': 'case_state',
+          'data-base-pipeline': JSON.stringify([]),
+          'data-field-definitions': JSON.stringify([
+            { field: 'status', label: 'Status', groupable: true, filterable: true, sortable: true },
+            { field: 'workflowId', label: 'Workflow', groupable: true, filterable: true, sortable: true },
+            { field: 'mode', label: 'Mode', pivotable: true, filterable: true, sortable: true },
+            { field: 'version', label: 'Version', aggregatable: true, sortable: true },
+            { field: 'updatedAt', label: 'Updated At', filterable: true, sortable: true },
+          ]),
+          'data-default-group-fields': JSON.stringify(['status', 'workflowId']),
+          'data-default-pivot-fields': JSON.stringify(['mode']),
+          'data-default-value-fields': JSON.stringify([
+            { field: 'version', aggFunc: 'max', label: 'Max Version' },
+          ]),
+          'data-non-aggregated-fields': JSON.stringify(['caseId', 'stateHash', 'updatedAt']),
+          'data-page-size': '200',
+        },
+        styles: {
+          width: '100%',
+          minHeight: '320px',
+          margin: '8px 0',
+          border: '1px dashed #cbd5e1',
+          borderRadius: '6px',
+          backgroundColor: '#ffffff',
+        },
+        content: '',
+      },
+    },
+    {
       name: 'S3Explorer',
       category: 'Data',
       description: 'Interactive S3 file explorer with browsing capabilities',
