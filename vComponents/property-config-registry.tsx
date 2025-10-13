@@ -25,6 +25,8 @@ import { VIAFormPropertyConfig } from "./VIAForm/property-config"
 import { MarkdownPropertyConfig } from "./Markdown/property-config"
 import { EChartsPropertyConfig } from "./ECharts/property-config"
 import { PivotTablePropertyConfig } from "./PivotTable/property-config"
+import { MP3PlayerPropertyConfig } from "./MP3Player/property-config"
+import { ComboboxPropertyConfig } from "./Combobox/property-config"
 
 // Property tab registry
 export const propertyTabRegistry: PropertyTabRegistry = {
@@ -38,6 +40,8 @@ export const propertyTabRegistry: PropertyTabRegistry = {
   [MarkdownPropertyConfig.componentType]: MarkdownPropertyConfig,
   [EChartsPropertyConfig.componentType]: EChartsPropertyConfig,
   [PivotTablePropertyConfig.componentType]: PivotTablePropertyConfig,
+  [MP3PlayerPropertyConfig.componentType]: MP3PlayerPropertyConfig,
+  [ComboboxPropertyConfig.componentType]: ComboboxPropertyConfig,
 }
 
 // Utility to get property config for a component

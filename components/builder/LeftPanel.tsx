@@ -599,6 +599,7 @@ const DataSidebar: React.FC = () => {
 		data_source_id: '',
 		query_type: 'folder'
 	})
+	const [queryParams, setQueryParams] = useState<Array<{ key: string; value: string }>>([])
 	const [creatingQuery, setCreatingQuery] = useState(false)
 	const [configForm, setConfigForm] = useState<{
 		__name?: string;
@@ -611,6 +612,82 @@ const DataSidebar: React.FC = () => {
 		// Internal UI state
 		[k: string]: any;
 	}>({})
+
+	const resetQueryForm = React.useCallback(() => {
+		setQueryForm({ name: '', data_source_id: '', query_type: 'folder' })
+		setQueryParams([])
+	}, [])
+
+	const handleQueryDialogOpenChange = React.useCallback((open: boolean) => {
+		setShowQueryDialog(open)
+		if (!open) {
+			resetQueryForm()
+		}
+	}, [resetQueryForm])
+
+	const handleOpenQueryDialog = React.useCallback(() => {
+		resetQueryForm()
+		setShowQueryDialog(true)
+	}, [resetQueryForm])
+
+	const syncParamDefaults = React.useCallback((entries: Array<{ key: string; value: string }>) => {
+		setQueryParams(entries)
+		setQueryForm((prev) => {
+			const existingParams = { ...(prev.parameters || {}) }
+			if ('paramDefaults' in existingParams) {
+				delete (existingParams as any).paramDefaults
+			}
+			const defaults: Record<string, string> = {}
+			for (const entry of entries) {
+				const trimmedKey = entry.key.trim()
+				if (!trimmedKey) continue
+				defaults[trimmedKey] = entry.value
+			}
+			const nextParameters = { ...existingParams }
+			if (Object.keys(defaults).length > 0) {
+				;(nextParameters as any).paramDefaults = defaults
+			}
+			const hasParams = Object.keys(nextParameters).length > 0
+			return {
+				...prev,
+				parameters: hasParams ? nextParameters : undefined,
+			}
+		})
+	}, [])
+
+	const handleAddParam = React.useCallback(() => {
+		syncParamDefaults([...queryParams, { key: '', value: '' }])
+	}, [queryParams, syncParamDefaults])
+
+	const handleParamChange = React.useCallback(
+		(index: number, field: 'key' | 'value', value: string) => {
+			const next = queryParams.map((entry, idx) => (idx === index ? { ...entry, [field]: value } : entry))
+			syncParamDefaults(next)
+		},
+		[queryParams, syncParamDefaults],
+	)
+
+	const handleRemoveParam = React.useCallback(
+		(index: number) => {
+			const next = queryParams.filter((_, idx) => idx !== index)
+			syncParamDefaults(next)
+		},
+		[queryParams, syncParamDefaults],
+	)
+
+	useEffect(() => {
+		if (!showQueryDialog) return
+		const defaults = (() => {
+			const raw = queryForm.parameters as any
+			const paramDefaults = raw?.paramDefaults
+			if (paramDefaults && typeof paramDefaults === 'object' && !Array.isArray(paramDefaults)) {
+				return Object.entries(paramDefaults).map(([key, value]) => ({ key, value: value == null ? '' : String(value) }))
+			}
+			return []
+		})()
+		syncParamDefaults(defaults)
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [showQueryDialog])
 
 	const saveConfig = async () => {
 		setSavingConfig(true)
@@ -727,8 +804,7 @@ const DataSidebar: React.FC = () => {
 				name: queryForm.name.trim(),
 				enabled: true
 			})
-			setShowQueryDialog(false)
-			setQueryForm({ name: '', data_source_id: '', query_type: 'folder' })
+			handleQueryDialogOpenChange(false)
 			toast({ title: 'Query Created', description: 'Query definition saved successfully' })
 		} catch (e: any) {
 			toast({ title: 'Create failed', description: e?.message || 'Unable to create query', variant: 'destructive' })
@@ -802,7 +878,7 @@ const DataSidebar: React.FC = () => {
 				)}
 			</Section>
 
-			<QueriesSection expanded={expanded} setExpanded={setExpanded} setShowQueryDialog={setShowQueryDialog} />
+			<QueriesSection expanded={expanded} setExpanded={setExpanded} openQueryDialog={handleOpenQueryDialog} />
 			<HistorySection expanded={expanded} setExpanded={setExpanded} />
 		</div>
 		<Dialog open={configOpen} onOpenChange={setConfigOpen}>
@@ -939,7 +1015,7 @@ const DataSidebar: React.FC = () => {
 		</Dialog>
 		
 		{/* Query Creation Dialog */}
-		<Dialog open={showQueryDialog} onOpenChange={setShowQueryDialog}>
+		<Dialog open={showQueryDialog} onOpenChange={handleQueryDialogOpenChange}>
 			<DialogContent className="max-w-md">
 				<DialogHeader>
 					<DialogTitle>Create Query Definition</DialogTitle>
@@ -1058,9 +1134,52 @@ const DataSidebar: React.FC = () => {
 							/>
 						</div>
 					)}
+
+					<div className="space-y-2">
+						<div className="flex items-center justify-between">
+							<label className="text-[11px] font-semibold">Query Parameters</label>
+							<Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={handleAddParam}>Add</Button>
+						</div>
+						{queryParams.length === 0 ? (
+							<div className="rounded border border-dashed px-2 py-2 text-[11px] text-muted-foreground">
+								Optional key/value parameters used for templating (e.g., {'${search}'}).
+							</div>
+						) : (
+							<div className="space-y-2">
+								{queryParams.map((param, index) => (
+									<div key={index} className="grid grid-cols-7 gap-2">
+										<input
+											className="col-span-3 rounded border px-2 py-1 text-xs"
+											placeholder="paramKey"
+											value={param.key}
+											onChange={(e) => handleParamChange(index, 'key', e.target.value)}
+										/>
+										<input
+											className="col-span-3 rounded border px-2 py-1 text-xs"
+											placeholder="Default value"
+											value={param.value}
+											onChange={(e) => handleParamChange(index, 'value', e.target.value)}
+										/>
+										<Button
+											type="button"
+											size="icon"
+											variant="ghost"
+											className="h-7 w-7 text-red-500"
+											onClick={() => handleRemoveParam(index)}
+										>
+											×
+										</Button>
+									</div>
+								))}
+							</div>
+						)}
+						<div className="text-[10px] text-muted-foreground">
+							Reference parameters within your query using {'${paramKey}'} placeholders.
+						</div>
+					</div>
 				</div>
 				<DialogFooter>
-					<Button variant="ghost" size="sm" onClick={() => setShowQueryDialog(false)}>Cancel</Button>
+					<Button variant="ghost" size="sm" onClick={() => handleQueryDialogOpenChange(false)}>Cancel</Button>
 					<Button size="sm" variant="secondary" onClick={handleCreateQuery} disabled={creatingQuery}>
 						{creatingQuery ? 'Creating...' : 'Create Query'}
 					</Button>
@@ -1072,17 +1191,18 @@ const DataSidebar: React.FC = () => {
 }
 
 // Queries Section Component
-const QueriesSection: React.FC<{ 
-	expanded: { [k:string]: boolean }; 
-	setExpanded: (fn: (s: { [k:string]: boolean }) => { [k:string]: boolean }) => void;
-	setShowQueryDialog: (show: boolean) => void;
-}> = ({ expanded, setExpanded, setShowQueryDialog }) => {
+	const QueriesSection: React.FC<{ 
+		expanded: { [k:string]: boolean }; 
+		setExpanded: (fn: (s: { [k:string]: boolean }) => { [k:string]: boolean }) => void;
+		openQueryDialog: () => void;
+	}> = ({ expanded, setExpanded, openQueryDialog }) => {
 	const { settings } = useSystemSettings()
 	const { queries, deleteQuery, executeQuery, executingIds } = useQueryStore()
 	const { setResult, setS3Result, setDatasource, setS3Input, setGcsQueryParams, setMongoInput, setSqlInput } = useQueryExecutionStore()
 	const [searchTerm, setSearchTerm] = useState('')
+		const allQueries = queries || []
 	
-	const filteredQueries = (queries || []).filter((q: QueryDefinition) =>
+		const filteredQueries = allQueries.filter((q: QueryDefinition) =>
 		q.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
 		(q.description && q.description.toLowerCase().includes(searchTerm.toLowerCase()))
 	)
@@ -1180,9 +1300,9 @@ const QueriesSection: React.FC<{
 	}
 
 	return (
-		<Section id="queries" title={`Query Definitions (${queries.length})`} expanded={expanded} setExpanded={setExpanded} actions={
+		<Section id="queries" title={`Query Definitions (${allQueries.length})`} expanded={expanded} setExpanded={setExpanded} actions={
 			<div className="flex gap-1">
-				<Button size="icon" variant="ghost" className="h-6 w-6" onClick={()=> setShowQueryDialog(true)} title="Create New Query">
+				<Button size="icon" variant="ghost" className="h-6 w-6" onClick={openQueryDialog} title="Create New Query">
 					<Plus className="h-3.5 w-3.5" />
 				</Button>
 				<Button size="icon" variant="ghost" className="h-6 w-6" onClick={()=> { try { window.dispatchEvent(new CustomEvent('goflow-open-data-workspace', { detail: { view: 'queries' } })) } catch {} }} title="Open Query Builder">
@@ -1190,14 +1310,14 @@ const QueriesSection: React.FC<{
 				</Button>
 			</div>
 		}>
-			{queries.length === 0 ? (
+			{allQueries.length === 0 ? (
 				<>
 					<div className="text-muted-foreground">No query definitions yet. Create queries in the Data workspace.</div>
 					<Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={()=> { try { window.dispatchEvent(new CustomEvent('goflow-open-data-workspace', { detail: { view: 'queries' } })) } catch {} }}>Open Query Builder</Button>
 				</>
 			) : (
 				<>
-					{queries.length > 3 && (
+					{allQueries.length > 3 && (
 						<input
 							className="px-2 py-1 rounded border text-xs mb-2"
 							placeholder="Search queries..."

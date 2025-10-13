@@ -77,6 +77,7 @@ const DynamicFormCustomRenderer: React.FC<CustomPropertyRenderProps> = ({ attrib
               className="w-full p-2 border border-input rounded text-xs bg-background text-foreground"
             >
               <option value="auto">Auto (schema-driven)</option>
+              <option value="vertical-table">Vertical Table (schema-driven)</option>
               <option value="custom-page">Custom Page</option>
             </select>
           </div>

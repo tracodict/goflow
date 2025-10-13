@@ -8,6 +8,7 @@ import { javascript as cmJavascript } from '@codemirror/lang-javascript'
 import { sql as cmSql } from '@codemirror/lang-sql'
 import showdown from 'showdown'
 
+import { componentRendererRegistry } from '@/vComponents'
 import { useSessions } from './useSessions'
 
 function useStream(onDelta: (delta: string) => void) {
@@ -287,7 +288,7 @@ export default function ChatPanel(){
                   credentials: 'same-origin'
                 })
                 setSessionId('')
-                reloadSessions()
+                await reloadSessions()
               }
             })()}
           />
@@ -302,27 +303,57 @@ export default function ChatPanel(){
 
 const fenceRe = /```([\w-]+)?\n([\s\S]*?)```/g
 
-function splitContent(content: string): Array<{ kind: 'text' | 'code' | 'markdown'; text?: string; code?: string; lang?: string }>{
-  const parts: Array<{ kind: 'text' | 'code' | 'markdown'; text?: string; code?: string; lang?: string }> = []
+type MarkdownPiece = { kind: 'markdown'; code: string }
+type CodePiece = { kind: 'code'; code: string; lang: string }
+type TextPiece = { kind: 'text'; text: string }
+type VComponentPiece = { kind: 'vcomponent'; componentName: string; raw: string; payload: unknown; error?: string }
+type ContentPiece = MarkdownPiece | CodePiece | TextPiece | VComponentPiece
+
+function splitContent(content: string): ContentPiece[] {
+  const parts: ContentPiece[] = []
   let lastIndex = 0
   let m: RegExpExecArray | null
   fenceRe.lastIndex = 0
   while ((m = fenceRe.exec(content))) {
-  const before = content.slice(lastIndex, m.index)
-  if (before) parts.push({ kind: 'markdown', code: before, lang: 'markdown' })
-    const lang = (m[1] || '').trim().toLowerCase()
+    const before = content.slice(lastIndex, m.index)
+    if (before) parts.push({ kind: 'markdown', code: before })
+
+    const rawLang = (m[1] || '').trim()
+    const lang = rawLang.toLowerCase()
     const code = m[2] || ''
-    if (lang === 'md' || lang === 'markdown') {
-      parts.push({ kind: 'markdown', code, lang: 'markdown' })
+    const vComponentMatch = /^vcomponent-(.+)$/i.exec(rawLang)
+
+    if (vComponentMatch) {
+      const componentName = vComponentMatch[1].trim()
+      let payload: unknown = {}
+      let error: string | undefined
+
+      if (!componentName) {
+        error = 'Component name is required for vComponent blocks.'
+      } else if (code.trim().length === 0) {
+        payload = {}
+      } else {
+        try {
+          payload = JSON.parse(code)
+        } catch (err) {
+          error = err instanceof Error ? err.message : 'Invalid JSON payload.'
+        }
+      }
+
+      parts.push({ kind: 'vcomponent', componentName, raw: code, payload, error })
+    } else if (lang === 'md' || lang === 'markdown') {
+      parts.push({ kind: 'markdown', code })
     } else if (!lang) {
-      // try to infer json or markdown
       const trimmed = code.trim()
-      let inferred: 'markdown' | 'code' = 'code'
-      if ((trimmed.startsWith('{') || trimmed.startsWith('['))) {
-        try { JSON.parse(trimmed); parts.push({ kind: 'code', code: trimmed, lang: 'json' }); } catch { parts.push({ kind: 'code', code, lang: 'plaintext' }) }
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try {
+          JSON.parse(trimmed)
+          parts.push({ kind: 'code', code: trimmed, lang: 'json' })
+        } catch {
+          parts.push({ kind: 'code', code, lang: 'plaintext' })
+        }
       } else if (/^\s{0,3}(#|\*\s|\d+\.\s|>\s)/m.test(code)) {
-        inferred = 'markdown'
-        parts.push({ kind: 'markdown', code, lang: 'markdown' })
+        parts.push({ kind: 'markdown', code })
       } else {
         parts.push({ kind: 'code', code, lang: 'plaintext' })
       }
@@ -332,7 +363,7 @@ function splitContent(content: string): Array<{ kind: 'text' | 'code' | 'markdow
     lastIndex = fenceRe.lastIndex
   }
   const rest = content.slice(lastIndex)
-  if (rest) parts.push({ kind: 'markdown', code: rest, lang: 'markdown' })
+  if (rest) parts.push({ kind: 'markdown', code: rest })
   return parts
 }
 
@@ -375,11 +406,67 @@ function MessageBody({ content }: { content: string }) {
           const html = toHtml(p.code)
           return <div key={i} className="markdown-renderer" dangerouslySetInnerHTML={{ __html: html }} />
         }
+        if (p.kind === 'vcomponent') {
+          return <VComponentMessage key={i} piece={p} />
+        }
         if (p.kind === 'code' && p.code != null) {
           return <CodeBlock key={i} code={p.code} lang={p.lang || 'plaintext'} />
         }
         return null
       })}
+    </div>
+  )
+}
+
+const VComponentMessage: React.FC<{ piece: VComponentPiece }> = ({ piece }) => {
+  const renderer = React.useMemo(() => componentRendererRegistry.getRenderer(piece.componentName), [piece.componentName])
+
+  const { Component, loadError } = React.useMemo(() => {
+    if (!renderer) {
+      return {
+        Component: null as React.ComponentType<any> | null,
+        loadError: `No renderer registered for "${piece.componentName}".`,
+      }
+    }
+    try {
+      const resolved = renderer.getComponent()
+      return { Component: resolved, loadError: undefined as string | undefined }
+    } catch (err) {
+      console.warn(`[Chat] Failed to load renderer for vComponent "${piece.componentName}"`, err)
+      const message = err instanceof Error ? err.message : 'Failed to load renderer.'
+      return { Component: null as React.ComponentType<any> | null, loadError: message }
+    }
+  }, [piece.componentName, renderer])
+
+  const resolvedProps = React.useMemo(() => {
+    if (piece.payload && typeof piece.payload === 'object' && !Array.isArray(piece.payload)) {
+      return piece.payload as Record<string, unknown>
+    }
+    if (piece.payload === undefined) {
+      return {} as Record<string, unknown>
+    }
+    return { data: piece.payload } as Record<string, unknown>
+  }, [piece.payload])
+
+  const errorMessage = piece.error ?? loadError
+
+  if (errorMessage || !Component) {
+    return (
+      <div className="space-y-2 rounded border border-destructive/40 bg-destructive/5 p-3 text-xs">
+        <div className="font-semibold text-destructive">Unable to render vComponent "{piece.componentName}"</div>
+        {errorMessage ? <div className="text-muted-foreground">{errorMessage}</div> : null}
+        {piece.raw ? (
+          <pre className="max-h-48 overflow-auto rounded border border-destructive/20 bg-background p-2 text-[11px]">
+            {piece.raw}
+          </pre>
+        ) : null}
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded border border-border bg-background p-3">
+      <Component {...resolvedProps} />
     </div>
   )
 }

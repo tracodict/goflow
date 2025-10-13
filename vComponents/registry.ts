@@ -6,7 +6,7 @@
  * in the component library of the PageBuilder.
  */
 
-import { MousePointer, Navigation, Table, FolderTree, Eye, FileText, PieChart } from 'lucide-react'
+import { MousePointer, Navigation, Table, FolderTree, Eye, FileText, PieChart, Music, ListFilter } from 'lucide-react'
 import { ButtonComponent, ButtonComponentInterface } from './Button'
 import { NavigationMenuComponent } from './NavigationMenu'
 import { DataGridComponent } from './DataGrid'
@@ -49,6 +49,33 @@ export const componentRegistry: Record<string, ComponentRegistration[]> = {
           border: '1px dashed #cbd5e1',
           borderRadius: '6px',
           padding: '12px',
+          backgroundColor: '#f8fafc',
+        },
+        content: '',
+      },
+    },
+  ],
+  media: [
+    {
+      name: 'MP3Player',
+      category: 'Media',
+      description: 'Modern audio player with custom controls',
+      icon: Music,
+      template: {
+        tagName: 'div',
+        attributes: {
+          'data-component-type': 'MP3Player',
+          'data-src': 'https://download.samplelib.com/mp3/sample-3s.mp3',
+          'data-title': 'Sample Track',
+          'data-autoplay': 'false',
+          'data-loop': 'false',
+        },
+        styles: {
+          width: '100%',
+          margin: '8px 0',
+          border: '1px dashed #cbd5e1',
+          borderRadius: '6px',
+          padding: '16px',
           backgroundColor: '#f8fafc',
         },
         content: '',
@@ -139,6 +166,36 @@ export const componentRegistry: Record<string, ComponentRegistration[]> = {
         },
         content: 'Open Form Dialog'
       }
+    }
+    ,
+    {
+      name: 'Combobox',
+      category: 'Form',
+      description: 'Searchable select supporting local or server data',
+      icon: ListFilter,
+      template: {
+        tagName: 'div',
+        attributes: {
+          'data-component-type': 'Combobox',
+          'data-kind': 'local',
+          'data-options': JSON.stringify([
+            { key: 'draft', value: 'Draft' },
+            { key: 'published', value: 'Published' },
+            { key: 'archived', value: 'Archived' }
+          ]),
+          'data-placeholder': 'Select status',
+          'data-label': 'Status',
+          'data-default-value': '',
+          'data-disabled': 'false'
+        },
+        styles: {
+          width: '100%',
+          maxWidth: '320px',
+          margin: '8px 0',
+          padding: '4px',
+        },
+        content: '',
+      },
     }
   ],
   navigation: [

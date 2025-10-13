@@ -21,9 +21,7 @@ import {
 	Minus,
 	ImageIcon,
 	Youtube,
-	FileText,
 	Grid,
-	Search,
 	MousePointer,
 	AlignJustify,
 	ChevronDown,
@@ -345,47 +343,7 @@ const componentCategories = [
 	{
 		key: "data",
 		label: "Data",
-		components: [
-			{
-				icon: FileText,
-				name: "Markdown",
-				description: "Markdown content",
-				template: {
-					tagName: "div",
-					attributes: { "data-type": "markdown" },
-					styles: {
-						fontSize: "16px",
-						color: "#374151",
-						lineHeight: "1.6",
-						margin: "16px 0",
-						padding: "16px",
-						border: "1px solid #e5e7eb",
-						borderRadius: "8px",
-					},
-					content: "# Markdown Content\n\nThis is **bold** and *italic* text.",
-				},
-			},
-
-			{
-				icon: Search,
-				name: "Combobox",
-				description: "Server search combobox",
-				template: {
-					tagName: "div",
-					attributes: { "data-type": "combobox" },
-					styles: {
-						width: "200px",
-						border: "1px solid #d1d5db",
-						borderRadius: "6px",
-						padding: "8px 12px",
-						backgroundColor: "white",
-						margin: "8px 0",
-					},
-					content: "Search...",
-				},
-			},
-
-		],
+		components: [],
 	},
 	{
 		key: "form",

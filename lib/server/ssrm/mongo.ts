@@ -23,7 +23,7 @@ export interface SSRMRequest {
   valueCols?: ColumnVO[]
   pivotCols?: ColumnVO[]
   pivotMode?: boolean
-  groupKeys?: string[]
+  groupKeys?: any[]
   filterModel?: FilterModel | AdvancedFilterModel | null
   sortModel?: SortModelItem[]
   basePipeline?: Document[]
@@ -45,7 +45,7 @@ type NormalisedSSRMRequest = {
   valueCols: ColumnVO[]
   pivotCols: ColumnVO[]
   pivotMode: boolean
-  groupKeys: string[]
+  groupKeys: any[]
   filterModel: FilterModel | AdvancedFilterModel | null
   sortModel: SortModelItem[]
 }
@@ -56,7 +56,7 @@ const ensureObjectIdField = (col: ColumnVO): string | undefined => {
   return undefined
 }
 
-const isGrouping = (groupKeys: string[], rowGroupCols: ColumnVO[]): boolean => {
+const isGrouping = (groupKeys: any[], rowGroupCols: ColumnVO[]): boolean => {
   return groupKeys.length < rowGroupCols.length
 }
 

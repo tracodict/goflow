@@ -1,5 +1,7 @@
 "use client";
 import React, { useEffect, useMemo, useState } from 'react';
+import { Info } from 'lucide-react';
+import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
 import Ajv, { ErrorObject } from 'ajv';
 import { schemaRegistry } from '@/lib/schema-registry';
 import { fetchPreSupportedSchema } from '@/components/petri/pre-supported-schemas';
@@ -27,7 +29,7 @@ export interface DynamicFormProps {
   /** Optional event emitter bridge (eventName, payload) -> void */
   emitEvent?: (eventName: string, payload: any) => void;
   readOnly?: boolean;
-  layout?: 'auto' | 'custom-page';
+  layout?: 'auto' | 'custom-page' | 'vertical-table';
   onChange?: (data: any) => void;
   onSubmit?: (data: any) => void;
   onValidate?: (valid: boolean, errors?: ErrorObject[] | null) => void;
@@ -312,6 +314,123 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     return cursor;
   };
 
+  type FieldContext = {
+    type?: string;
+    label: string;
+    description?: string;
+    path: string;
+    fieldId: string;
+    fieldUi: any;
+    widget?: string;
+    depth: number;
+    fieldState: FieldState & { visible?: boolean; enabled?: boolean; readonly?: boolean; transformedValue?: any };
+    effectiveReadOnly: boolean;
+    fieldValue: any;
+  };
+
+  const buildFieldContext = (key: string, def: any, parentPath: string): FieldContext | null => {
+    const type = Array.isArray(def.type) ? def.type[0] : def.type;
+    const label = def.title || key;
+    const description = def.description;
+    const path = parentPath ? `${parentPath}.${key}` : key;
+    const fieldId = `df-${schemaId}-${path.replace(/\./g, '-')}`;
+    const fieldUi = uiSchema?.[path] || uiSchema?.[key];
+    const widget = fieldUi?.['ui:widget'];
+    const depth = path ? path.split('.').length - 1 : 0;
+    const fieldState = fieldStates[path] || { visible: true, enabled: true, readonly: false };
+    if (fieldState.visible === false) {
+      return null;
+    }
+    const fieldValue = fieldState.transformedValue !== undefined ? fieldState.transformedValue : getValue(path);
+    const effectiveReadOnly = Boolean(readOnly || fieldState.readonly || fieldState.enabled === false);
+    return {
+      type,
+      label,
+      description,
+      path,
+      fieldId,
+      fieldUi,
+      widget,
+      depth,
+      fieldState,
+      effectiveReadOnly,
+      fieldValue,
+    };
+  };
+
+  const renderPrimitiveControl = ({
+    type,
+    fieldId,
+    fieldValue,
+    widget,
+    fieldUi,
+    effectiveReadOnly,
+    path,
+  }: {
+    type?: string;
+    fieldId: string;
+    fieldValue: any;
+    widget?: string;
+    fieldUi: any;
+    effectiveReadOnly: boolean;
+    path: string;
+  }): React.ReactNode => {
+    const resolvedType = type || (Array.isArray(fieldUi?.type) ? fieldUi.type[0] : fieldUi?.type) || 'string';
+
+    if (resolvedType === 'string') {
+      if (widget === 'textarea') {
+        return (
+          <textarea
+            id={fieldId}
+            value={fieldValue ?? ''}
+            disabled={effectiveReadOnly}
+            onChange={(e) => updateAtPath(path, e.target.value)}
+            rows={fieldUi?.rows || 3}
+            className="w-full border rounded px-2 py-1 text-sm bg-background"
+          />
+        );
+      }
+      return (
+        <input
+          id={fieldId}
+          type="text"
+          value={fieldValue ?? ''}
+          disabled={effectiveReadOnly}
+          onChange={(e) => updateAtPath(path, e.target.value)}
+          className="w-full border rounded px-2 py-1 text-sm bg-background"
+        />
+      );
+    }
+
+    if (resolvedType === 'number' || resolvedType === 'integer') {
+      return (
+        <input
+          id={fieldId}
+          type="number"
+          value={fieldValue ?? ''}
+          disabled={effectiveReadOnly}
+          onChange={(e) => updateAtPath(path, e.target.value === '' ? undefined : Number(e.target.value))}
+          className="w-full border rounded px-2 py-1 text-sm bg-background"
+        />
+      );
+    }
+
+    if (resolvedType === 'boolean') {
+      return (
+        <input
+          id={fieldId}
+          type="checkbox"
+          checked={!!fieldValue}
+          disabled={effectiveReadOnly}
+          onChange={(e) => updateAtPath(path, e.target.checked)}
+          className="rounded"
+        />
+      );
+    }
+
+    return <span style={{ fontSize: 12, opacity: 0.6 }}>Unsupported type: {String(resolvedType)}</span>;
+  };
+
   const renderField = (key: string, def: any, parentPath: string) => {
     const type = Array.isArray(def.type) ? def.type[0] : def.type;
     const label = def.title || key;
@@ -586,11 +705,29 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     } else {
       input = <span style={{ fontSize: 12, opacity: 0.6 }}>Unsupported type: {String(type)}</span>;
     }
+    const showDescriptionIcon = Boolean(description && useAutoLayout);
+
     return (
       <div key={path} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <label htmlFor={fieldId} style={{ fontSize: 12, fontWeight: 600 }}>{label}</label>
+        <label
+          htmlFor={fieldId}
+          style={{ fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+        >
+          <span>{label}</span>
+          {showDescriptionIcon ? (
+            <span
+              title={description}
+              aria-label={`${label} description`}
+              style={{ display: 'inline-flex', alignItems: 'center', cursor: 'help', color: 'var(--muted-foreground,#6b7280)' }}
+            >
+              <Info size={12} strokeWidth={1.75} />
+            </span>
+          ) : null}
+        </label>
         {input}
-        {description && <div style={{ fontSize: 11, opacity: 0.7 }}>{description}</div>}
+        {!showDescriptionIcon && description ? (
+          <div style={{ fontSize: 11, opacity: 0.7 }}>{description}</div>
+        ) : null}
       </div>
     );
   };
@@ -627,27 +764,304 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     propEntries = finalOrder.map(k => [k, properties[k]] as [string, any]);
   }
 
-  // Always use responsive auto layout (accordion nested style) - uiSchema only affects field ordering
-  const useAutoLayout = true;
-  console.log('[DynamicForm] Always using auto responsive layout with uiSchema:', uiSchema);
+  const layoutModeNormalized = layout === 'vertical-table' ? 'vertical-table' : 'auto';
+  const useVerticalLayout = layoutModeNormalized === 'vertical-table';
+  const useAutoLayout = layoutModeNormalized === 'auto';
 
   // Responsive grid helper for auto layout: primitive fields share grid, complex spans full width
   const rootAutoLayoutClass = 'grid gap-4';
   const rootAutoLayoutStyle: React.CSSProperties = {
-    gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', // Reduce min width for better fit
-    width: '100%'
+    gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))',
+    width: '100%',
   };
-  console.log('[DynamicForm] Layout mode:', { useAutoLayout, rootAutoLayoutStyle });
 
-  // Enhance renderField to wrap complex fields for grid auto layout
+  const getOrderedEntries = (definition: any, path: string, key?: string) => {
+    if (!definition?.properties) return [] as Array<[string, any]>;
+    let entries = Object.entries(definition.properties);
+    const nestedUi = uiSchema?.[path] || (key ? uiSchema?.[key] : undefined);
+    const nestedOrder = nestedUi?.['ui:order'];
+    if (Array.isArray(nestedOrder)) {
+      const specified = nestedOrder.filter((k) => (definition.properties as any)[k] !== undefined);
+      const remaining = entries.map(([k]) => k).filter((k) => !specified.includes(k));
+      const finalOrder = [...specified, ...remaining];
+      entries = finalOrder.map((k) => [k, (definition.properties as any)[k]] as [string, any]);
+    }
+    return entries;
+  };
+
+  const VerticalTableSection: React.FC<{
+    title: string;
+    pairs: Array<{ key: string; name: React.ReactNode; value: React.ReactNode }>;
+    actions?: React.ReactNode;
+    indentLevel?: number;
+    emptyMessage?: string;
+  }> = ({ title, pairs, actions, indentLevel = 0, emptyMessage = 'No fields available' }) => {
+    const containerRef = React.useRef<HTMLDivElement | null>(null);
+    const [pairsPerRow, setPairsPerRow] = React.useState(3);
+
+    React.useEffect(() => {
+      const node = containerRef.current;
+      if (!node) return;
+      const ro = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        const width = entry.contentRect.width;
+        const next = width >= 1300 ? 6 : width >= 700 ? 3 : 1;
+        setPairsPerRow((prev) => (prev === next ? prev : next));
+      });
+      ro.observe(node);
+      return () => ro.disconnect();
+    }, []);
+
+    const rows = React.useMemo(() => {
+      if (pairs.length === 0) return [] as Array<typeof pairs>;
+      const chunkSize = Math.max(pairsPerRow, 1);
+      const out: Array<typeof pairs> = [];
+      for (let i = 0; i < pairs.length; i += chunkSize) {
+        out.push(pairs.slice(i, i + chunkSize));
+      }
+      return out;
+    }, [pairs, pairsPerRow]);
+
+    const cellsPerRow = Math.max(pairsPerRow * 2, 2);
+
+    return (
+      <div
+        ref={containerRef}
+        style={{ marginLeft: indentLevel > 0 ? indentLevel * 12 : 0 }}
+        className="rounded border border-border bg-card shadow-sm"
+      >
+        <div className="flex items-center justify-between border-b px-3 py-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
+          {actions}
+        </div>
+        <div className="overflow-x-auto">
+          <Table className="text-xs">
+            <TableBody>
+              {rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={cellsPerRow} className="py-4 text-center text-xs text-muted-foreground">
+                    {emptyMessage}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                rows.map((row, rowIdx) => {
+                  const filler = Math.max(cellsPerRow - row.length * 2, 0);
+                  return (
+                    <TableRow key={rowIdx} className="hover:bg-muted/20">
+                      {row.flatMap((pair, pairIdx) => [
+                        <TableCell
+                          key={`${pair.key}-name-${pairIdx}`}
+                          className="align-top text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                        >
+                          {pair.name}
+                        </TableCell>,
+                        <TableCell key={`${pair.key}-value-${pairIdx}`} className="align-top text-xs text-foreground">
+                          {pair.value}
+                        </TableCell>,
+                      ])}
+                      {Array.from({ length: filler }).map((_, fillerIdx) => (
+                        <TableCell key={`filler-${rowIdx}-${fillerIdx}`} />
+                      ))}
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderVerticalArray = (label: string, def: any, ctx: FieldContext, depth: number): React.ReactNode => {
+    const itemsDef = def.items || { type: 'string' };
+    const arrVal: any[] = Array.isArray(ctx.fieldValue) ? ctx.fieldValue : [];
+    const itemType = Array.isArray(itemsDef.type) ? itemsDef.type[0] : itemsDef.type;
+    const addItem = () => {
+      if (ctx.effectiveReadOnly) return;
+      let newItem: any = '';
+      if (itemType === 'object') newItem = {};
+      else if (itemType === 'array') newItem = [];
+      else if (itemType === 'number' || itemType === 'integer') newItem = 0;
+      else if (itemType === 'boolean') newItem = false;
+      updateAtPath(ctx.path, [...arrVal, newItem]);
+    };
+    const addButton = ctx.effectiveReadOnly ? null : (
+      <button
+        type="button"
+        onClick={addItem}
+        className="text-[11px] border border-border rounded px-2 py-0.5 bg-background hover:bg-accent"
+      >
+        Add
+      </button>
+    );
+
+    if (itemType === 'object' && itemsDef.properties) {
+      return (
+        <div key={ctx.path} className="space-y-3">
+          <div className="flex items-center justify-between px-1" style={{ marginLeft: depth * 12 }}>
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+            {addButton}
+          </div>
+          {arrVal.length === 0 ? (
+            <div
+              className="text-[11px] text-muted-foreground border border-dashed border-border/70 rounded px-3 py-4"
+              style={{ marginLeft: depth * 12 }}
+            >
+              No items
+            </div>
+          ) : (
+            arrVal.map((_, idx) => {
+              const itemPath = `${ctx.path}.${idx}`;
+              const itemEntries = getOrderedEntries(itemsDef, itemPath, String(idx));
+              const removeButton = ctx.effectiveReadOnly
+                ? null
+                : (
+                    <button
+                      type="button"
+                      onClick={() => removeArrayIndex(ctx.path, idx)}
+                      className="text-[10px] border border-border rounded px-2 py-0.5 text-red-500 hover:bg-red-50"
+                    >
+                      Remove
+                    </button>
+                  );
+              return (
+                <div key={itemPath} style={{ marginLeft: depth * 12 }} className="space-y-2">
+                  {renderVerticalSection(`${label} #${idx + 1}`, itemEntries, itemPath, depth + 1, removeButton)}
+                </div>
+              );
+            })
+          )}
+        </div>
+      );
+    }
+
+    const primitivePairs = arrVal.map((item, idx) => {
+      const itemPath = `${ctx.path}.${idx}`;
+      const itemId = `df-${schemaId}-${itemPath.replace(/\./g, '-')}`;
+      return {
+        key: itemPath,
+        name: <span className="text-xs font-semibold text-muted-foreground">Item #{idx + 1}</span>,
+        value: (
+          <div className="flex items-center gap-2">
+            {renderPrimitiveControl({
+              type: itemType,
+              fieldId: itemId,
+              fieldValue: item,
+              widget: undefined,
+              fieldUi: {},
+              effectiveReadOnly: ctx.effectiveReadOnly,
+              path: itemPath,
+            })}
+            {!ctx.effectiveReadOnly && (
+              <button
+                type="button"
+                onClick={() => removeArrayIndex(ctx.path, idx)}
+                className="text-[10px] border border-border rounded px-2 py-0.5"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        ),
+      };
+    });
+
+    return (
+      <VerticalTableSection
+        key={ctx.path}
+        title={label}
+        pairs={primitivePairs}
+        actions={addButton}
+        indentLevel={depth}
+        emptyMessage="No items"
+      />
+    );
+  };
+
+  const renderVerticalSection = (
+    title: string,
+    entries: Array<[string, any]>,
+    parentPath: string,
+    depth: number,
+    headerActions?: React.ReactNode,
+  ): React.ReactNode => {
+    const primitivePairs: Array<{ key: string; name: React.ReactNode; value: React.ReactNode }> = [];
+    const nestedNodes: React.ReactNode[] = [];
+
+    entries.forEach(([childKey, childDef]) => {
+      const ctx = buildFieldContext(childKey, childDef, parentPath);
+      if (!ctx) return;
+
+      if (ctx.type === 'object' && childDef.properties) {
+        const nestedEntries = getOrderedEntries(childDef, ctx.path, childKey);
+        nestedNodes.push(renderVerticalSection(ctx.label, nestedEntries, ctx.path, depth + 1));
+        return;
+      }
+
+      if (ctx.type === 'array') {
+        nestedNodes.push(renderVerticalArray(ctx.label, childDef, ctx, depth + 1));
+        return;
+      }
+
+      const control = renderPrimitiveControl({
+        type: ctx.type,
+        fieldId: ctx.fieldId,
+        fieldValue: ctx.fieldValue,
+        widget: ctx.widget,
+        fieldUi: ctx.fieldUi,
+        effectiveReadOnly: ctx.effectiveReadOnly,
+        path: ctx.path,
+      });
+
+      const nameNode = (
+        <div className="flex items-center gap-1 text-xs font-semibold text-foreground">
+          <span>{ctx.label}</span>
+          {ctx.description ? (
+            <span
+              title={ctx.description}
+              className="flex h-4 w-4 items-center justify-center rounded-full border border-border/60 text-muted-foreground"
+            >
+              <Info size={12} strokeWidth={1.75} />
+            </span>
+          ) : null}
+        </div>
+      );
+
+      const valueNode = (
+        <div className="flex flex-col gap-2">
+          {control}
+        </div>
+      );
+
+      primitivePairs.push({ key: ctx.path, name: nameNode, value: valueNode });
+    });
+
+    return (
+      <div key={parentPath || title} className="space-y-3">
+        <VerticalTableSection
+          title={title}
+          pairs={primitivePairs}
+          actions={headerActions}
+          indentLevel={depth}
+        />
+        {nestedNodes}
+      </div>
+    );
+  };
+
   const renderFieldWithAutoLayout = (key: string, def: any, parentPath: string) => {
     const node = renderField(key, def, parentPath);
-    // For object / array wrappers ensure they span full width in grid
     const type = Array.isArray(def.type) ? def.type[0] : def.type;
     if (type === 'object' || type === 'array') {
-      return <div key={(parentPath? parentPath + '.' : '') + key} style={{ gridColumn: '1 / -1' }}>{node}</div>;
+      return (
+        <div key={(parentPath ? `${parentPath}.` : '') + key} style={{ gridColumn: '1 / -1' }}>
+          {node}
+        </div>
+      );
     }
-    return node; // primitives just flow; each node already has key
+    return node;
   };
 
   if (schemaMissing) {
@@ -662,15 +1076,21 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   }
 
   return (
-    <form onSubmit={handleSubmit} className={className} data-dynamic-form="auto">
+    <form onSubmit={handleSubmit} className={className} data-dynamic-form={layoutModeNormalized}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {propEntries.length === 0 && (
           <div style={{ fontSize: 12, opacity: 0.7 }}>Schema has no object properties to render.</div>
         )}
-        {/* Always use responsive auto layout container */}
-        <div className={rootAutoLayoutClass} style={rootAutoLayoutStyle}>
-          {propEntries.map(([key, def]) => renderFieldWithAutoLayout(key, def, ''))}
-        </div>
+        {useAutoLayout && (
+          <div className={rootAutoLayoutClass} style={rootAutoLayoutStyle}>
+            {propEntries.map(([key, def]) => renderFieldWithAutoLayout(key, def, ''))}
+          </div>
+        )}
+        {useVerticalLayout && propEntries.length > 0 && (
+          <div className="flex flex-col gap-4">
+            {renderVerticalSection(jsonSchema.title || schemaId || 'Details', propEntries, '', 0)}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
           <button type="submit" disabled={readOnly} className="px-3 py-1 text-xs border rounded bg-accent">Submit</button>
           <button type="button" disabled={!isDirty} onClick={() => { setData(value ?? {}); setDirty(false); }} className="px-3 py-1 text-xs border rounded">Reset</button>
