@@ -24,6 +24,7 @@ import {
 import { useSession } from "../auth/session-context"
 import { UserCircle2, LogOut } from "lucide-react"
 import { Button } from "../ui/button"
+import { FileMenu } from "./FileMenu"
 
 export const Builder: React.FC = () => {
   const { isPreviewMode, canvasScale, leftPanelWidth, rightPanelWidth, setLeftPanelWidth, setRightPanelWidth } = useBuilderStore()
@@ -59,15 +60,7 @@ export const Builder: React.FC = () => {
       {/* Top menu bar - hide in preview mode */}
       {!isPreviewMode && (
         <Menubar className="border-b rounded-none shadow-none px-2">
-          <MenubarMenu>
-            <MenubarTrigger>File</MenubarTrigger>
-            <MenubarContent>
-              <MenubarItem disabled>New</MenubarItem>
-              <MenubarItem disabled>Open…</MenubarItem>
-              <MenubarSeparator />
-              <MenubarItem disabled>Save</MenubarItem>
-            </MenubarContent>
-          </MenubarMenu>
+          <FileMenu />
           <MenubarMenu>
             <MenubarTrigger>View</MenubarTrigger>
             <MenubarContent>

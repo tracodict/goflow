@@ -2,113 +2,80 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { FileExplorer, type FileExplorerItem } from '../FileExplorer'
-import { usePagesStore, type PageItem } from '@/stores/pages'
+import { useWorkspace, type FileTreeNode } from '@/stores/workspace-store'
 import { useBuilderStore } from '@/stores/pagebuilder/editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { toast } from '@/hooks/use-toast'
-
-type PageTreeItem = PageItem & {
-  children?: PageTreeItem[]
-}
 
 export const PagesTab: React.FC = () => {
   const {
-    pages,
-    activePageId,
-    selectedItemId,
-    addPage,
-    addFolder,
-    deletePage,
-    deleteFolder,
-    renamePage,
-    renameFolder,
-    movePage,
-    setActivePage,
-    setSelectedItem,
-    toggleFolder,
-    updatePageElements,
-    getPageTree,
-    findPageById,
-    getPageNavigationURL,
-  } = usePagesStore()
+    owner,
+    repo,
+    branch,
+    tree,
+    activeFile,
+    loadFileTree,
+  } = useWorkspace()
 
   const router = useRouter()
-  const { elements, selectElement, addElement, removeElement, hasUnsavedChanges, markAsSaved, loadElements } = useBuilderStore()
+  const { elements, hasUnsavedChanges, markAsSaved } = useBuilderStore()
 
-  const [showAddDialog, setShowAddDialog] = useState<{ type: 'page' | 'folder'; parentId?: string } | null>(null)
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
   const [showDeleteDialog, setShowDeleteDialog] = useState<{ item: FileExplorerItem } | null>(null)
   const [showUnsavedDialog, setShowUnsavedDialog] = useState<{ targetItem: FileExplorerItem } | null>(null)
-  const [itemName, setItemName] = useState('')
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
 
-  // Helper function to load page elements into the builder
-  const loadPageElements = (pageElements: Record<string, any>) => {
-    // Clear current elements (except page-root)
-    const currentElementIds = Object.keys(elements).filter(id => id !== 'page-root')
-    currentElementIds.forEach(id => removeElement(id))
-    
-    // Add page elements (skip page-root as it should already exist)
-    Object.entries(pageElements).forEach(([id, element]) => {
-      if (id !== 'page-root' && element) {
-        addElement(element, element.parentId)
-      }
-    })
-  }
+  const hasWorkspace = !!(owner && repo && branch)
 
-    // Convert pages to FileExplorer format
+  // Build tree items from workspace file tree, showing all folders
   const buildTreeItems = (): FileExplorerItem[] => {
-    const pageTree = getPageTree() // This returns a hierarchical tree structure
+    if (!tree || tree.length === 0) return []
 
-    const convertToFileExplorerItem = (page: PageTreeItem): FileExplorerItem => {
-      const item: FileExplorerItem = {
-        id: page.id,
-        name: page.name,
-        type: page.type === 'page' ? 'file' : 'folder',
-        parentId: page.parentId,
-        isExpanded: page.isExpanded,
-        children: []
-      }
+    // Convert file tree nodes to FileExplorer items
+    const convertNode = (node: FileTreeNode, parentPath: string = ''): FileExplorerItem => {
+      const isFolder = node.type === 'directory'
       
-      // Recursively convert children if they exist
-      if (page.children && page.children.length > 0) {
-        item.children = page.children.map(convertToFileExplorerItem)
+      // Use node.path as id (the actual file path)
+      // For display name, strip extensions from files only
+      const displayName = isFolder 
+        ? node.name 
+        : node.name.replace(/\.(page|ds|qry|cpn|color|mcp)$/, '')
+      
+      const item: FileExplorerItem = {
+        id: node.path,
+        name: displayName,
+        type: isFolder ? 'folder' : 'file',
+        parentId: parentPath || undefined,
+        isExpanded: expandedFolders.has(node.path),
+        children: isFolder && node.children && node.children.length > 0 
+          ? node.children.map(child => convertNode(child, node.path)) 
+          : []
       }
       
       return item
     }
 
-    const rootItems = (pageTree as PageTreeItem[]).map(convertToFileExplorerItem)
-    return rootItems
+    // Convert all top-level folders
+    return tree.map(node => convertNode(node))
   }
 
-  const treeItems = useMemo(() => buildTreeItems(), [pages])
+  const treeItems = useMemo(() => buildTreeItems(), [tree, expandedFolders])
 
-  // Auto-select the active page's parent folder when component mounts or active page changes
+  // Auto-select the active file when it changes
   useEffect(() => {
-    if (activePageId) {
-      const activePage = findPageById(activePageId)
-      if (activePage) {
-        // If the active page has a parent folder, select it
-        if (activePage.parentId) {
-          setSelectedItem(activePage.parentId)
-        } else {
-          // If it's at root level, select the page itself
-          setSelectedItem(activePageId)
-        }
-      }
+    if (activeFile && activeFile.startsWith('Pages/')) {
+      setSelectedItemId(activeFile)
     }
-  }, [activePageId, findPageById, setSelectedItem])
+  }, [activeFile])
 
   const handleItemSelect = (item: FileExplorerItem | undefined) => {
     if (!item) {
-      // Clicked empty space - deselect all
-      setSelectedItem(null)
+      setSelectedItemId(null)
       return
     }
 
-    // Always update the selected item for both folders and pages
-    setSelectedItem(item.id)
+    setSelectedItemId(item.id)
 
     // If it's a folder, just select it without loading anything
     if (item.type === 'folder') {
@@ -116,7 +83,7 @@ export const PagesTab: React.FC = () => {
     }
 
     // If it's a page and we have unsaved changes, show confirmation dialog
-    if (item.type === 'file' && hasUnsavedChanges && activePageId && activePageId !== item.id) {
+    if (item.type === 'file' && hasUnsavedChanges && activeFile && activeFile !== item.id) {
       setShowUnsavedDialog({ targetItem: item })
       return
     }
@@ -125,56 +92,50 @@ export const PagesTab: React.FC = () => {
     navigateToPage(item)
   }
 
-  const navigateToPage = (item: FileExplorerItem) => {
-    // If it's a page, navigate to it in builder mode
+  const navigateToPage = async (item: FileExplorerItem) => {
     if (item.type === 'file') {
-      const page = findPageById(item.id)
-      if (page) {
-        // Save current page elements if there's an active page
-        if (activePageId && activePageId !== item.id) {
-          const currentPage = findPageById(activePageId)
-          if (currentPage) {
-            updatePageElements(activePageId, elements)
-          }
-        }
-
-        // Navigate to the page in builder mode
-        const url = getPageNavigationURL(item.id, 'builder')
-        router.push(url)
+      const filePath = item.id
+      
+      // Open the file in the workspace (will trigger file handler)
+      try {
+        await useWorkspace.getState().openFile(filePath)
+        
+        // Dispatch file open event for handlers to process
+        window.dispatchEvent(new CustomEvent('goflow-file-opened', {
+          detail: { path: filePath }
+        }))
         
         toast({
-          title: "Page Loaded",
-          description: `Now editing: ${page.name}`,
+          title: "File Opened",
+          description: `${item.name}`,
+        })
+      } catch (error: any) {
+        toast({
+          title: "Failed to Open File",
+          description: error.message,
+          variant: "destructive",
         })
       }
     }
   }
 
-  const proceedWithPageSelection = (item: FileExplorerItem) => {
-    setSelectedItem(item.id)
-    navigateToPage(item)
-  }
-
   const handleUnsavedDialogDiscard = () => {
     if (!showUnsavedDialog) return
     
-    // Discard changes and proceed with selection
-    markAsSaved() // Clear the unsaved changes flag
+    markAsSaved()
     navigateToPage(showUnsavedDialog.targetItem)
     setShowUnsavedDialog(null)
   }
 
-  const handleUnsavedDialogSave = () => {
-    if (!showUnsavedDialog || !activePageId) return
+  const handleUnsavedDialogSave = async () => {
+    if (!showUnsavedDialog || !activeFile) return
     
-    // Save current page elements
-    const currentPage = findPageById(activePageId)
-    if (currentPage) {
-      updatePageElements(activePageId, elements)
-      markAsSaved()
-    }
+    // Trigger save event for active editor
+    window.dispatchEvent(new CustomEvent('goflow-save-file', {
+      detail: { path: activeFile }
+    }))
     
-    // Proceed with selection
+    markAsSaved()
     navigateToPage(showUnsavedDialog.targetItem)
     setShowUnsavedDialog(null)
     
@@ -185,67 +146,57 @@ export const PagesTab: React.FC = () => {
   }
 
   const handleFolderToggle = (item: FileExplorerItem) => {
-    toggleFolder(item.id)
-  }
-
-  const handleAddFolder = (parentId?: string) => {
-    // If no parentId provided, determine based on selection:
-    // 1. If selected item is a folder -> add as child of that folder
-    // 2. If selected item is a page -> add as sibling (same parent as selected page)
-    // 3. If nothing selected -> add to root
-    let targetParentId = parentId
-    if (!targetParentId && selectedItemId) {
-      const selectedItem = pages.find(p => p.id === selectedItemId)
-      if (selectedItem?.type === 'folder') {
-        // Add as child of selected folder
-        targetParentId = selectedItemId
-      } else if (selectedItem?.type === 'page') {
-        // Add as sibling of selected page (same parent)
-        targetParentId = selectedItem.parentId
+    setExpandedFolders(prev => {
+      const next = new Set(prev)
+      if (next.has(item.id)) {
+        next.delete(item.id)
+      } else {
+        next.add(item.id)
       }
-    }
-    
-    setShowAddDialog({ type: 'folder', parentId: targetParentId })
-    setItemName('')
+      return next
+    })
   }
 
-  const handleAddFile = (parentId?: string) => {
-    // If no parentId provided, determine based on selection:
-    // 1. If selected item is a folder -> add as child of that folder
-    // 2. If selected item is a page -> add as sibling (same parent as selected page)
-    // 3. If nothing selected -> add to root
-    let targetParentId = parentId
-    if (!targetParentId && selectedItemId) {
-      const selectedItem = pages.find(p => p.id === selectedItemId)
-      if (selectedItem?.type === 'folder') {
-        // Add as child of selected folder
-        targetParentId = selectedItemId
-      } else if (selectedItem?.type === 'page') {
-        // Add as sibling of selected page (same parent)
-        targetParentId = selectedItem.parentId
-      }
+  const handleItemDelete = async (item: FileExplorerItem) => {
+    if (!hasWorkspace) {
+      toast({
+        title: "No Workspace",
+        description: "Please open a workspace first.",
+        variant: "destructive",
+      })
+      return
     }
-    
-    setShowAddDialog({ type: 'page', parentId: targetParentId })
-    setItemName('')
-  }
 
-  const handleItemDelete = (item: FileExplorerItem) => {
     setShowDeleteDialog({ item })
   }
 
-  const handleItemRename = (item: FileExplorerItem, newName: string) => {
-    // Don't allow renaming the Home page
-    if (item.type === 'file') {
-      const page = findPageById(item.id)
-      if (page?.name.toLowerCase() === 'home') {
-        toast({
-          title: "Cannot Rename",
-          description: "The Home page cannot be renamed.",
-          variant: "destructive",
-        })
-        return
-      }
+  const confirmDelete = async () => {
+    if (!showDeleteDialog?.item || !owner || !repo || !branch) return
+
+    const item = showDeleteDialog.item
+    const path = item.id
+
+    try {
+      await useWorkspace.getState().deleteFile(path)
+    } catch (error: any) {
+      toast({
+        title: "Delete Failed",
+        description: error.message,
+        variant: "destructive",
+      })
+    }
+
+    setShowDeleteDialog(null)
+  }
+
+  const handleItemRename = async (item: FileExplorerItem, newName: string) => {
+    if (!hasWorkspace) {
+      toast({
+        title: "No Workspace",
+        description: "Please open a workspace first.",
+        variant: "destructive",
+      })
+      return
     }
 
     const trimmedName = newName.trim()
@@ -258,167 +209,68 @@ export const PagesTab: React.FC = () => {
       return
     }
 
-    // Check for duplicate names in the same parent
-    const parentId = pages.find(p => p.id === item.id)?.parentId
-    const siblings = pages.filter(p => p.parentId === parentId && p.id !== item.id)
-    const isDuplicate = siblings.some(p => p.name.toLowerCase() === trimmedName.toLowerCase())
+    const oldPath = item.id
+    const pathParts = oldPath.split('/')
+    const isPage = oldPath.endsWith('.page')
     
-    if (isDuplicate) {
-      toast({
-        title: "Duplicate Name",
-        description: "An item with this name already exists in this location.",
-        variant: "destructive",
-      })
-      return
-    }
+    // Build new path
+    pathParts[pathParts.length - 1] = isPage ? `${trimmedName}.page` : trimmedName
+    const newPath = pathParts.join('/')
 
-    // Perform the rename
-    if (item.type === 'file') {
-      renamePage(item.id, trimmedName)
+    try {
+      await useWorkspace.getState().renameFile(oldPath, newPath)
+    } catch (error: any) {
       toast({
-        title: "Page Renamed",
-        description: `Renamed to: ${trimmedName}`,
-      })
-    } else {
-      renameFolder(item.id, trimmedName)
-      toast({
-        title: "Folder Renamed", 
-        description: `Renamed to: ${trimmedName}`,
+        title: "Rename Failed",
+        description: error.message,
+        variant: "destructive",
       })
     }
   }
 
-  const handleItemMove = (itemId: string, newParentId: string | undefined) => {
-    // Don't allow moving the Home page
-    const item = findPageById(itemId)
-    if (item?.name.toLowerCase() === 'home') {
+  const handleItemMove = async (itemId: string, newParentId: string | undefined) => {
+    if (!hasWorkspace) {
       toast({
-        title: "Cannot Move",
-        description: "The Home page cannot be moved.",
+        title: "No Workspace",
+        description: "Please open a workspace first.",
         variant: "destructive",
       })
       return
     }
 
-    // Prevent moving into self or descendants
-    if (newParentId === itemId) {
-      return
-    }
+    const oldPath = itemId
+    const fileName = oldPath.split('/').pop()!
+    const newParentPath = newParentId || 'Pages'
+    const newPath = `${newParentPath}/${fileName}`
 
-    // Check if newParentId is a descendant of itemId
-    const isDescendant = (parentId: string, childId: string): boolean => {
-      const parent = findPageById(parentId)
-      if (!parent) return false
-      
-      const children = pages.filter(p => p.parentId === parentId)
-      return children.some(child => 
-        child.id === childId || isDescendant(child.id, childId)
-      )
-    }
+    if (oldPath === newPath) return // No change
 
-    if (newParentId && isDescendant(itemId, newParentId)) {
+    try {
+      await useWorkspace.getState().renameFile(oldPath, newPath)
+    } catch (error: any) {
       toast({
-        title: "Invalid Move",
-        description: "Cannot move a folder into its own subfolder.",
+        title: "Move Failed",
+        description: error.message,
         variant: "destructive",
       })
-      return
     }
-
-    // Check for duplicate names in the target location
-    const siblings = pages.filter(p => p.parentId === newParentId && p.id !== itemId)
-    const isDuplicate = siblings.some(p => p.name.toLowerCase() === item?.name.toLowerCase())
-    
-    if (isDuplicate) {
-      toast({
-        title: "Duplicate Name",
-        description: "An item with this name already exists in the target location.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    // Perform the move
-    movePage(itemId, newParentId)
-    
-    const targetName = newParentId ? 
-      findPageById(newParentId)?.name || 'Unknown' : 
-      'Root'
-    
-    toast({
-      title: "Item Moved",
-      description: `Moved "${item?.name}" to ${targetName}`,
-    })
   }
 
-  const confirmAdd = () => {
-    if (!itemName.trim()) return
-
-    const name = itemName.trim()
-    
-    // Check for duplicate names in the same parent
-    const siblings = pages.filter(p => p.parentId === showAddDialog?.parentId)
-    const isDuplicate = siblings.some(p => p.name.toLowerCase() === name.toLowerCase())
-    
-    if (isDuplicate) {
-      toast({
-        title: "Error",
-        description: "An item with this name already exists in this location.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    if (showAddDialog?.type === 'page') {
-      const newPageId = addPage(name, showAddDialog.parentId)
-      toast({
-        title: "Page Created",
-        description: `Created new page: ${name}`,
-      })
-    } else if (showAddDialog?.type === 'folder') {
-      addFolder(name, showAddDialog.parentId)
-      toast({
-        title: "Folder Created",
-        description: `Created new folder: ${name}`,
-      })
-    }
-
-    setShowAddDialog(null)
-    setItemName('')
-  }
-
-  const confirmDelete = () => {
-    if (!showDeleteDialog?.item) return
-
-    const item = showDeleteDialog.item
-
-    if (item.type === 'file') {
-      // Don't allow deleting the Home page
-      const page = findPageById(item.id)
-      if (page?.name.toLowerCase() === 'home') {
-        toast({
-          title: "Cannot Delete",
-          description: "The Home page cannot be deleted.",
-          variant: "destructive",
-        })
-        setShowDeleteDialog(null)
-        return
-      }
-
-      deletePage(item.id)
-      toast({
-        title: "Page Deleted",
-        description: `Deleted page: ${item.name}`,
-      })
-    } else {
-      deleteFolder(item.id)
-      toast({
-        title: "Folder Deleted",
-        description: `Deleted folder and all its contents: ${item.name}`,
-      })
-    }
-
-    setShowDeleteDialog(null)
+  if (!hasWorkspace) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-4 text-center">
+        <p className="text-muted-foreground mb-4">
+          No workspace open. Please open a workspace from the File menu.
+        </p>
+        <Button onClick={() => {
+          // Trigger open workspace dialog via File menu
+          const fileMenuTrigger = document.querySelector('[data-radix-collection-item]') as HTMLElement
+          fileMenuTrigger?.click()
+        }}>
+          Open Workspace
+        </Button>
+      </div>
+    )
   }
 
   return (
@@ -426,48 +278,15 @@ export const PagesTab: React.FC = () => {
       <FileExplorer
         items={treeItems}
         selectedItemId={selectedItemId || undefined}
-        activeItemId={activePageId || undefined}
+        activeItemId={activeFile || undefined}
         onItemSelect={handleItemSelect}
         onItemDelete={handleItemDelete}
         onItemRename={handleItemRename}
         onItemMove={handleItemMove}
         onFolderToggle={handleFolderToggle}
-        onAddFolder={handleAddFolder}
-        onAddFile={handleAddFile}
-        showActions={true}
-        title="Pages"
+        showActions={false} // Disable inline add actions - use File menu instead
         className="flex-1"
       />
-
-      {/* Add Dialog */}
-      <Dialog open={!!showAddDialog} onOpenChange={() => setShowAddDialog(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              Create New {showAddDialog?.type === 'page' ? 'Page' : 'Folder'}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">Name</label>
-              <Input
-                value={itemName}
-                onChange={(e) => setItemName(e.target.value)}
-                placeholder={`Enter ${showAddDialog?.type} name...`}
-                onKeyDown={(e) => e.key === 'Enter' && confirmAdd()}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(null)}>
-              Cancel
-            </Button>
-            <Button onClick={confirmAdd} disabled={!itemName.trim()}>
-              Create
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!showDeleteDialog} onOpenChange={() => setShowDeleteDialog(null)}>

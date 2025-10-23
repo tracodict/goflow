@@ -4,6 +4,7 @@ import { Builder } from "@/components/builder/Builder"
 import { PageWorkspace } from "@/components/builder/PageWorkspace"  
 import { usePagesStore } from "@/stores/pages"
 import { useBuilderStore } from "@/stores/pagebuilder/editor"
+import { useWorkspace } from "@/stores/workspace-store"
 import { useSearchParams, usePathname } from "next/navigation"
 import { useEffect } from "react"
 
@@ -15,6 +16,12 @@ export default function HomeClient() {
   
   const { findPageById, findPageByPath, setActivePage } = usePagesStore()
   const { loadElements, togglePreviewMode, isPreviewMode } = useBuilderStore()
+  const { restoreWorkspace } = useWorkspace()
+
+  // Restore workspace from localStorage on mount
+  useEffect(() => {
+    restoreWorkspace()
+  }, [restoreWorkspace])
 
   // Handle different routing scenarios
   useEffect(() => {

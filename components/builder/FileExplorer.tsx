@@ -8,8 +8,6 @@ import {
   ChevronRight, 
   ChevronDown, 
   Trash2,
-  FolderPlus,
-  FilePlus,
   Edit
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -32,11 +30,8 @@ interface FileExplorerProps {
   onItemRename?: (item: FileExplorerItem, newName: string) => void
   onItemMove?: (itemId: string, newParentId: string | undefined) => void
   onFolderToggle?: (item: FileExplorerItem) => void
-  onAddFolder?: (parentId?: string) => void
-  onAddFile?: (parentId?: string) => void
   showActions?: boolean
   className?: string
-  title?: string
 }
 
 interface FileExplorerItemProps {
@@ -266,11 +261,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   onItemRename,
   onItemMove,
   onFolderToggle,
-  onAddFolder,
-  onAddFile,
   showActions = true,
-  className,
-  title
+  className
 }) => {
   const handleBackgroundClick = () => {
     onItemSelect?.(undefined as any) // Deselect all
@@ -291,35 +283,6 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
 
   return (
     <div className={cn("flex flex-col h-full", className)}>
-      {/* Header */}
-      {(title || showActions) && (
-        <div className="p-3 border-b bg-gray-50 flex items-center justify-between">
-          {title && <h3 className="font-semibold text-sm">{title}</h3>}
-          {showActions && (
-            <div className="flex gap-1">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 w-6 p-0"
-                onClick={() => onAddFolder?.()}
-                title="Add Folder"
-              >
-                <FolderPlus className="h-3 w-3" />
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 w-6 p-0"
-                onClick={() => onAddFile?.()}
-                title="Add File"
-              >
-                <FilePlus className="h-3 w-3" />
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* File tree */}
       <div 
         className="flex-1 overflow-auto"
@@ -349,9 +312,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
           <div className="p-4 text-center text-gray-500 text-sm">
             <File className="h-8 w-8 mx-auto mb-2 opacity-30" />
             <p>No items found</p>
-            {showActions && (
-              <p className="text-xs mt-1">Click the + buttons above to add items</p>
-            )}
+            <p className="text-xs mt-1">Use File menu to create new items</p>
           </div>
         )}
       </div>
