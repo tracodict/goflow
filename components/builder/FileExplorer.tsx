@@ -8,9 +8,26 @@ import {
   ChevronRight, 
   ChevronDown, 
   Trash2,
-  Edit
+  Edit,
+  Layout,
+  Database,
+  Palette,
+  Workflow,
+  Search,
+  Puzzle
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+// Helper function to get file type icon based on file path
+function getFileIcon(fileName: string) {
+  if (fileName.endsWith('.page')) return Layout
+  if (fileName.endsWith('.ds')) return Database
+  if (fileName.endsWith('.color')) return Palette
+  if (fileName.endsWith('.cpn')) return Workflow
+  if (fileName.endsWith('.qry')) return Search
+  if (fileName.endsWith('.mcp')) return Puzzle
+  return File
+}
 
 export interface FileExplorerItem {
   id: string
@@ -173,7 +190,10 @@ const FileExplorerItemComponent: React.FC<FileExplorerItemProps> = ({
         ) : (
           <div className="mr-2 flex-shrink-0">
             <div className="w-5 h-5 flex items-center justify-center">
-              <File className="h-4 w-4 text-gray-500" />
+              {(() => {
+                const FileIcon = getFileIcon(item.id)
+                return <FileIcon className="h-4 w-4 text-gray-500" />
+              })()}
             </div>
           </div>
         )}

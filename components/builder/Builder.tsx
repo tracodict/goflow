@@ -3,11 +3,7 @@
 import type React from "react"
 import { useBuilderStore } from "../../stores/pagebuilder/editor"
 import { LeftPanel } from "./LeftPanel"
-import { PageWorkspace } from "./PageWorkspace"
-import { VerticalToolbar } from "./VerticalToolbar"
-import { FlowWorkspace } from "../petri/flow-workspace"
-import DataWorkspace from '@/components/data/DataWorkspace'
-import { SchemaViewer } from "./SchemaViewer"
+import { MainPanel } from "./MainPanel"
 import { RightPanel } from "./RightPanel"
 import { ResizeHandle } from "./ResizeHandle"
 import { SystemSettingsProvider, useSystemSettings } from "../petri/system-settings-context"
@@ -177,38 +173,16 @@ export const Builder: React.FC = () => {
               </div>
             )}
 
-            <div className="flex-1 flex bg-muted/30 relative overflow-hidden">
-              {selectedSchema ? (
-                <div className="flex-1 h-full overflow-hidden">
-                  <SchemaViewer
-                    schema={selectedSchema.schema}
-                    schemaName={selectedSchema.name}
-                    onSchemaChange={handleSchemaChange}
-                    onClose={handleSchemaClose}
-                  />
-                </div>
-              ) : (
-                <div
-                  style={{
-                    overflow: "auto",
-                    transform: `scale(${canvasScale})`,
-                    transformOrigin: "0 0",
-                    width: `${100 / canvasScale}%`,
-                    height: `calc(${100 / canvasScale}% - 0.5rem)`,
-                  }}
-                >
-                  {activeTab === "workflow" ? <FlowWorkspace /> : (activeTab === 'data' ? <DataWorkspace /> : <PageWorkspace />)}
-                </div>
-              )}
-            </div>
-
-            {(activeTab !== 'workflow' || isPreviewMode) && (
-              <VerticalToolbar
-                leftOffset={!isPreviewMode ? (isLeftPanelOpen ? (leftPanelWidth + 10) : 58) : undefined}
-                rightOffset={isPreviewMode ? 10 : (isRightPanelOpen ? (rightPanelWidth + 10) : 10)}
-                bottomOffset={10}
-              />
-            )}
+            <MainPanel
+              activeTab={activeTab}
+              selectedSchema={selectedSchema}
+              onSchemaChange={handleSchemaChange}
+              onSchemaClose={handleSchemaClose}
+              leftPanelWidth={leftPanelWidth}
+              rightPanelWidth={rightPanelWidth}
+              isLeftPanelOpen={isLeftPanelOpen}
+              isRightPanelOpen={isRightPanelOpen}
+            />
 
             {!isPreviewMode && isRightPanelOpen && (
               <div style={{ width: rightPanelWidth, minWidth: 200, maxWidth: 600, position: 'relative' }}>
