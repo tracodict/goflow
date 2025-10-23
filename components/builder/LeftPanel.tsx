@@ -10,24 +10,29 @@ import { SchemaTab } from "../via/schema-tab"
 import { usePreSupportedSchemas } from "../petri/pre-supported-schemas"
 import ExplorerPanel from "../petri/explorer-panel"
 import type { JSONSchema } from "@/jsonjoy-builder/src/types/jsonSchema"
-import { Layers, FileText, TreePine, Database, BookText, Workflow, X, Wrench, MoreVertical, RefreshCw, Plus, Play, Beaker, Trash2, MessageSquare } from "lucide-react"
+import { Layers, FileText, TreePine, Database, BookText, Workflow, X, Wrench, MoreVertical, RefreshCw, Plus, Play, Beaker, Trash2, MessageSquare, FolderTree, LayoutDashboard } from "lucide-react"
 import { Button } from "../ui/button"
-import { useDataSourceStore } from '@/stores/filestore-datasource'
-import { useQueryStore } from '@/stores/filestore-query'
-import { useQueryStore as useQueryExecutionStore } from '@/stores/query'
-import { DataSource, QueryDefinition } from '@/lib/datastore-client'
 import { cn } from '@/lib/utils'
+import { DataSidebar } from './data/DataSidebar'
 
+// Tab structure with hierarchical support
+type TabItem = {
+	id: string
+	label: string
+	icon: any
+	parent?: string // ID of parent tab
+}
 
-const tabs = [
-	{ id: "components", label: "Components", icon: Layers },
-	{ id: "pages", label: "Pages", icon: FileText },
-	{ id: "structure", label: "Structure", icon: TreePine },
+const tabs: TabItem[] = [
+	{ id: "workspace", label: "Workspace", icon: FolderTree },
+	{ id: "page-builder", label: "Page Builder", icon: LayoutDashboard },
+	{ id: "components", label: "Components", icon: Layers, parent: "page-builder" },
+	{ id: "structure", label: "Structure", icon: TreePine, parent: "page-builder" },
 	{ id: "data", label: "Data", icon: Database },
 	{ id: "schema", label: "Schema", icon: BookText },
-	{ id: "workflow", label: "Workflow", icon: Workflow },
 	{ id: "mcp-tools", label: "MCP Tools", icon: Wrench },
-  { id: "chat", label: "Chat", icon: MessageSquare },
+	{ id: "chat", label: "Chat", icon: MessageSquare },
+	{ id: "workflow", label: "Workflow", icon: Workflow },
 ]
 
 import { fetchWorkflowList, fetchWorkflow, deleteWorkflowApi, listMcpTools, registerMcpServer, withApiErrorToast, listRegisteredMcpServers, deregisterMcpServer, fetchColorsList, saveWorkflow } from "../petri/petri-client"
@@ -51,6 +56,9 @@ type LeftPanelProps = {
 		const [error, setError] = useState<string | null>(null)
 		const { settings } = useSystemSettings()
 		const { names: preSupportedNames, load: loadPreSupported } = usePreSupportedSchemas()
+		
+		// Track which parent tabs are expanded to show their children
+		const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set(["page-builder"]))
 
 		// Load pre-supported schemas when component mounts
 		useEffect(() => {
@@ -294,17 +302,26 @@ type LeftPanelProps = {
 			return () => window.removeEventListener('goflow-explorer-graph-updated', onGraphUpdate as EventListener)
 		}, [activeTab, isOpen, settings.flowServiceUrl])
 
-		const renderTabContent = () => {
-			switch (activeTab) {
-				case "components":
-					return <ComponentsTab />
-				case "structure":
-					return <PageStructureTab />
-				case "pages":
-					return <PagesTab />
-				case "data":
-					// Datasource sidebar (Phase 1) using goflow design language
-					return <DataSidebar />
+	const renderTabContent = () => {
+		switch (activeTab) {
+			case "workspace":
+				// Placeholder: use existing Pages tab for file explorer
+				return <PagesTab />
+			case "page-builder":
+				// Parent tab - show a message to select a child
+				return (
+					<div className="p-4 text-center text-muted-foreground">
+						<LayoutDashboard className="w-12 h-12 mx-auto mb-2 opacity-50" />
+						<p>Select a page builder tool from the sidebar</p>
+					</div>
+				)
+			case "components":
+				return <ComponentsTab />
+			case "structure":
+				return <PageStructureTab />
+			case "data":
+				// Datasource sidebar (Phase 1) using goflow design language
+				return <DataSidebar />
 				case "schema":
 					return (
 						<div className="flex-1 overflow-auto">
@@ -498,35 +515,71 @@ type LeftPanelProps = {
 			}
 		}
 
-		return (
-			<div className="bg-card border-r border-border h-full flex">
-				{/* Vertical tab bar always visible */}
-				<div className="w-12 bg-muted/50 border-r border-border flex flex-col">
-					{tabs.map((tab) => {
-						const IconComponent = tab.icon
-						return (
-							<button
-								key={tab.id}
-								onClick={() => {
-									setActiveTab(tab.id)
-									if (!isOpen) onOpen()
-								}}
-								className={`w-12 h-12 flex items-center justify-center border-b border-border hover:bg-accent transition-colors group relative ${
-									activeTab === tab.id && isOpen ? "bg-accent text-accent-foreground" : "text-muted-foreground"
-								}`}
-								title={tab.label}
-							>
-								<IconComponent className="w-5 h-5" />
-								{/* Tooltip */}
-								<div className="absolute left-full ml-2 px-2 py-1 bg-popover text-popover-foreground text-xs rounded shadow-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
-									{tab.label}
-								</div>
-							</button>
-						)
-					})}
-				</div>
-
-				{/* Panel content, only if open */}
+	return (
+		<div className="bg-card border-r border-border h-full flex">
+			{/* Vertical tab bar always visible */}
+			<div className="w-12 bg-muted/50 border-r border-border flex flex-col">
+				{tabs.map((tab) => {
+					const IconComponent = tab.icon
+					const isParent = tabs.some(t => t.parent === tab.id)
+					const isChild = !!tab.parent
+					const isExpanded = expandedParents.has(tab.id)
+					const shouldShow = !isChild || expandedParents.has(tab.parent!)
+					
+					if (!shouldShow) return null
+					
+					const handleClick = () => {
+						if (isParent) {
+							// Toggle expansion for parent tabs
+							setExpandedParents(prev => {
+								const next = new Set(prev)
+								if (next.has(tab.id)) {
+									next.delete(tab.id)
+								} else {
+									next.add(tab.id)
+								}
+								return next
+							})
+							// If parent has children, don't set it as active tab
+							if (isExpanded) {
+								setActiveTab(tab.id)
+							} else {
+								// Expand and open first child
+								const firstChild = tabs.find(t => t.parent === tab.id)
+								if (firstChild) {
+									setActiveTab(firstChild.id)
+								}
+							}
+						} else {
+							setActiveTab(tab.id)
+						}
+						if (!isOpen) onOpen()
+					}
+					
+					return (
+						<button
+							key={tab.id}
+							onClick={handleClick}
+							className={cn(
+								"w-12 h-12 flex items-center justify-center border-b border-border hover:bg-accent transition-colors group relative",
+								activeTab === tab.id && isOpen ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+								isChild && "bg-muted/70 border-l-2 border-l-primary/30"
+							)}
+							title={tab.label}
+						>
+							<IconComponent className={cn("w-5 h-5", isChild && "w-4 h-4")} />
+							{/* Expansion indicator for parent tabs */}
+							{isParent && (
+								<div className="absolute right-1 bottom-1 w-1.5 h-1.5 rounded-full bg-primary/50" />
+							)}
+							{/* Tooltip */}
+							<div className="absolute left-full ml-2 px-2 py-1 bg-popover text-popover-foreground text-xs rounded shadow-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
+								{tab.label}
+							</div>
+						</button>
+					)
+				})}
+			</div>				{/* Panel content, only if open */}
 				{isOpen && (
 					<div className="flex-1 flex flex-col overflow-hidden min-w-[200px] max-w-[600px]">
 						{/* visual resizer handled by parent ResizeHandle; no decorative knob here to avoid duplication */}
@@ -535,855 +588,13 @@ type LeftPanelProps = {
 							<div className="text-sm font-semibold">{tabs.find(t => t.id === activeTab)?.label}</div>
 							<div className="flex items-center gap-1">
 								<Button variant="ghost" size="icon" onClick={onClose} title="Close panel">
-									<X className="w-4 h-4" />
-								</Button>
-							</div>
+								<X className="w-4 h-4" />
+							</Button>
 						</div>
-						<div className="flex-1 flex flex-col overflow-hidden">{renderTabContent()}</div>
 					</div>
-				)}
-			</div>
-		)
-	}
-
-// --- Data Sidebar Implementation (Phase 1) ---
-
-// Shared Section Component
-const Section: React.FC<{ id:string; title:string; children:React.ReactNode; actions?:React.ReactNode; expanded: { [k:string]: boolean }; setExpanded: (fn: (s: { [k:string]: boolean }) => { [k:string]: boolean }) => void }> = ({ id, title, children, actions, expanded, setExpanded }) => {
-	const open = expanded[id]
-	return (
-		<div className="rounded border bg-background/50">
-			<div className="flex items-center justify-between px-2 py-1.5 border-b">
-				<button onClick={()=> setExpanded(s=>({ ...s, [id]: !open }))} className="flex-1 flex items-center gap-2 text-left">
-					<span className="text-xs font-semibold tracking-wide">{title}</span>
-					<span className="ml-auto text-[10px] text-muted-foreground">{open ? '−' : '+'}</span>
-				</button>
-				{actions}
-			</div>
-			{open && <div className="p-2 space-y-2 text-xs">{children}</div>}
+					<div className="flex-1 flex flex-col overflow-hidden">{renderTabContent()}</div>
+				</div>
+			)}
 		</div>
 	)
 }
-
-const DataSidebar: React.FC = () => {
-	// System settings for API configuration
-	const { settings } = useSystemSettings()
-	
-	// FileStore-based data sources and queries
-	const { dataSources, loading: dsLoading, error: dsError, fetchDataSources, createDataSource, updateDataSource, deleteDataSource, testDataSource, testingIds } = useDataSourceStore()
-	const { queries, loading: queryLoading, fetchQueries, createQuery, updateQuery, deleteQuery, executeQuery, executingIds } = useQueryStore()
-	
-	const [adding, setAdding] = useState(false)
-	const [creating, setCreating] = useState(false)
-	const [newName, setNewName] = useState('')
-	const [newType, setNewType] = useState<DataSource['type']>('mongodb')
-	const [expanded, setExpanded] = useState<{ [k:string]: boolean }>({ ds: true, queries: true, history: false })
-	
-	// Configuration dialog state
-	const [configOpen, setConfigOpen] = useState(false)
-	const [configDsId, setConfigDsId] = useState<string | null>(null)
-	const [savingConfig, setSavingConfig] = useState(false)
-	
-	// Query creation dialog state
-	const [showQueryDialog, setShowQueryDialog] = useState(false)
-	const [queryForm, setQueryForm] = useState<{
-		name: string;
-		description?: string;
-		data_source_id: string;
-		query_type: 'folder' | 'sql' | 'select';
-		query?: string;
-		parameters?: Record<string, any>;
-		filters?: { maxFileSize?: number; allowedExtensions?: string[] };
-	}>({
-		name: '',
-		data_source_id: '',
-		query_type: 'folder'
-	})
-	const [queryParams, setQueryParams] = useState<Array<{ key: string; value: string }>>([])
-	const [creatingQuery, setCreatingQuery] = useState(false)
-	const [configForm, setConfigForm] = useState<{
-		__name?: string;
-		// GCS fields
-		bucketName?: string; serviceAccountKey?: string; projectId?: string; region?: string;
-		// S3 fields
-		accessKey?: string; secretKey?: string; endpoint?: string;
-		// Database fields
-		host?: string; port?: string; database?: string; username?: string; password?: string; uri?: string;
-		// Internal UI state
-		[k: string]: any;
-	}>({})
-
-	const resetQueryForm = React.useCallback(() => {
-		setQueryForm({ name: '', data_source_id: '', query_type: 'folder' })
-		setQueryParams([])
-	}, [])
-
-	const handleQueryDialogOpenChange = React.useCallback((open: boolean) => {
-		setShowQueryDialog(open)
-		if (!open) {
-			resetQueryForm()
-		}
-	}, [resetQueryForm])
-
-	const handleOpenQueryDialog = React.useCallback(() => {
-		resetQueryForm()
-		setShowQueryDialog(true)
-	}, [resetQueryForm])
-
-	const syncParamDefaults = React.useCallback((entries: Array<{ key: string; value: string }>) => {
-		setQueryParams(entries)
-		setQueryForm((prev) => {
-			const existingParams = { ...(prev.parameters || {}) }
-			if ('paramDefaults' in existingParams) {
-				delete (existingParams as any).paramDefaults
-			}
-			const defaults: Record<string, string> = {}
-			for (const entry of entries) {
-				const trimmedKey = entry.key.trim()
-				if (!trimmedKey) continue
-				defaults[trimmedKey] = entry.value
-			}
-			const nextParameters = { ...existingParams }
-			if (Object.keys(defaults).length > 0) {
-				;(nextParameters as any).paramDefaults = defaults
-			}
-			const hasParams = Object.keys(nextParameters).length > 0
-			return {
-				...prev,
-				parameters: hasParams ? nextParameters : undefined,
-			}
-		})
-	}, [])
-
-	const handleAddParam = React.useCallback(() => {
-		syncParamDefaults([...queryParams, { key: '', value: '' }])
-	}, [queryParams, syncParamDefaults])
-
-	const handleParamChange = React.useCallback(
-		(index: number, field: 'key' | 'value', value: string) => {
-			const next = queryParams.map((entry, idx) => (idx === index ? { ...entry, [field]: value } : entry))
-			syncParamDefaults(next)
-		},
-		[queryParams, syncParamDefaults],
-	)
-
-	const handleRemoveParam = React.useCallback(
-		(index: number) => {
-			const next = queryParams.filter((_, idx) => idx !== index)
-			syncParamDefaults(next)
-		},
-		[queryParams, syncParamDefaults],
-	)
-
-	useEffect(() => {
-		if (!showQueryDialog) return
-		const defaults = (() => {
-			const raw = queryForm.parameters as any
-			const paramDefaults = raw?.paramDefaults
-			if (paramDefaults && typeof paramDefaults === 'object' && !Array.isArray(paramDefaults)) {
-				return Object.entries(paramDefaults).map(([key, value]) => ({ key, value: value == null ? '' : String(value) }))
-			}
-			return []
-		})()
-		syncParamDefaults(defaults)
-	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [showQueryDialog])
-
-	const saveConfig = async () => {
-		setSavingConfig(true)
-		try {
-			if (!configDsId) return
-			const current = (dataSources || []).find(d => d.id === configDsId)
-			if (!current) return
-			
-			const payload: Partial<DataSource> = {
-				name: configForm.__name || current.name
-			}
-			
-			if (current.type === 'gcs') {
-				// GCS configuration
-				payload.config = {
-					bucketName: configForm.bucketName,
-					projectId: configForm.projectId,
-					region: configForm.region
-				}
-				payload.credentials = {
-					apiKey: configForm.serviceAccountKey
-				}
-			} else if (current.type === 's3') {
-				// S3 configuration
-				payload.config = {
-					bucketName: configForm.bucketName,
-					region: configForm.region,
-					endpoint: configForm.endpoint
-				}
-				payload.credentials = {
-					accessKey: configForm.accessKey,
-					secretKey: configForm.secretKey
-				}
-			} else {
-				// Database configuration
-				payload.config = {
-					host: configForm.host,
-					port: configForm.port ? Number(configForm.port) : undefined,
-					database: configForm.database,
-					uri: configForm.uri
-				}
-				payload.credentials = {
-					username: configForm.username,
-					password: configForm.password
-				}
-			}
-			
-			await updateDataSource(settings?.flowServiceUrl || '', configDsId, payload)
-			toast({ title: 'Saved' })
-		} catch(e:any) {
-			toast({ title: 'Save failed', description: e?.message || 'Unable to save', variant:'destructive' })
-		} finally {
-			setSavingConfig(false)
-		}
-	}
-
-	useEffect(() => { 
-		if (settings?.flowServiceUrl) {
-			fetchDataSources(settings.flowServiceUrl).catch(()=>{})
-			fetchQueries(settings.flowServiceUrl).catch(()=>{})
-		}
-	}, [fetchDataSources, fetchQueries, settings?.flowServiceUrl])
-
-	const handleCreate = async () => {
-		if (!newName.trim()) return
-		setCreating(true)
-		try {
-			const config = newType === 'mongodb' ? { database: 'app' } : 
-								newType === 'gcs' ? { bucketName: '', projectId: '', region: 'us-central1' } :
-								newType === 's3' ? { bucketName: '', region: 'us-east-1' } :
-								{ host: 'localhost', port: newType === 'postgres' ? 5432 : 3306, database: 'app' }
-			
-			await createDataSource(settings?.flowServiceUrl || '', { 
-				name: newName.trim(), 
-				type: newType, 
-				config,
-				enabled: true
-			})
-			setNewName('')
-			setAdding(false)
-		} catch (e:any) {
-			toast({ title: 'Create failed', description: e?.message || 'Unable to create datasource', variant: 'destructive' })
-		} finally { setCreating(false) }
-	}
-
-	const handleTest = async (id: string) => {
-		try {
-			await testDataSource(settings?.flowServiceUrl || '', id)
-			toast({ title: 'Test complete', description: 'Data source connection successful' })
-		} catch(e:any) {
-			toast({ title: 'Test failed', description: e?.message || 'Connection error', variant: 'destructive' })
-		}
-	}
-
-	const handleDelete = async (id: string) => {
-		try {
-			await deleteDataSource(settings?.flowServiceUrl || '', id)
-			toast({ title: 'Deleted', description: 'Data source removed successfully' })
-		} catch(e:any) {
-			toast({ title: 'Delete failed', description: e?.message || 'Unable to delete', variant: 'destructive' })
-		}
-	}
-
-	const handleCreateQuery = async () => {
-		if (!queryForm.name.trim() || !queryForm.data_source_id || !queryForm.query_type) {
-			toast({ title: 'Validation Error', description: 'Name, data source, and query type are required', variant: 'destructive' })
-			return
-		}
-		
-		setCreatingQuery(true)
-		try {
-			await createQuery(settings?.flowServiceUrl || '', {
-				...queryForm,
-				name: queryForm.name.trim(),
-				enabled: true
-			})
-			handleQueryDialogOpenChange(false)
-			toast({ title: 'Query Created', description: 'Query definition saved successfully' })
-		} catch (e: any) {
-			toast({ title: 'Create failed', description: e?.message || 'Unable to create query', variant: 'destructive' })
-		} finally {
-			setCreatingQuery(false)
-		}
-	}
-
-	return (
-		<>
-		<div className="flex-1 flex flex-col overflow-auto p-3 gap-3 text-xs">
-			<Section id="ds" title={`Data Sources (${(dataSources || []).length})`} expanded={expanded} setExpanded={setExpanded} actions={
-				<div className="flex items-center gap-1 pr-1">
-					<Button size="icon" variant="ghost" className="h-6 w-6" onClick={()=> fetchDataSources(settings?.flowServiceUrl || '')} disabled={dsLoading} title="Refresh data sources"><RefreshCw className={cn('h-3.5 w-3.5', dsLoading && 'animate-spin')} /></Button>
-					<Button size="icon" variant="ghost" className="h-6 w-6" onClick={()=> setAdding(true)} title="Add data source"><Plus className="h-3.5 w-3.5" /></Button>
-				</div>
-			}>
-				{dsLoading && <div className="text-muted-foreground">Loading…</div>}
-				{dsError && <div className="text-destructive">{dsError}</div>}
-				{!dsLoading && (dataSources || []).length === 0 && <div className="text-muted-foreground">No data sources yet</div>}
-				<div className="space-y-1">
-					{(dataSources || []).map((ds: DataSource) => {
-						const statusColor = ds.test_status === 'healthy' ? 'bg-green-500' : ds.test_status === 'error' ? 'bg-red-500' : 'bg-neutral-400'
-						return (
-							<div key={ds.id} className="group border rounded px-2 py-1 flex flex-col gap-1 hover:bg-accent/40">
-								<div className="flex items-center gap-2">
-									<div className={cn('h-2 w-2 rounded-full flex-shrink-0', statusColor)} />
-									<div className="flex-1 leading-tight overflow-hidden">
-										<div className="truncate font-medium text-[11px]">{ds.name}</div>
-										<div className="truncate text-[10px] text-muted-foreground">{ds.type}{ds.test_latency_ms && ` • ${ds.test_latency_ms}ms`}</div>
-										{ds.description && <div className="truncate text-[9px] text-muted-foreground">{ds.description}</div>}
-									</div>
-									<div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-										<Button size="icon" variant="ghost" className="h-5 w-5" title="Test" onClick={()=> handleTest(ds.id)} disabled={testingIds.has(ds.id)}><Beaker className={cn('h-3 w-3', testingIds.has(ds.id) && 'animate-pulse')} /></Button>
-										<Button size="icon" variant="ghost" className="h-5 w-5" title="Configure" onClick={()=> { setConfigDsId(ds.id); setConfigOpen(true); setConfigForm({ __name: ds.name, ...ds.config, ...ds.credentials }) }}><Wrench className="h-3 w-3" /></Button>
-										<Button size="icon" variant="ghost" className="h-5 w-5 text-red-600" title="Delete" onClick={()=> handleDelete(ds.id)}><Trash2 className="h-3 w-3" /></Button>
-									</div>
-								</div>
-								{ds.config && (
-									<div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[9px] text-muted-foreground mt-1">
-										{ds.config.host && <><span>Host</span><span className="truncate">{ds.config.host}</span></>}
-										{ds.config.port && <><span>Port</span><span>{ds.config.port}</span></>}
-										{ds.config.database && <><span>DB</span><span className="truncate">{ds.config.database}</span></>}
-										{ds.config.bucketName && <><span>Bucket</span><span className="truncate">{ds.config.bucketName}</span></>}
-										{ds.config.region && <><span>Region</span><span className="truncate">{ds.config.region}</span></>}
-									</div>
-								)}
-								{ds.test_error && (
-									<div className="text-[9px] text-red-600 mt-1 truncate">{ds.test_error}</div>
-								)}
-							</div>
-						)
-					})}
-				</div>
-				{adding && (
-					<div className="mt-2 p-2 border rounded space-y-2 bg-background/80">
-						<div>
-							<input autoFocus onKeyDown={e=> { e.stopPropagation() }} className="w-full px-2 py-1 rounded border text-xs" placeholder="Datasource name" value={newName} onChange={e=> setNewName(e.target.value)} />
-						</div>
-						<div className="flex items-center gap-2 justify-between">
-							<select className="px-2 py-1 rounded border text-xs relative z-50" value={newType} onChange={e=> setNewType(e.target.value as DataSource['type'])}>
-								<option value="mongodb">MongoDB</option>
-								<option value="postgres">PostgreSQL</option>
-								<option value="mysql">MySQL</option>
-								<option value="s3">Amazon S3</option>
-								<option value="gcs">Google Cloud Storage</option>
-							</select>
-							<Button size="sm" onClick={handleCreate} disabled={creating || !newName.trim()}>{creating ? 'Saving…' : 'Save'}</Button>
-						</div>
-					</div>
-				)}
-			</Section>
-
-			<QueriesSection expanded={expanded} setExpanded={setExpanded} openQueryDialog={handleOpenQueryDialog} />
-			<HistorySection expanded={expanded} setExpanded={setExpanded} />
-		</div>
-		<Dialog open={configOpen} onOpenChange={setConfigOpen}>
-			<DialogContent className="max-w-md">
-				<DialogHeader>
-					<DialogTitle>Configure Datasource</DialogTitle>
-					<DialogDescription>Edit connection parameters (stored securely server-side).</DialogDescription>
-				</DialogHeader>
-				{(() => {
-					const current = (dataSources || []).find((d: DataSource) => d.id === configDsId)
-					if (!current) return <div>Data source not found</div>
-					
-					return (
-						<div className="space-y-4 text-xs">
-							<div className="space-y-2">
-								<label className="text-[11px] font-semibold">Data Source Name</label>
-								<input className="w-full px-2 py-1 rounded border" value={configForm.__name ?? current.name ?? ''} onChange={e=> setConfigForm(f=> ({ ...f, __name: e.target.value }))} placeholder="Name" />
-							</div>
-							
-							<div className="space-y-2">
-								<label className="text-[11px] font-semibold">Description (optional)</label>
-								<textarea className="w-full px-2 py-1 rounded border resize-none" rows={2} value={configForm.description ?? current.description ?? ''} onChange={e=> setConfigForm(f=> ({ ...f, description: e.target.value }))} placeholder="Brief description of this data source" />
-							</div>
-
-							{current.type === 'gcs' && (
-								<>
-									<div className="space-y-2">
-										<label className="text-[11px] font-semibold">Bucket Name</label>
-										<input className="w-full px-2 py-1 rounded border" value={configForm.bucketName||''} onChange={e=> setConfigForm(f=>({...f, bucketName: e.target.value }))} placeholder="my-gcs-bucket" />
-									</div>
-									<div className="grid grid-cols-2 gap-2">
-										<div className="space-y-1">
-											<label className="text-[11px] font-semibold">Project ID</label>
-											<input className="px-2 py-1 rounded border" value={configForm.projectId||''} onChange={e=> setConfigForm(f=>({...f, projectId: e.target.value }))} placeholder="my-project-123" />
-										</div>
-										<div className="space-y-1">
-											<label className="text-[11px] font-semibold">Region</label>
-											<input className="px-2 py-1 rounded border" value={configForm.region||''} onChange={e=> setConfigForm(f=>({...f, region: e.target.value }))} placeholder="us-central1" />
-										</div>
-									</div>
-									<div className="space-y-2">
-										<label className="text-[11px] font-semibold">Service Account Key (JSON)</label>
-										<textarea className="w-full px-2 py-1 rounded border resize-none" rows={4} value={configForm.serviceAccountKey||''} onChange={e=> setConfigForm(f=>({...f, serviceAccountKey: e.target.value }))} placeholder='{"type": "service_account", "project_id": "..."}' />
-									</div>
-								</>
-							)}
-
-							{current.type === 's3' && (
-								<>
-									<div className="space-y-2">
-										<label className="text-[11px] font-semibold">Bucket Name</label>
-										<input className="w-full px-2 py-1 rounded border" value={configForm.bucketName||''} onChange={e=> setConfigForm(f=>({...f, bucketName: e.target.value }))} placeholder="my-s3-bucket" />
-									</div>
-									<div className="grid grid-cols-2 gap-2">
-										<div className="space-y-1">
-											<label className="text-[11px] font-semibold">Access Key ID</label>
-											<input className="px-2 py-1 rounded border" value={configForm.accessKey||''} onChange={e=> setConfigForm(f=>({...f, accessKey: e.target.value }))} placeholder="AKIAIOSFODNN7EXAMPLE" />
-										</div>
-										<div className="space-y-1">
-											<label className="text-[11px] font-semibold">Secret Access Key</label>
-											<input type="password" className="px-2 py-1 rounded border" value={configForm.secretKey||''} onChange={e=> setConfigForm(f=>({...f, secretKey: e.target.value }))} placeholder="***" />
-										</div>
-									</div>
-									<div className="grid grid-cols-2 gap-2">
-										<div className="space-y-1">
-											<label className="text-[11px] font-semibold">Region</label>
-											<input className="px-2 py-1 rounded border" value={configForm.region||''} onChange={e=> setConfigForm(f=>({...f, region: e.target.value }))} placeholder="us-east-1" />
-										</div>
-										<div className="space-y-1">
-											<label className="text-[11px] font-semibold">Endpoint (optional)</label>
-											<input className="px-2 py-1 rounded border" value={configForm.endpoint||''} onChange={e=> setConfigForm(f=>({...f, endpoint: e.target.value }))} placeholder="https://s3.amazonaws.com" />
-										</div>
-									</div>
-								</>
-							)}
-
-							{(current.type === 'mongodb' || current.type === 'postgres' || current.type === 'mysql') && (
-								<>
-									<div className="space-y-2">
-										<label className="text-[11px] font-semibold">Connection URI (optional)</label>
-										<input className="w-full px-2 py-1 rounded border" value={configForm.uri||''} onChange={e=> setConfigForm(f=>({...f, uri: e.target.value }))} placeholder={current.type === 'mongodb' ? 'mongodb://user:pass@host:27017/db' : current.type === 'postgres' ? 'postgres://user:pass@host:5432/db' : 'mysql://user:pass@host:3306/db'} />
-										<p className="text-[10px] text-muted-foreground">If provided, individual fields below are ignored.</p>
-									</div>
-									<div className="grid grid-cols-2 gap-2">
-										<div className="space-y-1">
-											<label className="text-[11px] font-semibold">Host</label>
-											<input className="px-2 py-1 rounded border" value={configForm.host||''} onChange={e=> setConfigForm(f=>({...f, host: e.target.value }))} placeholder="localhost" />
-										</div>
-										<div className="space-y-1">
-											<label className="text-[11px] font-semibold">Port</label>
-											<input className="px-2 py-1 rounded border" value={configForm.port||''} onChange={e=> setConfigForm(f=>({...f, port: e.target.value }))} placeholder={current.type === 'mongodb' ? '27017' : current.type === 'postgres' ? '5432' : '3306'} />
-										</div>
-									</div>
-									<div className="grid grid-cols-2 gap-2">
-										<div className="space-y-1">
-											<label className="text-[11px] font-semibold">Database</label>
-											<input className="px-2 py-1 rounded border" value={configForm.database||''} onChange={e=> setConfigForm(f=>({...f, database: e.target.value }))} placeholder="mydb" />
-										</div>
-										<div className="space-y-1">
-											<label className="text-[11px] font-semibold">Username</label>
-											<input className="px-2 py-1 rounded border" value={configForm.username||''} onChange={e=> setConfigForm(f=>({...f, username: e.target.value }))} placeholder="user" />
-										</div>
-									</div>
-									<div className="space-y-2">
-										<label className="text-[11px] font-semibold">Password</label>
-										<input type="password" className="w-full px-2 py-1 rounded border" value={configForm.password||''} onChange={e=> setConfigForm(f=>({...f, password: e.target.value }))} placeholder="***" />
-									</div>
-								</>
-							)}
-							
-							<p className="text-[10px] text-muted-foreground">Credentials are stored securely and never returned to the client.</p>
-						</div>
-					)
-				})()}
-				<DialogFooter className="flex items-center justify-between gap-2">
-					{(() => { const current = (dataSources || []).find((d: DataSource) => d.id === configDsId); return (
-						<div className="flex flex-col mr-auto text-[11px] gap-1 max-w-[240px]">
-							<div className="flex items-center gap-2">
-								{current?.test_status && <span className={cn('px-2 py-0.5 rounded border', current.test_status==='healthy' ? 'bg-green-50 border-green-300 text-green-700' : current.test_status==='error' ? 'bg-red-50 border-red-300 text-red-700' : 'bg-neutral-50 border-neutral-300 text-neutral-600')}>{current.test_status}</span>}
-								{current?.test_latency_ms && <span className="text-muted-foreground">{current.test_latency_ms}ms</span>}
-							</div>
-							{current?.test_error && (
-								<div className="text-[10px] leading-snug text-red-600 line-clamp-3 break-words">
-									{current.test_error}
-								</div>
-							)}
-						</div>
-					)})()}
-					<Button variant="ghost" size="sm" onClick={()=> setConfigOpen(false)}>Close</Button>
-					{configDsId && <Button size="sm" variant="outline" onClick={()=> handleTest(configDsId)} disabled={savingConfig || testingIds.has(configDsId)}>{testingIds.has(configDsId) ? 'Testing…':'Test'}</Button>}
-					<Button size="sm" variant="secondary" onClick={saveConfig} disabled={savingConfig}>{savingConfig? 'Saving…':'Save'}</Button>
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
-		
-		{/* Query Creation Dialog */}
-		<Dialog open={showQueryDialog} onOpenChange={handleQueryDialogOpenChange}>
-			<DialogContent className="max-w-md">
-				<DialogHeader>
-					<DialogTitle>Create Query Definition</DialogTitle>
-					<DialogDescription>Create a new query definition based on filestore.sh patterns.</DialogDescription>
-				</DialogHeader>
-				<div className="space-y-4 text-xs">
-					<div className="space-y-2">
-						<label className="text-[11px] font-semibold">Query Name</label>
-						<input 
-							className="w-full px-2 py-1 rounded border" 
-							value={queryForm.name} 
-							onChange={e => setQueryForm(f => ({ ...f, name: e.target.value }))} 
-							placeholder="e.g., GCS Unit Test Query" 
-						/>
-					</div>
-					
-					<div className="space-y-2">
-						<label className="text-[11px] font-semibold">Description (optional)</label>
-						<textarea 
-							className="w-full px-2 py-1 rounded border resize-none" 
-							rows={2}
-							value={queryForm.description || ''} 
-							onChange={e => setQueryForm(f => ({ ...f, description: e.target.value }))} 
-							placeholder="Brief description of this query" 
-						/>
-					</div>
-
-					<div className="space-y-2">
-						<label className="text-[11px] font-semibold">Data Source</label>
-						<select 
-							className="w-full px-2 py-1 rounded border" 
-							value={queryForm.data_source_id} 
-							onChange={e => setQueryForm(f => ({ ...f, data_source_id: e.target.value }))}
-						>
-							<option value="">Select data source...</option>
-							{(dataSources || []).map(ds => (
-								<option key={ds.id} value={ds.id}>{ds.name} ({ds.type})</option>
-							))}
-						</select>
-					</div>
-
-					<div className="space-y-2">
-						<label className="text-[11px] font-semibold">Query Type</label>
-						<select 
-							className="w-full px-2 py-1 rounded border" 
-							value={queryForm.query_type} 
-							onChange={e => setQueryForm(f => ({ ...f, query_type: e.target.value as 'folder' | 'sql' | 'select' }))}
-						>
-							<option value="folder">Folder (for GCS/S3)</option>
-							<option value="sql">SQL Query</option>
-							<option value="select">Select Query</option>
-						</select>
-					</div>
-
-					{queryForm.query_type === 'folder' && (
-						<>
-							<div className="space-y-2">
-								<label className="text-[11px] font-semibold">Folder Path</label>
-								<input 
-									className="w-full px-2 py-1 rounded border" 
-									value={queryForm.parameters?.folderPath || ''} 
-									onChange={e => setQueryForm(f => ({ 
-										...f, 
-										parameters: { 
-											...f.parameters, 
-											folderPath: e.target.value,
-											recursive: true,
-											includeMetadata: true
-										}
-									}))} 
-									placeholder="e.g., gcs_unit_test" 
-								/>
-							</div>
-							<div className="space-y-2">
-								<label className="text-[11px] font-semibold">Max File Size (bytes)</label>
-								<input 
-									type="number"
-									className="w-full px-2 py-1 rounded border" 
-									value={queryForm.filters?.maxFileSize || 10485760} 
-									onChange={e => setQueryForm(f => ({ 
-										...f, 
-										filters: { 
-											...f.filters, 
-											maxFileSize: parseInt(e.target.value) || 10485760
-										}
-									}))} 
-								/>
-							</div>
-							<div className="space-y-2">
-								<label className="text-[11px] font-semibold">Allowed Extensions (comma-separated)</label>
-								<input 
-									className="w-full px-2 py-1 rounded border" 
-									value={queryForm.filters?.allowedExtensions?.join(', ') || ''} 
-									onChange={e => setQueryForm(f => ({ 
-										...f, 
-										filters: { 
-											...f.filters, 
-											allowedExtensions: e.target.value.split(',').map(ext => ext.trim()).filter(Boolean)
-										}
-									}))} 
-									placeholder=".md, .txt, .json, .yaml, .pdf"
-								/>
-							</div>
-						</>
-					)}
-
-					{(queryForm.query_type === 'sql' || queryForm.query_type === 'select') && (
-						<div className="space-y-2">
-							<label className="text-[11px] font-semibold">Query</label>
-							<textarea 
-								className="w-full px-2 py-1 rounded border resize-none font-mono" 
-								rows={4}
-								value={queryForm.query || ''} 
-								onChange={e => setQueryForm(f => ({ ...f, query: e.target.value }))} 
-								placeholder="SELECT * FROM users WHERE email = ?" 
-							/>
-						</div>
-					)}
-
-					<div className="space-y-2">
-						<div className="flex items-center justify-between">
-							<label className="text-[11px] font-semibold">Query Parameters</label>
-							<Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={handleAddParam}>Add</Button>
-						</div>
-						{queryParams.length === 0 ? (
-							<div className="rounded border border-dashed px-2 py-2 text-[11px] text-muted-foreground">
-								Optional key/value parameters used for templating (e.g., {'${search}'}).
-							</div>
-						) : (
-							<div className="space-y-2">
-								{queryParams.map((param, index) => (
-									<div key={index} className="grid grid-cols-7 gap-2">
-										<input
-											className="col-span-3 rounded border px-2 py-1 text-xs"
-											placeholder="paramKey"
-											value={param.key}
-											onChange={(e) => handleParamChange(index, 'key', e.target.value)}
-										/>
-										<input
-											className="col-span-3 rounded border px-2 py-1 text-xs"
-											placeholder="Default value"
-											value={param.value}
-											onChange={(e) => handleParamChange(index, 'value', e.target.value)}
-										/>
-										<Button
-											type="button"
-											size="icon"
-											variant="ghost"
-											className="h-7 w-7 text-red-500"
-											onClick={() => handleRemoveParam(index)}
-										>
-											×
-										</Button>
-									</div>
-								))}
-							</div>
-						)}
-						<div className="text-[10px] text-muted-foreground">
-							Reference parameters within your query using {'${paramKey}'} placeholders.
-						</div>
-					</div>
-				</div>
-				<DialogFooter>
-					<Button variant="ghost" size="sm" onClick={() => handleQueryDialogOpenChange(false)}>Cancel</Button>
-					<Button size="sm" variant="secondary" onClick={handleCreateQuery} disabled={creatingQuery}>
-						{creatingQuery ? 'Creating...' : 'Create Query'}
-					</Button>
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
-		</>
-	)
-}
-
-// Queries Section Component
-	const QueriesSection: React.FC<{ 
-		expanded: { [k:string]: boolean }; 
-		setExpanded: (fn: (s: { [k:string]: boolean }) => { [k:string]: boolean }) => void;
-		openQueryDialog: () => void;
-	}> = ({ expanded, setExpanded, openQueryDialog }) => {
-	const { settings } = useSystemSettings()
-	const { queries, deleteQuery, executeQuery, executingIds } = useQueryStore()
-	const { setResult, setS3Result, setDatasource, setS3Input, setGcsQueryParams, setMongoInput, setSqlInput } = useQueryExecutionStore()
-	const [searchTerm, setSearchTerm] = useState('')
-		const allQueries = queries || []
-	
-		const filteredQueries = allQueries.filter((q: QueryDefinition) =>
-		q.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-		(q.description && q.description.toLowerCase().includes(searchTerm.toLowerCase()))
-	)
-
-	const handleLoadQuery = (query: QueryDefinition) => {
-		// Navigate to data workspace with query loaded
-		try { 
-			window.dispatchEvent(new CustomEvent('goflow-open-data-workspace', { detail: { view: 'queries', queryId: query.id } })) 
-		} catch {}
-	}
-
-	const handleRunQuery = async (query: QueryDefinition) => {
-		try {
-			const result = await executeQuery(settings?.flowServiceUrl || '', query.id)
-			
-			// Set the active datasource in QueryEditor so currentDatasource is not null
-			setDatasource(query.data_source_id)
-			
-			// Populate QueryEditor's input fields with query parameters
-			if (query.query_type === 'folder') {
-				// For GCS/S3 folder queries
-				const folderPath = query.parameters?.folder_path || '/'
-				setS3Input(folderPath.startsWith('/') ? folderPath.slice(1) : folderPath)
-				
-				// Set GCS query parameters for the form
-				setGcsQueryParams({
-					folderPath: folderPath,
-					recursive: query.parameters?.recursive ?? true,
-					includeMetadata: query.parameters?.include_metadata ?? true,
-					showHidden: query.parameters?.show_hidden ?? false,
-					maxFileSize: query.parameters?.max_file_size,
-					allowedExtensions: query.parameters?.allowed_extensions || ['.pdf', '.txt', '.json', '.md', '.csv', '.xml', '.dat']
-				})
-			} else if (query.query_type === 'sql') {
-				// For SQL queries
-				setSqlInput(query.query || 'SELECT 1')
-			} else if (query.query_type === 'select') {
-				// For MongoDB queries (assuming 'select' maps to mongo aggregation)
-				setMongoInput(query.parameters?.pipeline ? JSON.stringify(query.parameters.pipeline, null, 2) : '[\n  { "$limit": 50 }\n]')
-			}
-			
-			// Update QueryEditor's result state for preview
-			if (query.query_type === 'folder') {
-				// Transform to S3QueryResult format for GCS/S3 queries
-				const s3Result = {
-					files: result.rows.map((row: any) => ({
-						key: row.name || row.key || row.filename || 'Unknown',
-						size: Number(row.size) || 0,
-						lastModified: new Date(row.modified || row.lastModified || row.last_modified || Date.now()),
-						etag: row.etag || row.hash || 'unknown',
-						isFolder: row.type === 'folder' || row.isFolder || false,
-						contentType: row.content_type || row.contentType
-					})),
-					prefix: query.parameters?.folder_path || '/',
-					totalFiles: result.rows.length,
-					meta: {
-						executionMs: result.meta.executionMs,
-						datasourceId: result.meta.datasourceId || query.data_source_id
-					}
-				}
-				setS3Result(s3Result)
-			} else {
-				// Regular SQL/Mongo query result
-				setResult(result)
-			}
-			
-			// Check if this might be mock data
-			const isMockData = result.meta.executionMs === 0 || 
-				result.rows.some(row => row.type === 'mock' || row.name?.includes('Sample'))
-			
-			if (isMockData) {
-				toast({ 
-					title: 'Query executed (Mock Data)', 
-					description: 'Server returned placeholder data - query execution may not be fully implemented',
-					variant: 'default'
-				})
-			} else {
-				toast({ title: 'Query executed', description: 'Results are available in the data workspace' })
-			}
-			
-			// Navigate to data workspace
-			window.dispatchEvent(new CustomEvent('goflow-open-data-workspace', { detail: { view: 'queries', queryId: query.id } }))
-		} catch (e: any) {
-			toast({ title: 'Query failed', description: e?.message || 'Execution error', variant: 'destructive' })
-		}
-	}
-
-	const handleDeleteQuery = async (query: QueryDefinition) => {
-		try {
-			await deleteQuery(settings?.flowServiceUrl || '', query.id)
-			toast({ title: 'Deleted', description: 'Query definition removed' })
-		} catch (e: any) {
-			toast({ title: 'Delete failed', description: e?.message || 'Unable to delete', variant: 'destructive' })
-		}
-	}
-
-	return (
-		<Section id="queries" title={`Query Definitions (${allQueries.length})`} expanded={expanded} setExpanded={setExpanded} actions={
-			<div className="flex gap-1">
-				<Button size="icon" variant="ghost" className="h-6 w-6" onClick={openQueryDialog} title="Create New Query">
-					<Plus className="h-3.5 w-3.5" />
-				</Button>
-				<Button size="icon" variant="ghost" className="h-6 w-6" onClick={()=> { try { window.dispatchEvent(new CustomEvent('goflow-open-data-workspace', { detail: { view: 'queries' } })) } catch {} }} title="Open Query Builder">
-					<Wrench className="h-3.5 w-3.5" />
-				</Button>
-			</div>
-		}>
-			{allQueries.length === 0 ? (
-				<>
-					<div className="text-muted-foreground">No query definitions yet. Create queries in the Data workspace.</div>
-					<Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={()=> { try { window.dispatchEvent(new CustomEvent('goflow-open-data-workspace', { detail: { view: 'queries' } })) } catch {} }}>Open Query Builder</Button>
-				</>
-			) : (
-				<>
-					{allQueries.length > 3 && (
-						<input
-							className="px-2 py-1 rounded border text-xs mb-2"
-							placeholder="Search queries..."
-							value={searchTerm}
-							onChange={(e) => setSearchTerm(e.target.value)}
-						/>
-					)}
-					<div className="space-y-1">
-						{filteredQueries.slice(0, 10).map((query: QueryDefinition) => (
-							<div key={query.id} className="group border rounded px-2 py-1 hover:bg-accent/40">
-								<div className="flex items-start justify-between">
-									<div className="flex-1 min-w-0 cursor-pointer" onClick={() => handleLoadQuery(query)}>
-										<div className="truncate font-medium text-[11px]">{query.name}</div>
-										<div className="text-[10px] text-muted-foreground truncate">
-											{query.description || `${query.query_type} query`}
-										</div>
-										<div className="text-[9px] text-muted-foreground">
-											{new Date(query.updatedAt || query.createdAt || '').toLocaleDateString()}
-										</div>
-									</div>
-									<div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-										<Button size="icon" variant="ghost" className="h-4 w-4" title="Run" onClick={(e) => { e.stopPropagation(); handleRunQuery(query) }} disabled={executingIds.has(query.id)}>
-											<Play className={cn('h-2.5 w-2.5', executingIds.has(query.id) && 'animate-pulse')} />
-										</Button>
-										<Button size="icon" variant="ghost" className="h-4 w-4 text-red-600" title="Delete" onClick={(e) => { e.stopPropagation(); handleDeleteQuery(query) }}>
-											<Trash2 className="h-2.5 w-2.5" />
-										</Button>
-									</div>
-								</div>
-							</div>
-						))}
-					</div>
-				</>
-			)}
-		</Section>
-	)
-}
-
-// Execution History Section Component (simplified for FileStore)
-const HistorySection: React.FC<{ expanded: { [k:string]: boolean }; setExpanded: (fn: (s: { [k:string]: boolean }) => { [k:string]: boolean }) => void }> = ({ expanded, setExpanded }) => {
-	const { executionResults } = useQueryStore()
-	const recentExecutions = Object.entries(executionResults).slice(-10)
-
-	return (
-		<Section id="history" title={`Recent Executions (${recentExecutions.length})`} expanded={expanded} setExpanded={setExpanded} actions={<></>}>
-			{recentExecutions.length === 0 ? (
-				<div className="text-muted-foreground">No recent executions. Run queries to see history.</div>
-			) : (
-				<div className="space-y-1">
-					{recentExecutions.map(([queryId, execution]) => (
-						<div key={queryId} className="border rounded px-2 py-1 hover:bg-accent/40">
-							<div className="text-[10px] text-muted-foreground truncate">
-								Query: {queryId}
-							</div>
-							<div className="text-[9px] text-muted-foreground flex items-center gap-2">
-								<span>{execution.result.rows.length} results</span>
-								<span>{execution.result.meta.executionMs}ms</span>
-								{execution.result.meta.executionMs === 0 && (
-									<span className="text-orange-500 text-[8px]">mock</span>
-								)}
-							</div>
-						</div>
-					))}
-				</div>
-			)}
-		</Section>
-	)
-}
-
