@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState, useEffect, useMemo } from "react"
 import { type Element } from "../../../stores/pagebuilder/editor"
-import { useFocusedTabStore } from "../../../stores/pagebuilder/editor-context"
+import { useFocusedTabStore, useFocusedTabId } from "../../../stores/pagebuilder/editor-context"
 import { Button } from "../../ui/button"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../../ui/accordion"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../ui/tooltip"
@@ -566,10 +566,13 @@ const componentCategories = [
 ]
 
 export const ComponentsTab: React.FC = () => {
+	const focusedTabId = useFocusedTabId() // Track focused tab changes
 	const store = useFocusedTabStore()
-	const elements = store?.getState().elements || {}
+	
+	// Subscribe to store changes properly
+	const elements = store?.((state) => state.elements) || {}
+	const selectedElementId = store?.((state) => state.selectedElementId) || null
 	const addElement = store?.getState().addElement || (() => {})
-	const selectedElementId = store?.getState().selectedElementId || null
 
 	const [expandedSections, setExpandedSections] = useState<string[]>([])
 

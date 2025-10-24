@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs"
 import { StylesTab } from "./tabs/StylesTab"
 import { PropertiesTab } from "./tabs/PropertiesTab"
 import { SidePanel } from "../petri/side-panel"
-import { useFocusedTabStore } from "../../stores/pagebuilder/editor-context"
+import { useFocusedTabStore, useFocusedTabId } from "../../stores/pagebuilder/editor-context"
 import { X, GripVertical, Maximize2, Minimize2 } from "lucide-react"
 import { Button } from "../ui/button"
 
@@ -21,8 +21,9 @@ type RightPanelProps = {
 
 
 export const RightPanel: React.FC<RightPanelProps> = ({ isOpen, onClose, onOpen, activeTab, isMaximized, onToggleMaximize }) => {
+	const focusedTabId = useFocusedTabId() // Track focused tab changes
 	const store = useFocusedTabStore()
-	const selectedElementId = store?.getState().selectedElementId || null
+	const selectedElementId = store?.((state) => state.selectedElementId) || null
 	const [sidePanelProps, setSidePanelProps] = React.useState<any | null>(null)
 
 	React.useEffect(() => {

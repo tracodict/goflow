@@ -1,15 +1,28 @@
 "use client"
 
 import type React from "react"
-import { useFocusedTabStore } from "../../../stores/pagebuilder/editor-context"
+import { useEffect } from "react"
+import { useFocusedTabStore, useFocusedTabId } from "../../../stores/pagebuilder/editor-context"
 
 export const StructureTab: React.FC = () => {
+  const focusedTabId = useFocusedTabId() // Track focused tab changes
   const store = useFocusedTabStore()
-  const elements = store?.getState().elements || {}
-  const selectedElementId = store?.getState().selectedElementId || null
+  
+  // Subscribe to store changes properly - only if store exists
+  const elements = store ? store((state) => state.elements) : {}
+  const selectedElementId = store ? store((state) => state.selectedElementId) : null
+  const draggedElementId = store ? store((state) => state.draggedElementId) : null
+  
+  // Get actions from store
   const setDraggedElement = store?.getState().setDraggedElement || (() => {})
-  const draggedElementId = store?.getState().draggedElementId || null
   const removeElement = store?.getState().removeElement || (() => {})
+  const selectElement = store?.getState().selectElement || (() => {})
+  
+  // Debug: Log when focused tab or elements change
+  useEffect(() => {
+    console.log('StructureTab - focusedTabId:', focusedTabId)
+    console.log('StructureTab - elements count:', Object.keys(elements).length)
+  }, [focusedTabId, elements])
 
   const handleDragStart = (e: React.DragEvent, elementId: string) => {
     e.dataTransfer.setData("text/plain", elementId)
@@ -69,7 +82,7 @@ export const StructureTab: React.FC = () => {
         className={`pl-${depth * 4} py-1 flex items-center gap-2 rounded hover:bg-muted cursor-pointer ${
           selectedElementId === id ? "bg-primary/10 border-l-4 border-primary" : ""
         } ${isDragging ? "opacity-50" : ""} ${isContainer ? "border-l-2 border-dashed border-muted-foreground/30" : ""}`}
-        onClick={() => store?.getState().selectElement(id)}
+        onClick={() => selectElement(id)}
       >
         <span className="font-mono text-primary text-xs">{element.tagName}</span>
         <span className="text-muted-foreground text-xs">#{id}</span>

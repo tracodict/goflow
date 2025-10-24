@@ -2,10 +2,23 @@
 
 import type React from "react"
 import { useState } from "react"
-import { useBuilderStore } from "../../../stores/pagebuilder/editor"
+import { useFocusedTabStore, useFocusedTabId } from "../../../stores/pagebuilder/editor-context"
 
 export const PageStructureTab: React.FC = () => {
-	const { elements, selectedElementId, setDraggedElement, draggedElementId, removeElement } = useBuilderStore()
+	const focusedTabId = useFocusedTabId() // Track focused tab changes
+	const store = useFocusedTabStore()
+	
+	// Subscribe to store changes properly - only if store exists
+	const elements = store ? store((state) => state.elements) : {}
+	const selectedElementId = store ? store((state) => state.selectedElementId) : null
+	const draggedElementId = store ? store((state) => state.draggedElementId) : null
+	
+	// Get actions from store
+	const setDraggedElement = store?.getState().setDraggedElement || (() => {})
+	const removeElement = store?.getState().removeElement || (() => {})
+	const selectElement = store?.getState().selectElement || (() => {})
+	const moveElement = store?.getState().moveElement || (() => {})
+	
 	const [dragOverElementId, setDragOverElementId] = useState<string | null>(null)
 
 	const handleDragStart = (e: React.DragEvent, elementId: string) => {
@@ -43,13 +56,13 @@ export const PageStructureTab: React.FC = () => {
 			
 			if (isTargetContainer) {
 				// Drop into container as child
-				useBuilderStore.getState().moveElement(draggedId, targetElementId)
+				moveElement(draggedId, targetElementId)
 			} else if (targetElement && targetElement.parentId) {
 				// Drop as sibling - insert after target
 				const parentElement = elements[targetElement.parentId]
 				if (parentElement) {
 					const targetIndex = parentElement.childIds.indexOf(targetElementId)
-					useBuilderStore.getState().moveElement(draggedId, targetElement.parentId, targetIndex + 1)
+					moveElement(draggedId, targetElement.parentId, targetIndex + 1)
 				}
 			}
 		}
@@ -88,7 +101,7 @@ export const PageStructureTab: React.FC = () => {
 				className={`pl-${depth * 4} py-1 flex items-center gap-2 rounded hover:bg-muted cursor-pointer ${
 					selectedElementId === id ? "bg-primary/10 border-l-4 border-primary" : ""
 				} ${isDragging ? "opacity-50" : ""} ${isContainer ? "border-l-2 border-dashed border-muted-foreground/30" : ""}`}
-				onClick={() => useBuilderStore.getState().selectElement(id)}
+				onClick={() => selectElement(id)}
 			>
 				<span className="font-mono text-primary text-xs">{element.tagName}</span>
 				<span className="text-muted-foreground text-xs">#{id}</span>
