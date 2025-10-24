@@ -3,6 +3,7 @@
 import type React from "react"
 import { useState, useEffect, useCallback } from "react"
 import { useBuilderStore } from "@/stores/pagebuilder/editor"
+import { useWorkspace } from "@/stores/workspace-store"
 import { PageWorkspace } from "./PageWorkspace"
 import { FlowWorkspace } from "../petri/flow-workspace"
 import DataWorkspace from "@/components/data/DataWorkspace"
@@ -11,6 +12,16 @@ import { VerticalToolbar } from "./VerticalToolbar"
 import type { JSONSchema } from "@/jsonjoy-builder/src/types/jsonSchema"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { 
   X, 
   SplitSquareVertical, 
@@ -25,6 +36,7 @@ import {
   Puzzle
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { toast } from "@/hooks/use-toast"
 
 // Editor types
 type EditorType = 'page' | 'schema' | 'query' | 'workflow' | 'datasource' | 'mcp'
@@ -105,10 +117,18 @@ export const MainPanel: React.FC<MainPanelProps> = ({
   isRightPanelOpen,
 }) => {
   const { isPreviewMode, canvasScale } = useBuilderStore()
+  const { files, saveFile, markFileDirty } = useWorkspace()
 
   // Drag and drop state
   const [dragState, setDragState] = useState<DragState | null>(null)
   const [dropTargetPanelId, setDropTargetPanelId] = useState<string | null>(null)
+  
+  // Close confirmation dialog state
+  const [closeConfirmation, setCloseConfirmation] = useState<{
+    panelId: string
+    tabId: string
+    filePath: string
+  } | null>(null)
 
   // Initialize root panel configuration
   const [rootPanel, setRootPanel] = useState<PanelConfig>(() => {
@@ -186,6 +206,7 @@ export const MainPanel: React.FC<MainPanelProps> = ({
           // Check if tab already exists
           const existingTab = panel.tabs.find(t => t.id === tabId)
           if (existingTab) {
+            // Tab exists, just activate it
             return { ...panel, activeTabId: tabId }
           }
           // Add new tab
@@ -234,7 +255,33 @@ export const MainPanel: React.FC<MainPanelProps> = ({
     })
   }
 
-  const closeTab = (panelId: string, tabId: string) => {
+  const closeTab = (panelId: string, tabId: string, force: boolean = false) => {
+    // Find the tab to check if it has unsaved changes
+    const findTab = (panel: PanelConfig): EditorTab | null => {
+      if (isSplitPanel(panel)) {
+        for (const child of panel.children) {
+          const found = findTab(child)
+          if (found) return found
+        }
+        return null
+      } else if (panel.id === panelId) {
+        return panel.tabs.find(t => t.id === tabId) || null
+      }
+      return null
+    }
+    
+    const tab = findTab(rootPanel)
+    
+    // Check if file has unsaved changes
+    if (!force && tab?.filePath) {
+      const file = files.get(tab.filePath)
+      if (file?.dirty) {
+        setCloseConfirmation({ panelId, tabId, filePath: tab.filePath })
+        return
+      }
+    }
+    
+    // Proceed with closing
     setRootPanel(prev => {
       const closeTabRecursive = (panel: PanelConfig): PanelConfig | null => {
         if (isSplitPanel(panel)) {
@@ -266,6 +313,27 @@ export const MainPanel: React.FC<MainPanelProps> = ({
         activeTabId: null,
       } as EditorPanelConfig
     })
+  }
+  
+  const handleCloseConfirmSave = async () => {
+    if (!closeConfirmation) return
+    
+    const file = files.get(closeConfirmation.filePath)
+    if (file) {
+      try {
+        await saveFile(file.path, file.content)
+        closeTab(closeConfirmation.panelId, closeConfirmation.tabId, true)
+        setCloseConfirmation(null)
+      } catch (error) {
+        // Error already shown by saveFile
+      }
+    }
+  }
+  
+  const handleCloseConfirmDiscard = () => {
+    if (!closeConfirmation) return
+    closeTab(closeConfirmation.panelId, closeConfirmation.tabId, true)
+    setCloseConfirmation(null)
   }
 
   const setActiveTab = (panelId: string, tabId: string) => {
@@ -625,8 +693,112 @@ export const MainPanel: React.FC<MainPanelProps> = ({
           bottomOffset={10}
         />
       )}
+      
+      {/* Close confirmation dialog */}
+      <AlertDialog open={!!closeConfirmation} onOpenChange={() => setCloseConfirmation(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved Changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              {closeConfirmation && `"${closeConfirmation.filePath}" has unsaved changes. Do you want to save them before closing?`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setCloseConfirmation(null)}>
+              Cancel
+            </AlertDialogCancel>
+            <Button variant="destructive" onClick={handleCloseConfirmDiscard}>
+              Don't Save
+            </Button>
+            <AlertDialogAction onClick={handleCloseConfirmSave}>
+              Save
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
+}
+
+// Page workspace loader that loads page data from workspace file
+interface PageWorkspaceLoaderProps {
+  filePath?: string
+}
+
+const PageWorkspaceLoader: React.FC<PageWorkspaceLoaderProps> = ({ filePath }) => {
+  const { files, markFileDirty } = useWorkspace()
+  const { loadElements, markAsChanged, elements } = useBuilderStore()
+  const [isLoading, setIsLoading] = useState(true)
+  
+  useEffect(() => {
+    if (!filePath) {
+      setIsLoading(false)
+      return
+    }
+    
+    const file = files.get(filePath)
+    if (file) {
+      try {
+        const pageData = JSON.parse(file.content)
+        if (pageData.elements) {
+          loadElements(pageData.elements)
+        }
+        setIsLoading(false)
+      } catch (error) {
+        console.error('Failed to parse page data:', error)
+        toast({
+          title: 'Failed to load page',
+          description: 'Invalid page data format',
+          variant: 'destructive'
+        })
+        setIsLoading(false)
+      }
+    } else {
+      setIsLoading(false)
+    }
+  }, [filePath, files, loadElements])
+  
+  // Watch for changes to mark file dirty
+  useEffect(() => {
+    if (!filePath || isLoading) return
+    
+    // Subscribe to builder store changes
+    const unsubscribe = useBuilderStore.subscribe(
+      (state) => {
+        if (state.hasUnsavedChanges && filePath) {
+          markFileDirty(filePath, true)
+        }
+      }
+    )
+    
+    return unsubscribe
+  }, [filePath, isLoading, markFileDirty])
+  
+  // Save current page data to workspace when needed
+  useEffect(() => {
+    if (!filePath) return
+    
+    const handleSave = (e: CustomEvent) => {
+      if (e.detail.path === filePath) {
+        const pageData = { elements }
+        const { saveFile } = useWorkspace.getState()
+        saveFile(filePath, JSON.stringify(pageData, null, 2))
+      }
+    }
+    
+    window.addEventListener('goflow-save-file', handleSave as EventListener)
+    return () => window.removeEventListener('goflow-save-file', handleSave as EventListener)
+  }, [filePath, elements])
+  
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-muted-foreground">Loading page...</div>
+      </div>
+    )
+  }
+  
+  return <PageWorkspace />
 }
 
 // Render different editor types
@@ -657,7 +829,7 @@ const EditorContent: React.FC<EditorContentProps> = ({
             height: `${100 / canvasScale}%`,
           }}
         >
-          <PageWorkspace />
+          <PageWorkspaceLoader filePath={tab.filePath} />
         </div>
       )
     
