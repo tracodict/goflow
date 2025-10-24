@@ -394,9 +394,14 @@ export const MainPanel: React.FC<MainPanelProps> = ({
         const activeTab = panel.tabs.find(t => t.id === panel.activeTabId)
         if (activeTab && activeTab.id.startsWith('file:')) {
           const filePath = activeTab.id.substring(5) // Remove 'file:' prefix
-          const currentElements = useBuilderStore.getState().elements
-          console.log('Saving tab state to cache:', filePath, Object.keys(currentElements).length, 'elements')
-          tabStateCache.set(filePath, currentElements)
+          const tabStore = getTabStore(activeTab.id)
+          if (tabStore) {
+            const currentElements = tabStore.getState().elements
+            console.log('Saving tab state to cache:', filePath, Object.keys(currentElements).length, 'elements')
+            tabStateCache.set(filePath, currentElements)
+          } else {
+            console.warn('No store found while saving tab state. Skipping cache update for', filePath)
+          }
         }
       }
     }
@@ -1087,6 +1092,7 @@ const EditorContent: React.FC<EditorContentProps> = ({
             panelId={panelId}
             onActivate={onActivate}
           />
+
         </div>
       )
     
