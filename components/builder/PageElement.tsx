@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { useBuilderStore } from "../../stores/pagebuilder/editor"
+import { useBuilderStoreContext } from "../../stores/pagebuilder/editor-context"
 
 
 // Import vComponents to ensure all renderers are registered
@@ -28,6 +28,7 @@ const renderHTMLElement = (element: any) => {
 }
 
 export const PageElement: React.FC<PageElementProps> = ({ elementId, onElementClick, onElementHover }) => {
+  const store = useBuilderStoreContext()
   const {
     elements,
     selectedElementId,
@@ -38,7 +39,7 @@ export const PageElement: React.FC<PageElementProps> = ({ elementId, onElementCl
     moveElement,
     showContainerBorders,
     selectElement,
-  } = useBuilderStore()
+  } = store()
 
   const element = elements[elementId]
   if (!element) return null

@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useBuilderStore } from "../../stores/pagebuilder/editor"
+import { FocusedTabProvider } from "../../stores/pagebuilder/editor-context"
 import { LeftPanel } from "./LeftPanel"
 import { MainPanel } from "./MainPanel"
 import { RightPanel } from "./RightPanel"
@@ -28,11 +29,29 @@ export const Builder: React.FC = () => {
   const [isRightPanelOpen, setRightPanelOpen] = useState(true)
   const [isLeftPanelMaximized, setLeftPanelMaximized] = useState(false)
   const [isRightPanelMaximized, setRightPanelMaximized] = useState(false)
+  const [focusedTabId, setFocusedTabId] = useState<string | null>(null)
   const [showSystemSettings, setShowSystemSettings] = useState(false)
-  const [activeTab, setActiveTab] = useState<string>("components")
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    // Restore from localStorage or default to workspace
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('goflow-active-tab')
+      if (saved) {
+        return saved
+      }
+    }
+    return "workspace" // Default to workspace tab to show file explorer
+  })
   const [selectedSchema, setSelectedSchema] = useState<{ name: string; schema: JSONSchema } | null>(null)
   const { session: userSession, loading: sessionLoading } = useSession()
   const primaryRole = (userSession?.roles || [])[0]
+
+  // Persist active tab to localStorage
+  const handleSetActiveTab = (tab: string) => {
+    setActiveTab(tab)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('goflow-active-tab', tab)
+    }
+  }
 
   const handleSchemaSelect = (schemaName: string, schema: JSONSchema) => {
     setSelectedSchema({ name: schemaName, schema })
@@ -52,6 +71,7 @@ export const Builder: React.FC = () => {
 
   return (
     <SystemSettingsProvider>
+    <FocusedTabProvider focusedTabId={focusedTabId}>
     <div className="h-screen flex flex-col overflow-hidden bg-background">
       {/* Top menu bar - hide in preview mode */}
       {!isPreviewMode && (
@@ -120,7 +140,7 @@ export const Builder: React.FC = () => {
               }}
               onOpen={() => setLeftPanelOpen(true)}
               activeTab={activeTab}
-              setActiveTab={setActiveTab}
+              setActiveTab={handleSetActiveTab}
               onSchemaSelect={handleSchemaSelect}
               isMaximized
               onToggleMaximize={() => {
@@ -158,7 +178,7 @@ export const Builder: React.FC = () => {
                   }}
                   onOpen={() => setLeftPanelOpen(true)}
                   activeTab={activeTab}
-                  setActiveTab={setActiveTab}
+                  setActiveTab={handleSetActiveTab}
                   onSchemaSelect={handleSchemaSelect}
                   isMaximized={false}
                   onToggleMaximize={() => {
@@ -182,6 +202,7 @@ export const Builder: React.FC = () => {
               rightPanelWidth={rightPanelWidth}
               isLeftPanelOpen={isLeftPanelOpen}
               isRightPanelOpen={isRightPanelOpen}
+              onFocusedTabChange={setFocusedTabId}
             />
 
             {!isPreviewMode && isRightPanelOpen && (
@@ -210,6 +231,7 @@ export const Builder: React.FC = () => {
         )}
       </div>
       </div>
+    </FocusedTabProvider>
     </SystemSettingsProvider>
   )
 }
@@ -240,3 +262,4 @@ const SystemSettingsEditor: React.FC<{ onClose?: () => void }> = ({ onClose }) =
     </div>
   )
 }
+

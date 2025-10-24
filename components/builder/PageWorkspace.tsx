@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useEffect } from "react"
-import { useBuilderStore } from "../../stores/pagebuilder/editor"
+import { useBuilderStoreContext } from "../../stores/pagebuilder/editor-context"
 import { PageElement } from "./PageElement"
 import { VerticalToolbar } from "./VerticalToolbar"
 
@@ -11,7 +11,8 @@ interface WorkspaceProps {
 }
 
 export const PageWorkspace: React.FC<WorkspaceProps> = ({ rootElementId = "page-root" }) => {
-	const { selectElement, setHoveredElement, isPreviewMode, selectedElementId, removeElement } = useBuilderStore()
+	const store = useBuilderStoreContext()
+	const { selectElement, setHoveredElement, isPreviewMode, selectedElementId, removeElement } = store()
 
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {

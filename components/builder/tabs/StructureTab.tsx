@@ -1,10 +1,15 @@
 "use client"
 
 import type React from "react"
-import { useBuilderStore } from "../../../stores/pagebuilder/editor"
+import { useFocusedTabStore } from "../../../stores/pagebuilder/editor-context"
 
 export const StructureTab: React.FC = () => {
-  const { elements, selectedElementId, setDraggedElement, draggedElementId, removeElement } = useBuilderStore()
+  const store = useFocusedTabStore()
+  const elements = store?.getState().elements || {}
+  const selectedElementId = store?.getState().selectedElementId || null
+  const setDraggedElement = store?.getState().setDraggedElement || (() => {})
+  const draggedElementId = store?.getState().draggedElementId || null
+  const removeElement = store?.getState().removeElement || (() => {})
 
   const handleDragStart = (e: React.DragEvent, elementId: string) => {
     e.dataTransfer.setData("text/plain", elementId)
@@ -25,8 +30,8 @@ export const StructureTab: React.FC = () => {
       const isTargetContainer =
         targetElement && ["div", "section", "main", "article", "aside", "nav"].includes(targetElement.tagName)
 
-      if (isTargetContainer) {
-        useBuilderStore.getState().moveElement(draggedId, targetElementId)
+      if (isTargetContainer && store) {
+        store.getState().moveElement(draggedId, targetElementId)
       }
     }
     setDraggedElement(null)
@@ -64,7 +69,7 @@ export const StructureTab: React.FC = () => {
         className={`pl-${depth * 4} py-1 flex items-center gap-2 rounded hover:bg-muted cursor-pointer ${
           selectedElementId === id ? "bg-primary/10 border-l-4 border-primary" : ""
         } ${isDragging ? "opacity-50" : ""} ${isContainer ? "border-l-2 border-dashed border-muted-foreground/30" : ""}`}
-        onClick={() => useBuilderStore.getState().selectElement(id)}
+        onClick={() => store?.getState().selectElement(id)}
       >
         <span className="font-mono text-primary text-xs">{element.tagName}</span>
         <span className="text-muted-foreground text-xs">#{id}</span>

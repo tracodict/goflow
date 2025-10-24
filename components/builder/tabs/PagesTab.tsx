@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { FileExplorer, type FileExplorerItem } from '../FileExplorer'
 import { useWorkspace, type FileTreeNode } from '@/stores/workspace-store'
 import { useBuilderStore } from '@/stores/pagebuilder/editor'
+import { useFocusedTabId } from '@/stores/pagebuilder/editor-context'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/hooks/use-toast'
@@ -14,9 +15,13 @@ export const PagesTab: React.FC = () => {
     repo,
     branch,
     tree,
-    activeFile,
     loadFileTree,
   } = useWorkspace()
+  
+  const focusedTabId = useFocusedTabId()
+  const activeFile = focusedTabId && focusedTabId.startsWith('file:') 
+    ? focusedTabId.substring(5) 
+    : null
 
   const router = useRouter()
   const { elements, hasUnsavedChanges, markAsSaved } = useBuilderStore()
@@ -24,9 +29,30 @@ export const PagesTab: React.FC = () => {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
   const [showDeleteDialog, setShowDeleteDialog] = useState<{ item: FileExplorerItem } | null>(null)
   const [showUnsavedDialog, setShowUnsavedDialog] = useState<{ targetItem: FileExplorerItem } | null>(null)
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => {
+    // Restore from localStorage
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('goflow-expanded-folders')
+      if (saved) {
+        try {
+          return new Set(JSON.parse(saved))
+        } catch (e) {
+          console.error('Failed to parse saved expanded folders:', e)
+        }
+      }
+    }
+    // Default: expand "Pages" folder
+    return new Set(['Pages'])
+  })
 
   const hasWorkspace = !!(owner && repo && branch)
+
+  // Persist expanded folders to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('goflow-expanded-folders', JSON.stringify(Array.from(expandedFolders)))
+    }
+  }, [expandedFolders])
 
   // Build tree items from workspace file tree, showing all folders
   const buildTreeItems = (): FileExplorerItem[] => {

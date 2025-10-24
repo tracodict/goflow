@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useWorkspace } from '@/stores/workspace-store'
+import { useFocusedTabId } from '@/stores/pagebuilder/editor-context'
 import { OpenWorkspaceDialog } from '@/components/workspace/OpenWorkspaceDialog'
 import { SaveWorkspaceDialog } from '@/components/workspace/SaveWorkspaceDialog'
 import {
@@ -27,20 +28,22 @@ import {
 } from 'lucide-react'
 
 export function FileMenu() {
-  const { owner, repo, activeFile, createFile } = useWorkspace()
-  const [openWorkspaceDialog, setOpenWorkspaceDialog] = useState(false)
-  const [saveWorkspaceDialog, setSaveWorkspaceDialog] = useState(false)
-  
+  const { owner, repo, createFile } = useWorkspace()
+  // Get the focused tab ID from context
+  const focusedTabId = useFocusedTabId()
+  const [showOpenDialog, setShowOpenDialog] = useState(false)
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
+
   const hasWorkspace = !!(owner && repo)
-  const hasActiveFile = !!activeFile
-  
+  const hasActiveFile = !!(focusedTabId && focusedTabId.startsWith('file:'))
+
   const handleMenuAction = async (action: string) => {
     switch (action) {
       case 'open-workspace':
-        setOpenWorkspaceDialog(true)
+        setShowOpenDialog(true)
         break
       case 'save-workspace':
-        setSaveWorkspaceDialog(true)
+        setShowSaveDialog(true)
         break
       case 'close-workspace':
         if (confirm('Close workspace? Any unsaved changes will be lost.')) {
@@ -52,10 +55,12 @@ export function FileMenu() {
         alert('File browser dialog not yet implemented')
         break
       case 'save-file':
-        if (activeFile) {
+        // Get file path from focused tab (format: "file:Pages/Home.page")
+        if (focusedTabId && focusedTabId.startsWith('file:')) {
+          const filePath = focusedTabId.substring(5) // Remove "file:" prefix
           // Dispatch event for active editor to save
           window.dispatchEvent(new CustomEvent('goflow-save-file', {
-            detail: { path: activeFile }
+            detail: { path: filePath }
           }))
         }
         break
@@ -176,12 +181,12 @@ export function FileMenu() {
       </MenubarMenu>
       
       <OpenWorkspaceDialog 
-        open={openWorkspaceDialog} 
-        onOpenChange={setOpenWorkspaceDialog} 
+        open={showOpenDialog} 
+        onOpenChange={setShowOpenDialog} 
       />
       <SaveWorkspaceDialog 
-        open={saveWorkspaceDialog} 
-        onOpenChange={setSaveWorkspaceDialog} 
+        open={showSaveDialog} 
+        onOpenChange={setShowSaveDialog} 
       />
     </>
   )

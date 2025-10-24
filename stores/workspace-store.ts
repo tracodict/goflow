@@ -25,7 +25,7 @@ interface WorkspaceState {
   baseBranch: string
   files: Map<string, WorkspaceFile>
   tree: FileTreeNode[]
-  activeFile: string | null
+  isRestoring: boolean
   
   openWorkspace: (params: { owner: string; repo: string }) => Promise<void>
   closeWorkspace: () => void
@@ -81,7 +81,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   baseBranch: 'main',
   files: new Map(),
   tree: [],
-  activeFile: null,
+  // Initialize isRestoring to true if there's saved workspace data
+  isRestoring: typeof window !== 'undefined' && !!localStorage.getItem('goflow-workspace'),
   
   openWorkspace: async ({ owner, repo }) => {
     try {
@@ -136,8 +137,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       repo: null,
       branch: null,
       files: new Map(),
-      tree: [],
-      activeFile: null
+      tree: []
     })
     
     // Remove from localStorage
@@ -155,7 +155,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     if (typeof window === 'undefined') return
     
     const saved = localStorage.getItem('goflow-workspace')
-    if (!saved) return
+    if (!saved) {
+      set({ isRestoring: false })
+      return
+    }
+    
+    set({ isRestoring: true })
     
     try {
       const { owner, repo, branch } = JSON.parse(saved)
@@ -168,7 +173,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       if (res.ok) {
         // Branch exists, restore the workspace
         const tree = await res.json()
-        set({ owner, repo, branch, baseBranch: 'main', tree })
+        set({ owner, repo, branch, baseBranch: 'main', tree, isRestoring: false })
         
         toast({
           title: 'Workspace restored',
@@ -177,10 +182,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       } else {
         // Branch doesn't exist, clear localStorage
         localStorage.removeItem('goflow-workspace')
+        set({ isRestoring: false })
       }
     } catch (error) {
       // Invalid data in localStorage, clear it
       localStorage.removeItem('goflow-workspace')
+      set({ isRestoring: false })
     }
   },
   
@@ -210,11 +217,34 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
   
   openFile: async (path: string) => {
-    const { owner, repo, branch, files } = get()
+    // Wait for workspace restoration to complete
+    let { owner, repo, branch, files, isRestoring } = get()
+    
+    // If workspace is still restoring, wait for it
+    if (isRestoring) {
+      await new Promise<void>((resolve) => {
+        const checkInterval = setInterval(() => {
+          const state = get()
+          if (!state.isRestoring) {
+            clearInterval(checkInterval)
+            resolve()
+          }
+        }, 100)
+        
+        // Timeout after 10 seconds
+        setTimeout(() => {
+          clearInterval(checkInterval)
+          resolve()
+        }, 10000)
+      })
+      
+      // Refresh state after waiting
+      ;({ owner, repo, branch, files } = get())
+    }
     
     // Check if already loaded
     if (files.has(path)) {
-      set({ activeFile: path })
+      // File already loaded, nothing more to do
       return
     }
     
@@ -233,7 +263,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       const type = getFileTypeFromPath(path)
       
       files.set(path, { path, type, content, sha, dirty: false })
-      set({ files: new Map(files), activeFile: path })
+      set({ files: new Map(files) })
     } catch (error: any) {
       toast({
         title: 'Failed to open file',
