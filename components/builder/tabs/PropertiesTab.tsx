@@ -1,18 +1,46 @@
 "use client"
 
 import React, { useState, useEffect, useCallback } from "react"
-import { useBuilderStore } from "../../../stores/pagebuilder/editor"
+import { useFocusedTabStore, useFocusedTabId } from "../../../stores/pagebuilder/editor-context"
 import { useSavedQueriesStore } from "../../../stores/saved-queries" 
 import { useDataSourceStore } from "../../../stores/filestore-datasource"
 import { useSystemSettings, DEFAULT_SETTINGS } from "../../petri/system-settings-context"
 import { getPropertyConfig, PropertyConfigRenderer } from "../../../vComponents/property-config-registry"
 
 export const PropertiesTab: React.FC = () => {
-	const { elements, selectedElementId, updateElement } = useBuilderStore()
+	const focusedTabId = useFocusedTabId()
+	const store = useFocusedTabStore()
+	const [elements, setElements] = useState<Record<string, any>>({})
+	const [selectedElementId, setSelectedElementId] = useState<string | null>(null)
+	
 	const { queries, hydrated, hydrate } = useSavedQueriesStore()
 	const { dataSources, loading: datasourcesLoading, fetchDataSources } = useDataSourceStore()
 	const { settings } = useSystemSettings()
-	const selectedElement = selectedElementId ? elements[selectedElementId] : null
+
+	// Subscribe to store changes
+	useEffect(() => {
+		// Get initial values
+		setElements(store.getState().elements)
+		setSelectedElementId(store.getState().selectedElementId)
+		
+		// Subscribe to changes
+		let prevElements = store.getState().elements
+		let prevSelectedId = store.getState().selectedElementId
+		
+		const unsubscribe = store.subscribe(() => {
+			const state = store.getState()
+			if (state.elements !== prevElements) {
+				prevElements = state.elements
+				setElements(state.elements)
+			}
+			if (state.selectedElementId !== prevSelectedId) {
+				prevSelectedId = state.selectedElementId
+				setSelectedElementId(state.selectedElementId)
+			}
+		})
+		
+		return unsubscribe
+	}, [store, focusedTabId])
 
 	// Hydrate queries and datasources
 	useEffect(() => {
@@ -27,7 +55,27 @@ export const PropertiesTab: React.FC = () => {
 			fetchDataSources(flowServiceUrl)
 		}
 	}, [datasourcesLoading, dataSources.length, fetchDataSources, settings?.flowServiceUrl])
-
+	
+	const updateElement = store.getState().updateElement
+	
+	const selectedElement = selectedElementId ? elements[selectedElementId] : null
+	
+	// Move all hooks before the early return
+	const handlePropertyKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => {
+		if (event.key !== "Backspace" && event.key !== "Delete") return
+		const target = event.target as HTMLElement | null
+		if (!target) return
+		const isFormElement =
+			target instanceof HTMLInputElement ||
+			target instanceof HTMLTextAreaElement ||
+			target instanceof HTMLSelectElement ||
+			target.isContentEditable
+		if (!isFormElement) return
+		event.stopPropagation()
+		;(event.nativeEvent as KeyboardEvent | undefined)?.stopImmediatePropagation?.()
+	}, [])
+	
+	// Early return AFTER all hooks
 	if (!selectedElement) return null
 
 	const handleContentUpdate = (content: string) => {
@@ -63,19 +111,6 @@ export const PropertiesTab: React.FC = () => {
 	const componentType = getComponentType()
 	const propertyConfig = componentType ? getPropertyConfig(componentType) : null
 
-	const handlePropertyKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => {
-		if (event.key !== "Backspace" && event.key !== "Delete") return
-		const target = event.target as HTMLElement | null
-		if (!target) return
-		const isFormElement =
-			target instanceof HTMLInputElement ||
-			target instanceof HTMLTextAreaElement ||
-			target instanceof HTMLSelectElement ||
-			target.isContentEditable
-		if (!isFormElement) return
-		event.stopPropagation()
-		;(event.nativeEvent as KeyboardEvent | undefined)?.stopImmediatePropagation?.()
-	}, [])
 
 	return (
 		<div className="h-full overflow-y-auto" onKeyDown={handlePropertyKeyDown}>

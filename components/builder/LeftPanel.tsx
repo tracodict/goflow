@@ -14,6 +14,7 @@ import { Layers, FileText, TreePine, Database, BookText, Workflow, X, Wrench, Mo
 import { Button } from "../ui/button"
 import { cn } from '@/lib/utils'
 import { DataSidebar } from './data/DataSidebar'
+import { useIsHydrated } from '@/hooks/use-hydration'
 
 // Tab structure with hierarchical support
 type TabItem = {
@@ -53,6 +54,7 @@ type LeftPanelProps = {
   onToggleMaximize: () => void
 }
 	export const LeftPanel: React.FC<LeftPanelProps> = ({ isOpen, onClose, onOpen, activeTab, setActiveTab, onSchemaSelect, isMaximized, onToggleMaximize }) => {
+		const isHydrated = useIsHydrated()
 		const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([])
 		const [loading, setLoading] = useState(false)
 		const [error, setError] = useState<string | null>(null)
@@ -564,7 +566,7 @@ type LeftPanelProps = {
 							onClick={handleClick}
 							className={cn(
 								"w-12 h-12 flex items-center justify-center border-b border-border hover:bg-accent transition-colors group relative",
-								activeTab === tab.id && isOpen ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+								isHydrated && activeTab === tab.id && isOpen ? "bg-accent text-accent-foreground" : "text-muted-foreground",
 								isChild && "bg-muted/70 border-l-2 border-l-primary/30"
 							)}
 							title={tab.label}
@@ -587,7 +589,7 @@ type LeftPanelProps = {
 						{/* visual resizer handled by parent ResizeHandle; no decorative knob here to avoid duplication */}
 						{/* Reusable header bar */}
 						<div className="flex items-center justify-between border-b px-3 py-2">
-							<div className="text-sm font-semibold">{tabs.find(t => t.id === activeTab)?.label}</div>
+							<div className="text-sm font-semibold">{isHydrated ? tabs.find(t => t.id === activeTab)?.label : ''}</div>
 							<div className="flex items-center gap-1">
 								<Button
 									variant="ghost"

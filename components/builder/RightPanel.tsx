@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs"
 import { StylesTab } from "./tabs/StylesTab"
 import { PropertiesTab } from "./tabs/PropertiesTab"
 import { SidePanel } from "../petri/side-panel"
-import { useBuilderStore } from "../../stores/pagebuilder/editor"
+import { useFocusedTabStore, useFocusedTabId } from "../../stores/pagebuilder/editor-context"
 import { X, GripVertical, Maximize2, Minimize2 } from "lucide-react"
 import { Button } from "../ui/button"
 
@@ -21,8 +21,29 @@ type RightPanelProps = {
 
 
 export const RightPanel: React.FC<RightPanelProps> = ({ isOpen, onClose, onOpen, activeTab, isMaximized, onToggleMaximize }) => {
-	const { selectedElementId } = useBuilderStore()
 	const [sidePanelProps, setSidePanelProps] = React.useState<any | null>(null)
+	const [selectedElementId, setSelectedElementId] = React.useState<string | null>(null)
+	const focusedTabId = useFocusedTabId() // Track focused tab changes
+	const store = useFocusedTabStore()
+	
+	// Subscribe to selectedElementId changes from the focused tab's store
+	React.useEffect(() => {
+		// Get initial value
+		const initialValue = store.getState().selectedElementId
+		setSelectedElementId(initialValue)
+		
+		// Subscribe to changes - track previous value to only update when it changes
+		let previousValue = initialValue
+		const unsubscribe = store.subscribe(() => {
+			const currentValue = store.getState().selectedElementId
+			if (currentValue !== previousValue) {
+				previousValue = currentValue
+				setSelectedElementId(currentValue)
+			}
+		})
+		
+		return unsubscribe
+	}, [store, focusedTabId])
 
 	React.useEffect(() => {
 		function handler(e: Event) {

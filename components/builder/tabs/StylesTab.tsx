@@ -1,7 +1,7 @@
 "use client"
 
-import type React from "react"
-import { useBuilderStore } from "../../../stores/pagebuilder/editor"
+import React, { useState, useEffect } from "react"
+import { useFocusedTabStore, useFocusedTabId } from "../../../stores/pagebuilder/editor-context"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../../ui/accordion"
 
 type SpaceSVGProps = {
@@ -279,7 +279,44 @@ const SPACE_PROPERTIES = [
 ]
 
 export const StylesTab: React.FC = () => {
-	const { elements, selectedElementId, updateElement } = useBuilderStore()
+	const focusedTabId = useFocusedTabId()
+	const store = useFocusedTabStore()
+	const [elements, setElements] = useState<Record<string, any>>({})
+	const [selectedElementId, setSelectedElementId] = useState<string | null>(null)
+	
+	// Subscribe to store changes
+	useEffect(() => {
+		if (!store) {
+			setElements({})
+			setSelectedElementId(null)
+			return
+		}
+		
+		// Get initial values
+		setElements(store.getState().elements)
+		setSelectedElementId(store.getState().selectedElementId)
+		
+		// Subscribe to changes
+		let prevElements = store.getState().elements
+		let prevSelectedId = store.getState().selectedElementId
+		
+		const unsubscribe = store.subscribe(() => {
+			const state = store.getState()
+			if (state.elements !== prevElements) {
+				prevElements = state.elements
+				setElements(state.elements)
+			}
+			if (state.selectedElementId !== prevSelectedId) {
+				prevSelectedId = state.selectedElementId
+				setSelectedElementId(state.selectedElementId)
+			}
+		})
+		
+		return unsubscribe
+	}, [store, focusedTabId])
+	
+	const updateElement = store.getState().updateElement
+
 	const selectedElement = selectedElementId ? elements[selectedElementId] : null
 
 	if (!selectedElement) return null

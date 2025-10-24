@@ -2,6 +2,16 @@
 import React, { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { 
   Folder, 
   File, 
@@ -9,6 +19,7 @@ import {
   ChevronDown, 
   Trash2,
   Edit,
+  Plus,
   Layout,
   Database,
   Palette,
@@ -17,6 +28,16 @@ import {
   Puzzle
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+// Top-level folders that should not expose destructive actions
+const ROOT_PROTECTED_FOLDERS = new Set([
+  'Pages',
+  'DataSources',
+  'Queries',
+  'Workflows',
+  'Schemas',
+  'MCPTools'
+])
 
 // Helper function to get file type icon based on file path
 function getFileIcon(fileName: string) {
@@ -45,6 +66,7 @@ interface FileExplorerProps {
   onItemSelect?: (item: FileExplorerItem) => void
   onItemDelete?: (item: FileExplorerItem) => void
   onItemRename?: (item: FileExplorerItem, newName: string) => void
+  onItemAdd?: (parentItem: FileExplorerItem | null, itemType: 'file' | 'folder') => void
   onItemMove?: (itemId: string, newParentId: string | undefined) => void
   onFolderToggle?: (item: FileExplorerItem) => void
   showActions?: boolean
@@ -59,6 +81,7 @@ interface FileExplorerItemProps {
   onSelect?: (item: FileExplorerItem) => void
   onDelete?: (item: FileExplorerItem) => void
   onRename?: (item: FileExplorerItem, newName: string) => void
+  onAdd?: (parentItem: FileExplorerItem | null, itemType: 'file' | 'folder') => void
   onMove?: (itemId: string, newParentId: string | undefined) => void
   onToggle?: (item: FileExplorerItem) => void
   showActions?: boolean
@@ -72,6 +95,7 @@ const FileExplorerItemComponent: React.FC<FileExplorerItemProps> = ({
   onSelect,
   onDelete,
   onRename,
+  onAdd,
   onMove,
   onToggle,
   showActions = true
@@ -83,6 +107,7 @@ const FileExplorerItemComponent: React.FC<FileExplorerItemProps> = ({
   const isSelected = selectedItemId === item.id
   const isActive = activeItemId === item.id
   const isExpanded = item.isExpanded
+  const isProtectedRootFolder = item.type === 'folder' && !item.parentId && ROOT_PROTECTED_FOLDERS.has(item.name)
 
     const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('text/plain', item.id)
@@ -136,6 +161,13 @@ const FileExplorerItemComponent: React.FC<FileExplorerItemProps> = ({
       onRename?.(item, trimmedName)
     }
     setIsEditing(false)
+  }
+
+  const handleEditBlur = (e: React.FocusEvent) => {
+    // Small delay to allow other events (like double-click) to process first
+    setTimeout(() => {
+      handleEditSubmit()
+    }, 100)
   }
 
   const handleEditCancel = () => {
@@ -204,7 +236,7 @@ const FileExplorerItemComponent: React.FC<FileExplorerItemProps> = ({
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
             onKeyDown={handleKeyDown}
-            onBlur={handleEditSubmit}
+            onBlur={handleEditBlur}
             className="flex-1 text-sm h-6 px-2 py-0"
             autoFocus
             onFocus={(e) => e.target.select()}
@@ -213,37 +245,42 @@ const FileExplorerItemComponent: React.FC<FileExplorerItemProps> = ({
           <span className="flex-1 text-sm truncate">{item.name}</span>
         )}
 
-        {/* Action buttons - always present to prevent layout shift, but invisible when not hovered */}
+        {/* Action buttons - visible on hover */}
         {showActions && !isEditing && (
           <div className={cn(
-            "flex items-center space-x-1",
-            !isHovered && "opacity-0"
+            "flex items-center gap-0.5 ml-auto flex-shrink-0 transition-opacity",
+            isHovered ? "opacity-100" : "opacity-0"
           )}>
-            {onRename && (
+            {/* Add button - adds to folder or as sibling */}
+            {onAdd && item.type === 'folder' && (
               <Button
                 size="sm"
                 variant="ghost"
-                className="w-6 h-6 p-0 opacity-70 hover:opacity-100"
+                className="w-6 h-6 p-0"
+                title={item.type === 'folder' ? 'Add file to this folder' : 'Add file as sibling'}
                 onClick={(e) => {
                   e.stopPropagation()
-                  setIsEditing(true)
-                  setEditName(item.name)
+                  onAdd(item, 'file')
                 }}
               >
-                <Edit className="w-3 h-3 text-blue-500" />
+                <Plus className="w-3 h-3 text-blue-500" />
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="ghost"
-              className="w-6 h-6 p-0 opacity-70 hover:opacity-100"
-              onClick={(e) => {
-                e.stopPropagation()
-                onDelete?.(item)
-              }}
-            >
-              <Trash2 className="w-3 h-3 text-red-500" />
-            </Button>
+            
+            {/* Trash button */}
+            {onDelete && !isProtectedRootFolder && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="w-6 h-6 p-0"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onDelete?.(item)
+                }}
+              >
+                <Trash2 className="w-3 h-3 text-red-500" />
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -261,6 +298,7 @@ const FileExplorerItemComponent: React.FC<FileExplorerItemProps> = ({
               onSelect={onSelect}
               onDelete={onDelete}
               onRename={onRename}
+              onAdd={onAdd}
               onMove={onMove}
               onToggle={onToggle}
               showActions={showActions}
@@ -279,6 +317,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   onItemSelect,
   onItemDelete,
   onItemRename,
+  onItemAdd,
   onItemMove,
   onFolderToggle,
   showActions = true,
@@ -322,6 +361,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
                 onSelect={onItemSelect}
                 onDelete={onItemDelete}
                 onRename={onItemRename}
+                onAdd={onItemAdd}
                 onMove={onItemMove}
                 onToggle={onFolderToggle}
                 showActions={showActions}

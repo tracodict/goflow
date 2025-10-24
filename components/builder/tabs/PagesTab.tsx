@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { FileExplorer, type FileExplorerItem } from '../FileExplorer'
 import { useWorkspace, type FileTreeNode } from '@/stores/workspace-store'
 import { useBuilderStore } from '@/stores/pagebuilder/editor'
+import { useFocusedTabId } from '@/stores/pagebuilder/editor-context'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/hooks/use-toast'
@@ -14,9 +15,13 @@ export const PagesTab: React.FC = () => {
     repo,
     branch,
     tree,
-    activeFile,
     loadFileTree,
   } = useWorkspace()
+  
+  const focusedTabId = useFocusedTabId()
+  const activeFile = focusedTabId && focusedTabId.startsWith('file:') 
+    ? focusedTabId.substring(5) 
+    : null
 
   const router = useRouter()
   const { elements, hasUnsavedChanges, markAsSaved } = useBuilderStore()
@@ -24,9 +29,30 @@ export const PagesTab: React.FC = () => {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
   const [showDeleteDialog, setShowDeleteDialog] = useState<{ item: FileExplorerItem } | null>(null)
   const [showUnsavedDialog, setShowUnsavedDialog] = useState<{ targetItem: FileExplorerItem } | null>(null)
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => {
+    // Restore from localStorage
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('goflow-expanded-folders')
+      if (saved) {
+        try {
+          return new Set(JSON.parse(saved))
+        } catch (e) {
+          console.error('Failed to parse saved expanded folders:', e)
+        }
+      }
+    }
+    // Default: expand "Pages" folder
+    return new Set(['Pages'])
+  })
 
   const hasWorkspace = !!(owner && repo && branch)
+
+  // Persist expanded folders to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('goflow-expanded-folders', JSON.stringify(Array.from(expandedFolders)))
+    }
+  }, [expandedFolders])
 
   // Build tree items from workspace file tree, showing all folders
   const buildTreeItems = (): FileExplorerItem[] => {
@@ -256,6 +282,64 @@ export const PagesTab: React.FC = () => {
     }
   }
 
+  const handleItemAdd = async (parentItem: FileExplorerItem | null, itemType: 'file' | 'folder') => {
+    if (!hasWorkspace) {
+      toast({
+        title: "No Workspace",
+        description: "Please open a workspace first.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Determine the folder to add to
+    let targetFolder: string
+    
+    if (parentItem) {
+      // Adding to a folder
+      if (parentItem.type === 'folder') {
+        targetFolder = parentItem.id
+      } else {
+        toast({
+          title: "Invalid Action",
+          description: "Can only add files to folders.",
+          variant: "destructive",
+        })
+        return
+      }
+    } else {
+      // Adding as sibling - default to Pages folder for now
+      targetFolder = 'Pages'
+    }
+
+    // Prompt for name
+    const defaultName = itemType === 'folder' ? 'New Folder' : 'new-page'
+    const name = prompt(`Enter ${itemType} name:`, defaultName)
+    
+    if (!name || !name.trim()) {
+      return // Cancelled or empty
+    }
+
+    try {
+      await useWorkspace.getState().createFile(targetFolder, name.trim(), itemType === 'folder')
+      
+      // Expand the parent folder if it's not already expanded
+      if (parentItem && parentItem.type === 'folder' && !expandedFolders.has(parentItem.id)) {
+        setExpandedFolders(prev => {
+          const next = new Set(prev)
+          next.add(parentItem.id)
+          return next
+        })
+      }
+    } catch (error: any) {
+      toast({
+        title: `Failed to create ${itemType}`,
+        description: error.message,
+        variant: "destructive",
+      })
+    }
+  }
+
   if (!hasWorkspace) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-4 text-center">
@@ -282,9 +366,10 @@ export const PagesTab: React.FC = () => {
         onItemSelect={handleItemSelect}
         onItemDelete={handleItemDelete}
         onItemRename={handleItemRename}
+        onItemAdd={handleItemAdd}
         onItemMove={handleItemMove}
         onFolderToggle={handleFolderToggle}
-        showActions={false} // Disable inline add actions - use File menu instead
+        showActions={true} // Enable trash button and rename
         className="flex-1"
       />
 

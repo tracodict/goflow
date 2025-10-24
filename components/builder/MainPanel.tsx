@@ -1,8 +1,11 @@
 "use client"
 
-import type React from "react"
-import { useState, useEffect, useCallback } from "react"
+import React from "react"
+import type { FC } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useBuilderStore } from "@/stores/pagebuilder/editor"
+import { BuilderStoreProvider, useBuilderStoreContext, clearTabStore, getTabStore } from "@/stores/pagebuilder/editor-context"
+import { useWorkspace } from "@/stores/workspace-store"
 import { PageWorkspace } from "./PageWorkspace"
 import { FlowWorkspace } from "../petri/flow-workspace"
 import DataWorkspace from "@/components/data/DataWorkspace"
@@ -11,6 +14,16 @@ import { VerticalToolbar } from "./VerticalToolbar"
 import type { JSONSchema } from "@/jsonjoy-builder/src/types/jsonSchema"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { 
   X, 
   SplitSquareVertical, 
@@ -25,6 +38,7 @@ import {
   Puzzle
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { toast } from "@/hooks/use-toast"
 
 // Editor types
 type EditorType = 'page' | 'schema' | 'query' | 'workflow' | 'datasource' | 'mcp'
@@ -90,6 +104,7 @@ interface MainPanelProps {
   rightPanelWidth: number
   isLeftPanelOpen: boolean
   isRightPanelOpen: boolean
+  onFocusedTabChange?: (tabId: string | null) => void
 }
 
 const STORAGE_KEY = 'goflow-main-panel-state'
@@ -103,45 +118,83 @@ export const MainPanel: React.FC<MainPanelProps> = ({
   rightPanelWidth,
   isLeftPanelOpen,
   isRightPanelOpen,
+  onFocusedTabChange,
 }) => {
   const { isPreviewMode, canvasScale } = useBuilderStore()
+  const { files, saveFile, markFileDirty } = useWorkspace()
 
   // Drag and drop state
   const [dragState, setDragState] = useState<DragState | null>(null)
   const [dropTargetPanelId, setDropTargetPanelId] = useState<string | null>(null)
+  
+  // Track which tab is focused (controls builder store)
+  const [focusedTabId, setFocusedTabId] = useState<string | null>('welcome')
+  
+  // Notify parent when focused tab changes
+  useEffect(() => {
+    onFocusedTabChange?.(focusedTabId)
+  }, [focusedTabId, onFocusedTabChange])
+  
+  // Close confirmation dialog state
+  const [closeConfirmation, setCloseConfirmation] = useState<{
+    panelId: string
+    tabId: string
+    filePath: string
+  } | null>(null)
 
-  // Initialize root panel configuration
-  const [rootPanel, setRootPanel] = useState<PanelConfig>(() => {
-    // Try to restore from localStorage
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) {
-        try {
-          return JSON.parse(saved)
-        } catch (e) {
-          console.error('Failed to parse saved panel state:', e)
+  // Default panel configuration
+  const getDefaultPanelConfig = (): PanelConfig => ({
+    id: 'root',
+    tabs: [{
+      id: 'welcome',
+      title: 'Welcome',
+      type: 'page',
+    }],
+    activeTabId: 'welcome',
+  } as EditorPanelConfig)
+
+  // Initialize root panel configuration with default state
+  const [rootPanel, setRootPanel] = useState<PanelConfig>(getDefaultPanelConfig)
+  const [isHydrated, setIsHydrated] = useState(false)
+
+  // Helper to find the first active tab in a panel tree
+  const findFirstActiveTab = (panel: PanelConfig): string | null => {
+    if (isSplitPanel(panel)) {
+      for (const child of panel.children) {
+        const result = findFirstActiveTab(child)
+        if (result) return result
+      }
+      return null
+    } else {
+      return panel.activeTabId
+    }
+  }
+
+  // Restore from localStorage after mount (client-side only)
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved) {
+      try {
+        const savedPanel = JSON.parse(saved)
+        setRootPanel(savedPanel)
+        // Also restore focused tab
+        const firstActiveTab = findFirstActiveTab(savedPanel)
+        if (firstActiveTab) {
+          setFocusedTabId(firstActiveTab)
         }
+      } catch (e) {
+        console.error('Failed to parse saved panel state:', e)
       }
     }
-    
-    // Default configuration
-    return {
-      id: 'root',
-      tabs: [{
-        id: 'welcome',
-        title: 'Welcome',
-        type: 'page',
-      }],
-      activeTabId: 'welcome',
-    } as EditorPanelConfig
-  })
+    setIsHydrated(true)
+  }, [])
 
-  // Persist to localStorage whenever rootPanel changes
+  // Persist to localStorage whenever rootPanel changes (only after hydration)
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (isHydrated) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(rootPanel))
     }
-  }, [rootPanel])
+  }, [rootPanel, isHydrated])
 
   // Listen for file open events
   useEffect(() => {
@@ -171,6 +224,10 @@ export const MainPanel: React.FC<MainPanelProps> = ({
     const tabId = `file:${filePath}`
     const title = fileName.replace(/\.(page|color|qry|cpn|ds|mcp)$/, '')
 
+    // Set this tab as focused immediately
+    console.log('Opening file in tab, setting focus:', tabId)
+    setFocusedTabId(tabId)
+
     // Find the first editor panel (for simplicity, open in root or first child)
     setRootPanel(prev => {
       const addTabToPanel = (panel: PanelConfig): PanelConfig => {
@@ -186,6 +243,7 @@ export const MainPanel: React.FC<MainPanelProps> = ({
           // Check if tab already exists
           const existingTab = panel.tabs.find(t => t.id === tabId)
           if (existingTab) {
+            // Tab exists, just activate it
             return { ...panel, activeTabId: tabId }
           }
           // Add new tab
@@ -234,7 +292,45 @@ export const MainPanel: React.FC<MainPanelProps> = ({
     })
   }
 
-  const closeTab = (panelId: string, tabId: string) => {
+  const closeTab = (panelId: string, tabId: string, force: boolean = false) => {
+    // Find the tab to check if it has unsaved changes
+    const findTab = (panel: PanelConfig): EditorTab | null => {
+      if (isSplitPanel(panel)) {
+        for (const child of panel.children) {
+          const found = findTab(child)
+          if (found) return found
+        }
+        return null
+      } else if (panel.id === panelId) {
+        return panel.tabs.find(t => t.id === tabId) || null
+      }
+      return null
+    }
+    
+    const tab = findTab(rootPanel)
+    
+    // Check if file has unsaved changes
+    if (!force && tab?.filePath) {
+      const file = files.get(tab.filePath)
+      console.log('Checking dirty state for tab:', tab.filePath, 'file:', file, 'dirty:', file?.dirty)
+      if (file?.dirty) {
+        console.log('Setting close confirmation for dirty file:', tab.filePath)
+        setCloseConfirmation({ panelId, tabId, filePath: tab.filePath })
+        return
+      }
+    }
+    
+    // Clear cache entry for this tab if it's a file tab
+    const closingTab = findTab(rootPanel)
+    if (closingTab && closingTab.id.startsWith('file:')) {
+      const filePath = closingTab.id.substring(5)
+      tabStateCache.delete(filePath)
+      // Clear the builder store for this tab
+      clearTabStore(closingTab.id)
+      console.log('Cleared cache and store for closed tab:', filePath)
+    }
+    
+    // Proceed with closing
     setRootPanel(prev => {
       const closeTabRecursive = (panel: PanelConfig): PanelConfig | null => {
         if (isSplitPanel(panel)) {
@@ -267,8 +363,49 @@ export const MainPanel: React.FC<MainPanelProps> = ({
       } as EditorPanelConfig
     })
   }
+  
+  const handleCloseConfirmSave = async () => {
+    if (!closeConfirmation) return
+    
+    const file = files.get(closeConfirmation.filePath)
+    if (file) {
+      try {
+        await saveFile(file.path, file.content)
+        closeTab(closeConfirmation.panelId, closeConfirmation.tabId, true)
+        setCloseConfirmation(null)
+      } catch (error) {
+        // Error already shown by saveFile
+      }
+    }
+  }
+  
+  const handleCloseConfirmDiscard = () => {
+    if (!closeConfirmation) return
+    closeTab(closeConfirmation.panelId, closeConfirmation.tabId, true)
+    setCloseConfirmation(null)
+  }
 
   const setActiveTab = (panelId: string, tabId: string) => {
+    // Before switching tabs, save current tab's state to cache
+    const saveCurrentTabState = (panel: PanelConfig): void => {
+      if (isSplitPanel(panel)) {
+        panel.children.forEach(child => saveCurrentTabState(child))
+      } else if (panel.activeTabId) {
+        const activeTab = panel.tabs.find(t => t.id === panel.activeTabId)
+        if (activeTab && activeTab.id.startsWith('file:')) {
+          const filePath = activeTab.id.substring(5) // Remove 'file:' prefix
+          const currentElements = useBuilderStore.getState().elements
+          console.log('Saving tab state to cache:', filePath, Object.keys(currentElements).length, 'elements')
+          tabStateCache.set(filePath, currentElements)
+        }
+      }
+    }
+    
+    saveCurrentTabState(rootPanel)
+    
+    // Set this tab as focused
+    setFocusedTabId(tabId)
+    
     setRootPanel(prev => {
       const setActiveRecursive = (panel: PanelConfig): PanelConfig => {
         if (isSplitPanel(panel)) {
@@ -367,120 +504,150 @@ export const MainPanel: React.FC<MainPanelProps> = ({
 
   // Pop out tab to new window
   const handlePopOutTab = (panelId: string, tab: EditorTab) => {
+    // Get the current elements from the tab's store
+    const tabStore = getTabStore(tab.id)
+    if (tabStore) {
+      const elements = tabStore.getState().elements
+      // Store elements in localStorage for the popout window to retrieve
+      localStorage.setItem(`popout-${tab.id}`, JSON.stringify(elements))
+    }
+
     // Create a new window with tab data
     const width = 1200
     const height = 800
     const left = window.screenX + (window.outerWidth - width) / 2
     const top = window.screenY + (window.outerHeight - height) / 2
 
+    const popoutUrl = `/popout?tabId=${encodeURIComponent(tab.id)}&title=${encodeURIComponent(tab.title)}`
+    
     const newWindow = window.open(
-      '',
+      popoutUrl,
       `goflow-${tab.id}`,
       `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
     )
 
     if (newWindow) {
-      // Store tab data in window name for retrieval
-      const tabData = JSON.stringify(tab)
-      newWindow.name = `goflow-tab:${tabData}`
-
-      // Build the standalone page
-      newWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>${tab.title} - GoFlow</title>
-            <meta charset="utf-8">
-            <style>
-              body { 
-                margin: 0; 
-                padding: 0; 
-                font-family: system-ui, -apple-system, sans-serif;
-                background: #09090b;
-                color: #fafafa;
-              }
-              .header {
-                height: 40px;
-                border-bottom: 1px solid #27272a;
-                display: flex;
-                align-items: center;
-                padding: 0 16px;
-                background: #18181b;
-              }
-              .content {
-                height: calc(100vh - 40px);
-                overflow: auto;
-              }
-              .loading {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                height: 100%;
-                font-size: 14px;
-                color: #a1a1aa;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <strong>${tab.title}</strong>
-              <span style="margin-left: auto; font-size: 12px; color: #a1a1aa;">${tab.type}</span>
-            </div>
-            <div class="content">
-              <div class="loading">Loading ${tab.title}...</div>
-            </div>
-            <script>
-              // This is a placeholder. In a real implementation, you'd:
-              // 1. Load the workspace content from the parent window
-              // 2. Render the appropriate editor component
-              // 3. Set up message passing with parent for live updates
-              
-              window.addEventListener('message', (e) => {
-                if (e.data.type === 'editor-content') {
-                  // Handle content updates from parent
-                  console.log('Received content:', e.data.content);
-                }
-              });
-
-              // Request initial content from parent
-              if (window.opener && !window.opener.closed) {
-                window.opener.postMessage({
-                  type: 'request-content',
-                  tabId: '${tab.id}'
-                }, '*');
-              }
-            </script>
-          </body>
-        </html>
-      `)
-      newWindow.document.close()
-
       // Remove tab from current panel after pop-out
       closeTab(panelId, tab.id)
     }
   }
 
 
+  const handleResizeStart = useCallback((e: React.MouseEvent, panelId: string, childIndex: number) => {
+    e.preventDefault()
+    
+    const panel = findPanelById(rootPanel, panelId) as SplitPanelConfig | null
+    if (!panel || !isSplitPanel(panel)) return
+    
+    const isHorizontal = panel.type === 'horizontal'
+    const startPos = isHorizontal ? e.clientX : e.clientY
+    const startSizes = [...panel.sizes]
+    
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const currentPos = isHorizontal ? moveEvent.clientX : moveEvent.clientY
+      const delta = currentPos - startPos
+      
+      // Get the container size
+      const container = document.getElementById(`panel-${panelId}`)
+      if (!container) return
+      
+      const containerSize = isHorizontal ? container.offsetWidth : container.offsetHeight
+      const deltaPercent = (delta / containerSize) * 100
+      
+      // Calculate new sizes
+      const newSizes = [...startSizes]
+      newSizes[childIndex] = Math.max(10, Math.min(90, startSizes[childIndex] + deltaPercent))
+      newSizes[childIndex + 1] = Math.max(10, Math.min(90, startSizes[childIndex + 1] - deltaPercent))
+      
+      // Update the panel config
+      setRootPanel(prev => updatePanelSizes(prev, panelId, newSizes))
+    }
+    
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    document.body.style.cursor = isHorizontal ? 'col-resize' : 'row-resize'
+    document.body.style.userSelect = 'none'
+  }, [rootPanel])
+
+  const updatePanelSizes = (config: PanelConfig, panelId: string, newSizes: number[]): PanelConfig => {
+    if (config.id === panelId && isSplitPanel(config)) {
+      return { ...config, sizes: newSizes }
+    }
+    
+    if (isSplitPanel(config)) {
+      return {
+        ...config,
+        children: config.children.map(child => updatePanelSizes(child, panelId, newSizes))
+      }
+    }
+    
+    return config
+  }
+
+  const findPanelById = (config: PanelConfig, panelId: string): PanelConfig | null => {
+    if (config.id === panelId) return config
+    
+    if (isSplitPanel(config)) {
+      for (const child of config.children) {
+        const found = findPanelById(child, panelId)
+        if (found) return found
+      }
+    }
+    
+    return null
+  }
+
   const renderPanel = (config: PanelConfig): React.ReactNode => {
     if (isSplitPanel(config)) {
       return (
         <div 
+          id={`panel-${config.id}`}
           className={cn(
             "flex w-full h-full",
             config.type === 'horizontal' ? 'flex-row' : 'flex-col'
           )}
         >
           {config.children.map((child, idx) => (
-            <div
-              key={child.id}
-              style={{ 
-                [config.type === 'horizontal' ? 'width' : 'height']: `${config.sizes[idx]}%` 
-              }}
-              className="relative"
-            >
-              {renderPanel(child)}
-              {/* TODO: Add resizable handle between panels */}
-            </div>
+            <React.Fragment key={child.id}>
+              <div
+                style={{ 
+                  [config.type === 'horizontal' ? 'width' : 'height']: `${config.sizes[idx]}%` 
+                }}
+                className="relative"
+              >
+                {renderPanel(child)}
+              </div>
+              
+              {/* Resizable handle between panels */}
+              {idx < config.children.length - 1 && (
+                <div
+                  onMouseDown={(e) => handleResizeStart(e, config.id, idx)}
+                  className={cn(
+                    "flex-shrink-0 bg-border hover:bg-primary/20 transition-colors cursor-col-resize group relative",
+                    config.type === 'horizontal' 
+                      ? "w-1 cursor-col-resize hover:w-1.5" 
+                      : "h-1 cursor-row-resize hover:h-1.5"
+                  )}
+                  style={{
+                    [config.type === 'horizontal' ? 'cursor' : 'cursor']: 
+                      config.type === 'horizontal' ? 'col-resize' : 'row-resize'
+                  }}
+                >
+                  {/* Visual indicator on hover */}
+                  <div className={cn(
+                    "absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-primary/30",
+                    config.type === 'horizontal' ? "w-full" : "h-full"
+                  )} />
+                </div>
+              )}
+            </React.Fragment>
           ))}
         </div>
       )
@@ -523,27 +690,45 @@ export const MainPanel: React.FC<MainPanelProps> = ({
                 >
                   <IconComponent className="h-3 w-3 flex-shrink-0" />
                   <span className="truncate max-w-[120px]">{tab.title}</span>
-                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
+                  <div className="flex items-center gap-0.5 ml-auto">
+                    <div
                       onClick={(e) => {
                         e.stopPropagation()
                         handlePopOutTab(panel.id, tab)
                       }}
-                      className="hover:bg-background rounded p-0.5"
+                      className="hover:bg-accent/50 rounded p-0.5 transition-all opacity-30 group-hover:opacity-100 cursor-pointer"
                       title="Pop out to new window"
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          handlePopOutTab(panel.id, tab)
+                        }
+                      }}
                     >
-                      <ExternalLink className="h-3 w-3" />
-                    </button>
-                    <button
+                      <ExternalLink className="h-3 w-3 stroke-current" />
+                    </div>
+                    <div
                       onClick={(e) => {
                         e.stopPropagation()
                         closeTab(panel.id, tab.id)
                       }}
-                      className="hover:bg-background rounded p-0.5"
+                      className="hover:bg-destructive/10 hover:text-destructive rounded p-0.5 transition-all opacity-30 group-hover:opacity-100 cursor-pointer"
                       title="Close tab"
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          closeTab(panel.id, tab.id)
+                        }
+                      }}
                     >
-                      <X className="h-3 w-3" />
-                    </button>
+                      <X className="h-3 w-3 stroke-current" />
+                    </div>
                   </div>
                 </button>
               )
@@ -576,6 +761,7 @@ export const MainPanel: React.FC<MainPanelProps> = ({
         {/* Content Area */}
         <div 
           className="flex-1 overflow-hidden relative"
+          onClick={() => activeTab && setFocusedTabId(activeTab.id)}
           onDragOver={(e) => handlePanelDragOver(e, panel.id)}
           onDragLeave={(e) => handlePanelDragLeave(e, panel.id)}
           onDrop={(e) => handlePanelDrop(e, panel.id)}
@@ -594,6 +780,9 @@ export const MainPanel: React.FC<MainPanelProps> = ({
               onSchemaChange={onSchemaChange}
               onSchemaClose={onSchemaClose}
               canvasScale={canvasScale}
+              isFocused={focusedTabId === activeTab.id}
+              panelId={panel.id}
+              onActivate={setActiveTab}
             />
           ) : (
             <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -620,12 +809,240 @@ export const MainPanel: React.FC<MainPanelProps> = ({
       {/* Vertical Toolbar */}
       {!isPreviewMode && (
         <VerticalToolbar
-          leftOffset={isLeftPanelOpen ? leftPanelWidth + 10 : 58}
-          rightOffset={isRightPanelOpen ? rightPanelWidth + 10 : 10}
+          leftOffset={10}
+          rightOffset={150}
           bottomOffset={10}
         />
       )}
+      
+      {/* Close confirmation dialog */}
+      <AlertDialog open={!!closeConfirmation} onOpenChange={() => setCloseConfirmation(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved Changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              {closeConfirmation && `"${closeConfirmation.filePath}" has unsaved changes. Do you want to save them before closing?`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setCloseConfirmation(null)}>
+              Cancel
+            </AlertDialogCancel>
+            <Button variant="destructive" onClick={handleCloseConfirmDiscard}>
+              Don't Save
+            </Button>
+            <AlertDialogAction onClick={handleCloseConfirmSave}>
+              Save
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+  )
+}
+
+// Cache for tab-specific page states
+const tabStateCache = new Map<string, Record<string, any>>()
+
+// Page workspace loader that loads page data from workspace file
+interface PageWorkspaceLoaderProps {
+  tabId: string
+  filePath?: string
+  isFocused: boolean
+  panelId: string
+  onActivate: (panelId: string, tabId: string) => void
+}
+
+const PageWorkspaceLoader: React.FC<PageWorkspaceLoaderProps> = ({ tabId, filePath, isFocused, panelId, onActivate }) => {
+  const { files, markFileDirty, openFile, saveFile } = useWorkspace()
+  const [isLoading, setIsLoading] = useState(true)
+  const [isInitialized, setIsInitialized] = useState(false)
+  const lastLoadedFileRef = useRef<string | null>(null)
+  const loadAttemptedRef = useRef<Set<string>>(new Set())
+  
+  // Store local elements state for this tab
+  const [localElements, setLocalElements] = useState<Record<string, any> | null>(null)
+  
+  // Load page data when filePath changes
+  useEffect(() => {
+    if (!filePath) {
+      setIsLoading(false)
+      setIsInitialized(false)
+      return
+    }
+    
+    console.log('Loading page:', filePath)
+    
+    const file = files.get(filePath)
+    if (!file) {
+      // File not loaded yet - trigger load from workspace
+      if (!loadAttemptedRef.current.has(filePath)) {
+        console.log('File not in cache, loading from workspace:', filePath)
+        loadAttemptedRef.current.add(filePath)
+        setIsLoading(true)
+        openFile(filePath)
+          .then(() => {
+            // File loaded, the effect will re-run and process it
+            console.log('File loaded successfully:', filePath)
+          })
+          .catch(error => {
+            console.error('Failed to load file from workspace:', error)
+            toast({
+              title: 'Failed to load file',
+              description: error.message,
+              variant: 'destructive'
+            })
+            setIsLoading(false)
+            setIsInitialized(false)
+            loadAttemptedRef.current.delete(filePath)
+          })
+      }
+      return
+    }
+    
+    // We have the file now, remove from attempted set
+    loadAttemptedRef.current.delete(filePath)
+    
+    // Check if we've already loaded this exact file content
+    const fileContentHash = `${filePath}-${file.sha || file.content.length}`
+    const alreadyLoaded = lastLoadedFileRef.current === fileContentHash
+    
+    // Check if we have cached state for this tab (only use cache if already loaded)
+    const cachedState = tabStateCache.get(filePath)
+    if (cachedState && alreadyLoaded) {
+      console.log('Restoring cached state for:', filePath)
+      setLocalElements(cachedState)
+      setIsLoading(false)
+      setIsInitialized(true)
+      return
+    }
+    
+    // Load from workspace file (fresh load or cache miss)
+    console.log('Loading fresh content from workspace file:', filePath)
+    try {
+      const pageData = JSON.parse(file.content)
+      console.log('Parsed page data from file:', filePath, 'elements count:', Object.keys(pageData.elements || {}).length)
+      
+      if (pageData.elements && Object.keys(pageData.elements).length > 0) {
+        console.log('Loading elements:', pageData.elements)
+        setLocalElements(pageData.elements)
+        // Cache the loaded state
+        tabStateCache.set(filePath, pageData.elements)
+        // Mark as loaded
+        lastLoadedFileRef.current = fileContentHash
+      } else {
+        // If no elements, create default page structure
+        console.warn('No elements in page data, using default')
+        const defaultElements = {
+          "page-root": {
+            id: "page-root",
+            tagName: "div",
+            attributes: { className: "page-container" },
+            styles: {
+              minHeight: "40vh",
+              padding: "20px",
+              backgroundColor: "#ffffff",
+              fontFamily: "system-ui, sans-serif",
+            },
+            childIds: [],
+          }
+        }
+        setLocalElements(defaultElements)
+        tabStateCache.set(filePath, defaultElements)
+        lastLoadedFileRef.current = fileContentHash
+      }
+      setIsLoading(false)
+      setIsInitialized(true)
+    } catch (error) {
+      console.error('Failed to parse page data:', error)
+      toast({
+        title: 'Failed to load page',
+        description: 'Invalid page data format',
+        variant: 'destructive'
+      })
+      setIsLoading(false)
+      setIsInitialized(false)
+    }
+  }, [filePath, files, openFile])
+  
+  // Watch this tab's store for changes and mark file dirty
+  useEffect(() => {
+    if (!filePath || !isInitialized) return
+    
+    const tabStore = getTabStore(tabId)
+    if (!tabStore) return
+    
+    console.log('Setting up dirty tracking for:', filePath)
+    
+    // Subscribe to this tab's store changes
+    const unsubscribe = tabStore.subscribe(
+      (state) => {
+        if (state.hasUnsavedChanges) {
+          console.log('Marking file dirty:', filePath)
+          markFileDirty(filePath, true)
+        }
+      }
+    )
+    
+    return unsubscribe
+  }, [filePath, isInitialized, markFileDirty, tabId])
+  
+  // Save handler - gets the store for this tab and saves its elements
+  useEffect(() => {
+    if (!filePath || !isInitialized) return
+    
+    const handleSave = (e: CustomEvent) => {
+      if (e.detail.path === filePath) {
+        console.log('Save event received for:', filePath)
+        
+        // Get store for this specific tab using tabId
+        const tabStore = getTabStore(tabId)
+        if (!tabStore) {
+          console.error('No store found for tab:', tabId)
+          return
+        }
+        
+        // Get current elements from this tab's store
+        const currentElements = tabStore.getState().elements
+        console.log('Elements from store:', Object.keys(currentElements).length, 'elements')
+        const pageData = { elements: currentElements }
+        console.log('Saving page data:', filePath, 'with', Object.keys(currentElements).length, 'elements')
+        
+        // Update cache with saved state
+        tabStateCache.set(filePath, currentElements)
+        saveFile(filePath, JSON.stringify(pageData, null, 2))
+        
+        // Mark as saved in the tab's store
+        tabStore.getState().markAsSaved()
+        markFileDirty(filePath, false)
+      }
+    }
+    
+    window.addEventListener('goflow-save-file', handleSave as EventListener)
+    return () => window.removeEventListener('goflow-save-file', handleSave as EventListener)
+  }, [filePath, isInitialized, saveFile, markFileDirty, tabId])
+  
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-muted-foreground">Loading page...</div>
+      </div>
+    )
+  }
+  
+  // Wrap PageWorkspace in BuilderStoreProvider to give each tab its own store
+  // Pass tabId and initialElements to create isolated store instance
+  return (
+    <BuilderStoreProvider 
+      tabId={tabId}
+      initialElements={localElements || undefined}
+    >
+      <PageWorkspace 
+        panelId={panelId}
+        tabId={tabId}
+        onActivate={onActivate}
+      />
+    </BuilderStoreProvider>
   )
 }
 
@@ -636,6 +1053,9 @@ interface EditorContentProps {
   onSchemaChange: (schema: JSONSchema) => void
   onSchemaClose: () => void
   canvasScale: number
+  isFocused: boolean
+  panelId: string
+  onActivate: (panelId: string, tabId: string) => void
 }
 
 const EditorContent: React.FC<EditorContentProps> = ({
@@ -643,7 +1063,10 @@ const EditorContent: React.FC<EditorContentProps> = ({
   selectedSchema,
   onSchemaChange,
   onSchemaClose,
-  canvasScale
+  canvasScale,
+  isFocused,
+  panelId,
+  onActivate
 }) => {
   switch (tab.type) {
     case 'page':
@@ -657,7 +1080,13 @@ const EditorContent: React.FC<EditorContentProps> = ({
             height: `${100 / canvasScale}%`,
           }}
         >
-          <PageWorkspace />
+          <PageWorkspaceLoader 
+            tabId={tab.id} 
+            filePath={tab.filePath} 
+            isFocused={isFocused}
+            panelId={panelId}
+            onActivate={onActivate}
+          />
         </div>
       )
     

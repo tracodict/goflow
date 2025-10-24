@@ -1,10 +1,28 @@
 "use client"
 
 import type React from "react"
-import { useBuilderStore } from "../../../stores/pagebuilder/editor"
+import { useEffect } from "react"
+import { useFocusedTabStore, useFocusedTabId, useFocusedTabState } from "../../../stores/pagebuilder/editor-context"
 
 export const StructureTab: React.FC = () => {
-  const { elements, selectedElementId, setDraggedElement, draggedElementId, removeElement } = useBuilderStore()
+  const focusedTabId = useFocusedTabId() // Track focused tab changes
+  const store = useFocusedTabStore()
+  
+  // Subscribe to store changes properly
+  const elements = useFocusedTabState((state) => state.elements, {})
+  const selectedElementId = useFocusedTabState((state) => state.selectedElementId, null)
+  const draggedElementId = useFocusedTabState((state) => state.draggedElementId, null)
+  
+  // Get actions from store
+  const setDraggedElement = store.getState().setDraggedElement
+  const removeElement = store.getState().removeElement
+  const selectElement = store.getState().selectElement
+  
+  // Debug: Log when focused tab or elements change
+  useEffect(() => {
+    console.log('StructureTab - focusedTabId:', focusedTabId)
+    console.log('StructureTab - elements count:', Object.keys(elements).length)
+  }, [focusedTabId, elements])
 
   const handleDragStart = (e: React.DragEvent, elementId: string) => {
     e.dataTransfer.setData("text/plain", elementId)
@@ -25,8 +43,8 @@ export const StructureTab: React.FC = () => {
       const isTargetContainer =
         targetElement && ["div", "section", "main", "article", "aside", "nav"].includes(targetElement.tagName)
 
-      if (isTargetContainer) {
-        useBuilderStore.getState().moveElement(draggedId, targetElementId)
+      if (isTargetContainer && store) {
+        store.getState().moveElement(draggedId, targetElementId)
       }
     }
     setDraggedElement(null)
@@ -64,7 +82,7 @@ export const StructureTab: React.FC = () => {
         className={`pl-${depth * 4} py-1 flex items-center gap-2 rounded hover:bg-muted cursor-pointer ${
           selectedElementId === id ? "bg-primary/10 border-l-4 border-primary" : ""
         } ${isDragging ? "opacity-50" : ""} ${isContainer ? "border-l-2 border-dashed border-muted-foreground/30" : ""}`}
-        onClick={() => useBuilderStore.getState().selectElement(id)}
+        onClick={() => selectElement(id)}
       >
         <span className="font-mono text-primary text-xs">{element.tagName}</span>
         <span className="text-muted-foreground text-xs">#{id}</span>

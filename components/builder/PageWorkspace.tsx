@@ -2,19 +2,38 @@
 
 import type React from "react"
 import { useEffect } from "react"
-import { useBuilderStore } from "../../stores/pagebuilder/editor"
+import { useBuilderStoreContext } from "../../stores/pagebuilder/editor-context"
 import { PageElement } from "./PageElement"
 import { VerticalToolbar } from "./VerticalToolbar"
 
 interface WorkspaceProps {
 	rootElementId?: string
+	panelId?: string
+	tabId?: string
+	onActivate?: (panelId: string, tabId: string) => void
 }
 
-export const PageWorkspace: React.FC<WorkspaceProps> = ({ rootElementId = "page-root" }) => {
-	const { selectElement, setHoveredElement, isPreviewMode, selectedElementId, removeElement } = useBuilderStore()
+export const PageWorkspace: React.FC<WorkspaceProps> = ({ 
+	rootElementId = "page-root",
+	panelId,
+	tabId,
+	onActivate
+}) => {
+	const store = useBuilderStoreContext()
+	const { selectElement, setHoveredElement, isPreviewMode, selectedElementId, removeElement } = store()
 
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
+			// Don't delete elements if user is typing in an input field
+			const target = e.target as HTMLElement
+			const isInputField = target.tagName === 'INPUT' || 
+			                     target.tagName === 'TEXTAREA' || 
+			                     target.isContentEditable
+			
+			if (isInputField) {
+				return // Let the input handle the key event
+			}
+			
 			if ((e.key === "Delete" || e.key === "Backspace") && selectedElementId && selectedElementId !== "page-root" && !isPreviewMode) {
 				e.preventDefault()
 				removeElement(selectedElementId)
@@ -44,6 +63,10 @@ export const PageWorkspace: React.FC<WorkspaceProps> = ({ rootElementId = "page-
 
 	const handleElementClick = (elementId: string) => {
 		selectElement(elementId)
+		// Auto-activate the parent tab when an element is selected
+		if (onActivate && panelId && tabId) {
+			onActivate(panelId, tabId)
+		}
 	}
 
 	return (

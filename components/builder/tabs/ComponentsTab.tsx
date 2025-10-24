@@ -2,10 +2,12 @@
 
 import type React from "react"
 import { useState, useEffect, useMemo } from "react"
-import { useBuilderStore, type Element } from "../../../stores/pagebuilder/editor"
+import { type Element } from "../../../stores/pagebuilder/editor"
+import { useFocusedTabStore, useFocusedTabId, useFocusedTabState } from "../../../stores/pagebuilder/editor-context"
 import { Button } from "../../ui/button"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../../ui/accordion"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../ui/tooltip"
+import { useIsHydrated } from "@/hooks/use-hydration"
 import {
 	Square,
 	Link,
@@ -565,17 +567,29 @@ const componentCategories = [
 ]
 
 export const ComponentsTab: React.FC = () => {
-	const { elements, addElement, selectedElementId } = useBuilderStore()
+	const focusedTabId = useFocusedTabId() // Track focused tab changes
+	const store = useFocusedTabStore()
+	const isHydrated = useIsHydrated()
 
 	const [expandedSections, setExpandedSections] = useState<string[]>([])
-
+	const [loadedFromStorage, setLoadedFromStorage] = useState(false)
+	
 	// Memoize merged categories to prevent duplicates
 	const mergedCategories = useMemo(() => {
 		return getMergedComponentCategories()
 	}, [])
 
+	// Use the safe hook that handles null store internally - always calls the same hooks
+	const elements = useFocusedTabState((state) => state.elements, {})
+	const selectedElementId = useFocusedTabState((state) => state.selectedElementId, null)
+	
+	// Get addElement function safely
+	const addElement = store.getState().addElement
+
 	// Load expanded sections from localStorage on mount
 	useEffect(() => {
+		if (!isHydrated) return
+		
 		const saved = localStorage.getItem("componentAccordionExpanded")
 		if (saved) {
 			try {
@@ -587,12 +601,15 @@ export const ComponentsTab: React.FC = () => {
 		} else {
 			setExpandedSections(["general"]) // Default to first section expanded
 		}
-	}, [])
+		setLoadedFromStorage(true)
+	}, [isHydrated])
 
 	// Save expanded sections to localStorage when changed
 	const handleValueChange = (value: string[]) => {
 		setExpandedSections(value)
-		localStorage.setItem("componentAccordionExpanded", JSON.stringify(value))
+		if (isHydrated) {
+			localStorage.setItem("componentAccordionExpanded", JSON.stringify(value))
+		}
 	}
 
 	const selectedElementObj = selectedElementId ? elements[selectedElementId] : undefined
@@ -608,6 +625,10 @@ export const ComponentsTab: React.FC = () => {
 			parentId,
 		}
 		addElement(newElement, parentId)
+	}
+
+	if (!isHydrated) {
+		return <div className="h-full overflow-y-auto" />
 	}
 
 	return (
@@ -653,9 +674,9 @@ export const ComponentsTab: React.FC = () => {
 								</div>
 							</AccordionContent>
 						</AccordionItem>
-					))}
-				</Accordion>
-			</TooltipProvider>
+						))}
+					</Accordion>
+				</TooltipProvider>
 		</div>
 	)
 }
