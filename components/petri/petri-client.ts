@@ -1,6 +1,78 @@
+// Header used to tell the workspace flow proxy which upstream base URL to target.
+const FLOW_UPSTREAM_HEADER = 'x-goflow-upstream-base'
+const SETTINGS_STORAGE_KEY = 'goflow.systemSettings'
+
+function normalizeBaseUrl(url: string | null | undefined): string | null {
+  if (!url) return null
+  const trimmed = url.trim()
+  if (!trimmed) return null
+  try {
+    const parsed = new URL(trimmed)
+    if (!parsed.protocol || !/^https?:$/.test(parsed.protocol)) {
+      return null
+    }
+    parsed.pathname = parsed.pathname.replace(/\/+$/u, '')
+    return parsed.toString().replace(/\/+$/u, '')
+  } catch {
+    return null
+  }
+}
+
+function resolveConfiguredFlowBase(): string | null {
+  if (typeof window !== 'undefined') {
+    const globalUpstream = normalizeBaseUrl((window as any)?.__goflowUpstreamBase)
+    if (globalUpstream) return globalUpstream
+
+    try {
+      const raw = window.localStorage?.getItem?.(SETTINGS_STORAGE_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed.flowServiceUrl === 'string') {
+          const normalized = normalizeBaseUrl(parsed.flowServiceUrl)
+          if (normalized) return normalized
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Final fallback to environment defaults when running in non-browser contexts.
+  return normalizeBaseUrl(process.env.NEXT_PUBLIC_FLOW_SERVICE_URL || process.env.FLOW_SERVICE_URL)
+}
+
+function isWorkspaceProxyUrl(target: string | URL): boolean {
+  let url: URL
+  if (typeof target === 'string') {
+    try {
+      url = target.startsWith('http') ? new URL(target) : new URL(target, typeof window !== 'undefined' ? window.location.origin : 'http://localhost')
+    } catch {
+      return false
+    }
+  } else {
+    url = target
+  }
+  return url.pathname.startsWith('/api/ws/')
+}
+
 // Internal helper to always include credentials (lz_sess cookie) for cross-subdomain calls
 async function authFetch(input: string, init: RequestInit = {}) {
-  return fetch(input, { credentials: 'include', ...init })
+  const requestInit: RequestInit = { ...init }
+
+  // Force credentials include to maintain auth cookies when calling Flow service.
+  requestInit.credentials = 'include'
+
+  const isProxyCall = typeof input === 'string' && isWorkspaceProxyUrl(input)
+  if (isProxyCall) {
+    const upstreamBase = resolveConfiguredFlowBase()
+    if (upstreamBase) {
+      const headers = new Headers(requestInit.headers as HeadersInit | undefined)
+      headers.set(FLOW_UPSTREAM_HEADER, upstreamBase)
+      requestInit.headers = headers
+    }
+  }
+
+  return fetch(input, requestInit)
 }
 
 // Get current marking for a workflow

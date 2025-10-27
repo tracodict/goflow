@@ -1,3 +1,11 @@
+"use client"
+
+declare global {
+  interface Window {
+    __goflowOpenFileHandlerInstalled?: boolean
+  }
+}
+
 import { useWorkspace } from '@/stores/workspace-store'
 
 export function handleFileOpen(path: string, extension: string) {
@@ -25,7 +33,8 @@ function openPageBuilder(path: string) {
   
   if (file) {
     try {
-      const pageData = JSON.parse(file.content)
+      const maybeData = file.data
+      const pageData = maybeData && typeof maybeData === 'object' ? maybeData : JSON.parse(file.content)
       // Dispatch to page builder
       window.dispatchEvent(new CustomEvent('goflow-load-page', {
         detail: { path, data: pageData }
@@ -50,7 +59,8 @@ function openQueryEditor(path: string) {
   
   if (file) {
     try {
-      const queryData = JSON.parse(file.content)
+      const maybeData = file.data
+      const queryData = maybeData && typeof maybeData === 'object' ? maybeData : JSON.parse(file.content)
       window.dispatchEvent(new CustomEvent('goflow-open-query', {
         detail: { path, data: queryData }
       }))
@@ -67,7 +77,8 @@ function openWorkflowEditor(path: string) {
   
   if (file) {
     try {
-      const workflowData = JSON.parse(file.content)
+      const maybeData = file.data
+      const workflowData = maybeData && typeof maybeData === 'object' ? maybeData : JSON.parse(file.content)
       window.dispatchEvent(new CustomEvent('goflow-open-workflow', {
         detail: { path, data: workflowData }
       }))
@@ -84,7 +95,8 @@ function openSchemaEditor(path: string) {
   
   if (file) {
     try {
-      const schemaData = JSON.parse(file.content)
+      const maybeData = file.data
+      const schemaData = maybeData && typeof maybeData === 'object' ? maybeData : JSON.parse(file.content)
       window.dispatchEvent(new CustomEvent('goflow-open-schema', {
         detail: { path, data: schemaData }
       }))
@@ -101,7 +113,8 @@ function openMCPToolEditor(path: string) {
   
   if (file) {
     try {
-      const mcpData = JSON.parse(file.content)
+      const maybeData = file.data
+      const mcpData = maybeData && typeof maybeData === 'object' ? maybeData : JSON.parse(file.content)
       window.dispatchEvent(new CustomEvent('goflow-open-mcp-tool', {
         detail: { path, data: mcpData }
       }))
@@ -112,7 +125,8 @@ function openMCPToolEditor(path: string) {
 }
 
 // Listen for file open events
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && !window.__goflowOpenFileHandlerInstalled) {
+  window.__goflowOpenFileHandlerInstalled = true
   window.addEventListener('goflow-open-file', ((event: CustomEvent) => {
     const { path, extension } = event.detail
     handleFileOpen(path, extension)

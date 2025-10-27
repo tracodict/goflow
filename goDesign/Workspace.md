@@ -1,7 +1,7 @@
-# Workspace Integration with GitHub
+# Workspace Provider Architecture
 
 ## Overview
-Integrate GitHub repository management into GoFlow workspace using Octokit.js to provide version-controlled file storage for all GoFlow artifacts (pages, datasources, queries, workflows, schemas, and MCP tools).
+GoFlow workspaces now integrate with a provider abstraction that defaults to GitHub but can be extended to other backends. Use the `WORKSPACE_PROVIDER` environment variable to select the backing service while keeping the client API stable. When `WORKSPACE_PROVIDER=github`, the system uses Octokit.js to interact with GitHub repositories for version-controlled storage of all GoFlow artifacts (pages, datasources, queries, workflows, schemas, and MCP tools). When set to `fs`, the façade exposes placeholder file system APIs that will be implemented in the future.
 
 ## Architecture
 
@@ -9,7 +9,39 @@ Integrate GitHub repository management into GoFlow workspace using Octokit.js to
 - **GitHub Integration**: `@octokit/rest` (Octokit.js)
 - **Authentication**: OAuth 2.0 (GitHub Apps or OAuth Apps)
 - **Client-side**: React components for file explorer and dialogs
-- **Server-side**: Next.js API routes for GitHub operations
+- **Server-side**: Next.js API routes behind provider-specific implementations
+
+### Provider Abstraction
+- **Environment Flag**: `WORKSPACE_PROVIDER` (`github` | `fs`, default: `github`). Expose the same value to the browser via `NEXT_PUBLIC_WORKSPACE_PROVIDER` so client stores can stay in sync with the server configuration.
+- **Public API Base**: `/api/ws` delegates requests to the active provider.
+- **Provider Routing**:
+
+| Provider | Internal Handler | Notes |
+| --- | --- | --- |
+| `github` | `/api/github/workspace/[workspaceId]/…` | Backed by Octokit and Git repositories. |
+| `fs` | `/api/fs/workspace/[workspaceId]/…` (placeholder) | Stub endpoints return `501` until implemented. |
+
+- **Workspace Identifier (`workspaceId`)**: For GitHub, compose `workspaceId = encodeURIComponent(`${owner}/${repo}@${branch}`)` so the value can safely live inside a URL segment. The branch portion represents the active working branch (e.g., an ephemeral temp branch). Future providers can define their own canonical formats while satisfying the same contract.
+
+### API Facade (`/api/ws`)
+- Create dynamic Next.js route handlers in `app/api/ws/[workspaceId]/…` that dispatch to the active provider based on `process.env.WORKSPACE_PROVIDER`.
+- Providers expose the same sub-route contract: `open`, `init-folders`, `tree`, `file`, and `save`.
+- Example dispatcher for the `open` endpoint:
+
+```typescript
+// app/api/ws/[workspaceId]/open/route.ts
+import { POST as githubOpen } from '@/app/api/github/workspace/[workspaceId]/open/route'
+import { POST as fsOpen } from '@/app/api/fs/workspace/[workspaceId]/open/route'
+
+const provider = (process.env.WORKSPACE_PROVIDER || 'github') as 'github' | 'fs'
+
+export async function POST(request: Request, context: { params: { workspaceId: string } }) {
+  if (provider === 'github') return githubOpen(request, context)
+  return fsOpen(request, context)
+}
+```
+
+- Placeholder FS implementations should live in `app/api/fs/workspace/[workspaceId]/…` and return `Response.json({ error: 'Not implemented' }, { status: 501 })` until the file-system backend ships.
 
 ### File Structure Conventions
 ```
@@ -343,7 +375,11 @@ interface WorkspaceFile {
   dirty: boolean // Has unsaved changes
 }
 
+type WorkspaceProvider = 'github' | 'fs'
+
 interface WorkspaceState {
+  provider: WorkspaceProvider
+  workspaceId: string | null
   owner: string | null
   repo: string | null
   branch: string | null // Current temp branch
@@ -363,6 +399,8 @@ interface WorkspaceState {
 }
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
+  provider: (process.env.NEXT_PUBLIC_WORKSPACE_PROVIDER as WorkspaceProvider) || 'github',
+  workspaceId: null,
   owner: null,
   repo: null,
   branch: null,
@@ -372,27 +410,28 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   activeFile: null,
   
   openWorkspace: async ({ owner, repo }) => {
-    // 1. Create temp branch from main
     const tempBranch = `goflow-${Date.now()}`
-    await fetch('/api/github/workspace/open', {
+    const workspaceId = buildGitHubWorkspaceId({ owner, repo, branch: tempBranch })
+    const encodedId = encodeWorkspaceId(workspaceId)
+    const basePath = `/api/ws/${encodedId}` // Delegates to the active workspace provider
+
+    await fetch(`${basePath}/open`, {
       method: 'POST',
-      body: JSON.stringify({ owner, repo, baseBranch: 'main', tempBranch })
+      body: JSON.stringify({ baseBranch: 'main' })
     })
-    
-    // 2. Ensure folder structure exists
-    await fetch('/api/github/workspace/init-folders', {
-      method: 'POST',
-      body: JSON.stringify({ owner, repo, branch: tempBranch })
+
+    await fetch(`${basePath}/init-folders`, {
+      method: 'POST'
     })
-    
-    // 3. Load file tree
+
     const tree = await get().loadFileTree()
-    
-    set({ owner, repo, branch: tempBranch, baseBranch: 'main', tree })
+
+    set({ owner, repo, branch: tempBranch, workspaceId, baseBranch: 'main', tree })
   },
   
   closeWorkspace: () => {
     set({
+      workspaceId: null,
       owner: null,
       repo: null,
       branch: null,
@@ -403,24 +442,26 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
   
   loadFileTree: async () => {
-    const { owner, repo, branch } = get()
-    const res = await fetch(`/api/github/workspace/tree?owner=${owner}&repo=${repo}&branch=${branch}`)
+    const { workspaceId } = get()
+    if (!workspaceId) return []
+  const basePath = `/api/ws/${encodeWorkspaceId(workspaceId)}`
+  const res = await fetch(`${basePath}/tree`)
     const tree = await res.json()
     set({ tree })
     return tree
   },
   
   openFile: async (path: string) => {
-    const { owner, repo, branch, files } = get()
+    const { workspaceId, files } = get()
+    if (!workspaceId) return
+    const basePath = `/api/ws/${encodeWorkspaceId(workspaceId)}`
     
-    // Check if already loaded
     if (files.has(path)) {
       set({ activeFile: path })
       return
     }
     
-    // Fetch file content
-    const res = await fetch(`/api/github/workspace/file?owner=${owner}&repo=${repo}&branch=${branch}&path=${path}`)
+    const res = await fetch(`${basePath}/file?path=${encodeURIComponent(path)}`)
     const { content, sha } = await res.json()
     
     const type = getFileTypeFromPath(path)
@@ -429,15 +470,15 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
   
   saveFile: async (path: string, content: string) => {
-    const { owner, repo, branch, files } = get()
+    const { workspaceId, files } = get()
+    if (!workspaceId) return
     const file = files.get(path)
-    
     if (!file) return
+    const basePath = `/api/ws/${encodeWorkspaceId(workspaceId)}`
     
-    // Commit to temp branch
-    const res = await fetch('/api/github/workspace/file', {
+    const res = await fetch(`${basePath}/file`, {
       method: 'PUT',
-      body: JSON.stringify({ owner, repo, branch, path, content, sha: file.sha })
+      body: JSON.stringify({ path, content, sha: file.sha })
     })
     
     const { sha: newSha } = await res.json()
@@ -450,33 +491,53 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
   
   saveWorkspace: async (commitMessage: string) => {
-    const { owner, repo, branch, baseBranch } = get()
+    const { workspaceId, baseBranch } = get()
+    if (!workspaceId) return
+    const basePath = `/api/ws/${encodeWorkspaceId(workspaceId)}`
     
-    // Squash commits and merge to base branch
-    await fetch('/api/github/workspace/save', {
+    await fetch(`${basePath}/save`, {
       method: 'POST',
-      body: JSON.stringify({ owner, repo, branch, baseBranch, commitMessage })
+      body: JSON.stringify({ commitMessage, baseBranch })
     })
     
     toast({ title: 'Workspace saved', description: 'Changes merged to main branch' })
   },
   
   createFile: async (folder: string, name: string) => {
-    const { owner, repo, branch } = get()
-    const extension = getFolderExtension(folder) // e.g., 'page' for Pages folder
+    const { workspaceId } = get()
+    if (!workspaceId) return
+    const extension = getFolderExtension(folder)
     const path = `${folder}/${name}.${extension}`
-    
     const template = getFileTemplate(extension)
+    const basePath = `/api/ws/${encodeWorkspaceId(workspaceId)}`
     
-    await fetch('/api/github/workspace/file', {
+    await fetch(`${basePath}/file`, {
       method: 'POST',
-      body: JSON.stringify({ owner, repo, branch, path, content: template })
+      body: JSON.stringify({ path, content: template })
     })
     
     await get().loadFileTree()
     await get().openFile(path)
   }
 }))
+
+// Shared helper imported on both client and server modules
+function buildWorkspaceId(params: { owner: string; repo: string; branch: string }) {
+  return `${params.owner}/${params.repo}@${params.branch}`
+}
+
+function encodeWorkspaceId(id: string) {
+  return encodeURIComponent(id)
+}
+
+function parseGitHubWorkspaceId(id: string) {
+  const decoded = decodeURIComponent(id)
+  const [repoPart, branch] = decoded.split('@')
+  if (!branch) throw new Error(`Invalid workspace id: ${id}`)
+  const [owner, repo] = repoPart.split('/')
+  if (!owner || !repo) throw new Error(`Invalid workspace id: ${id}`)
+  return { owner, repo, branch }
+}
 
 function getFileTypeFromPath(path: string): WorkspaceFile['type'] {
   if (path.endsWith('.page')) return 'page'
@@ -513,17 +574,24 @@ function getFileTemplate(extension: string): string {
 }
 ```
 
-## 5. Server-side GitHub Operations
+The façade-specific `workspaceId` ensures every API call carries enough context for the provider to locate repository and branch data. Client requests only need to pass file-relative information such as `path` or `commitMessage`; provider routes reconstruct `owner`, `repo`, and `branch` from the encoded identifier.
 
-### API Route: Open Workspace
+## 5. Server-side Workspace Providers
 
-**`/api/github/workspace/open`**
+### GitHub Provider Routes
+
+All GitHub routes now live under `/api/github/workspace/[workspaceId]/…` where `workspaceId` reflects the `owner/repo@branch` of the active session.
+
+**`/api/github/workspace/[workspaceId]/open`**
 ```typescript
-export async function POST(request: Request) {
+export async function POST(request: Request, { params }: { params: { workspaceId: string } }) {
   const token = await getTokenFromSession(request)
   const octokit = new Octokit({ auth: token })
   
-  const { owner, repo, baseBranch, tempBranch } = await request.json()
+  const workspaceId = params.workspaceId
+  const { owner, repo, branch } = parseGitHubWorkspaceId(workspaceId)
+  const { baseBranch } = await request.json()
+  const tempBranch = branch
   
   try {
     // Get base branch reference
@@ -553,13 +621,14 @@ export async function POST(request: Request) {
 
 ### API Route: Initialize Folder Structure
 
-**`/api/github/workspace/init-folders`**
+**`/api/github/workspace/[workspaceId]/init-folders`**
 ```typescript
-export async function POST(request: Request) {
+export async function POST(request: Request, { params }: { params: { workspaceId: string } }) {
   const token = await getTokenFromSession(request)
   const octokit = new Octokit({ auth: token })
   
-  const { owner, repo, branch } = await request.json()
+  const workspaceId = params.workspaceId
+  const { owner, repo, branch } = parseGitHubWorkspaceId(workspaceId)
   
   const folders = ['Pages', 'DataSources', 'Queries', 'Workflows', 'Schemas', 'MCPTools']
   
@@ -593,16 +662,14 @@ export async function POST(request: Request) {
 
 ### API Route: Get File Tree
 
-**`/api/github/workspace/tree`**
+**`/api/github/workspace/[workspaceId]/tree`**
 ```typescript
-export async function GET(request: Request) {
+export async function GET(request: Request, { params }: { params: { workspaceId: string } }) {
   const token = await getTokenFromSession(request)
   const octokit = new Octokit({ auth: token })
   
-  const { searchParams } = new URL(request.url)
-  const owner = searchParams.get('owner')!
-  const repo = searchParams.get('repo')!
-  const branch = searchParams.get('branch')!
+  const workspaceId = params.workspaceId
+  const { owner, repo, branch } = parseGitHubWorkspaceId(workspaceId)
   
   // Get tree recursively
   const { data: tree } = await octokit.rest.git.getTree({
@@ -700,17 +767,16 @@ function buildTreeRecursive(files: any[], basePath: string): FileTreeNode[] {
 
 ### API Route: Read/Write File
 
-**`/api/github/workspace/file`**
+**`/api/github/workspace/[workspaceId]/file`**
 ```typescript
 // GET - Read file
-export async function GET(request: Request) {
+export async function GET(request: Request, { params }: { params: { workspaceId: string } }) {
   const token = await getTokenFromSession(request)
   const octokit = new Octokit({ auth: token })
   
+  const workspaceId = params.workspaceId
+  const { owner, repo, branch } = parseGitHubWorkspaceId(workspaceId)
   const { searchParams } = new URL(request.url)
-  const owner = searchParams.get('owner')!
-  const repo = searchParams.get('repo')!
-  const branch = searchParams.get('branch')!
   const path = searchParams.get('path')!
   
   const { data } = await octokit.rest.repos.getContent({
@@ -729,11 +795,13 @@ export async function GET(request: Request) {
 }
 
 // PUT - Update file
-export async function PUT(request: Request) {
+export async function PUT(request: Request, { params }: { params: { workspaceId: string } }) {
   const token = await getTokenFromSession(request)
   const octokit = new Octokit({ auth: token })
   
-  const { owner, repo, branch, path, content, sha } = await request.json()
+  const workspaceId = params.workspaceId
+  const { owner, repo, branch } = parseGitHubWorkspaceId(workspaceId)
+  const { path, content, sha } = await request.json()
   
   const { data } = await octokit.rest.repos.createOrUpdateFileContents({
     owner,
@@ -749,11 +817,13 @@ export async function PUT(request: Request) {
 }
 
 // POST - Create file
-export async function POST(request: Request) {
+export async function POST(request: Request, { params }: { params: { workspaceId: string } }) {
   const token = await getTokenFromSession(request)
   const octokit = new Octokit({ auth: token })
   
-  const { owner, repo, branch, path, content } = await request.json()
+  const workspaceId = params.workspaceId
+  const { owner, repo, branch } = parseGitHubWorkspaceId(workspaceId)
+  const { path, content } = await request.json()
   
   const { data } = await octokit.rest.repos.createOrUpdateFileContents({
     owner,
@@ -770,13 +840,15 @@ export async function POST(request: Request) {
 
 ### API Route: Save Workspace (Squash and Merge)
 
-**`/api/github/workspace/save`**
+**`/api/github/workspace/[workspaceId]/save`**
 ```typescript
-export async function POST(request: Request) {
+export async function POST(request: Request, { params }: { params: { workspaceId: string } }) {
   const token = await getTokenFromSession(request)
   const octokit = new Octokit({ auth: token })
   
-  const { owner, repo, branch, baseBranch, commitMessage } = await request.json()
+  const workspaceId = params.workspaceId
+  const { owner, repo, branch } = parseGitHubWorkspaceId(workspaceId)
+  const { baseBranch, commitMessage } = await request.json()
   
   try {
     // 1. Get all commits from temp branch
@@ -841,6 +913,19 @@ export async function POST(request: Request) {
   }
 }
 ```
+
+### File System Provider Placeholders
+
+Until the on-disk workspace persistence layer lands, stub each `fs` route inside `app/api/fs/workspace/[workspaceId]/…`:
+
+```typescript
+// app/api/fs/workspace/[workspaceId]/tree/route.ts
+export async function GET() {
+  return Response.json({ error: 'Local workspace provider not implemented yet' }, { status: 501 })
+}
+```
+
+These placeholders keep the API façade shape consistent and allow the client to rely on `/api/ws` regardless of provider choice.
 
 ## 6. Workspace Explorer UI
 

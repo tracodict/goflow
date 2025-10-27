@@ -2,7 +2,8 @@
 
 
 import React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
+import type { EditorType } from "./MainPanel"
 import { ComponentsTab } from "./tabs/ComponentsTab"
 import { PageStructureTab } from "./tabs/PageStructureTab"
 import { PagesTab } from "./tabs/PagesTab"
@@ -10,7 +11,7 @@ import { SchemaTab } from "../via/schema-tab"
 import { usePreSupportedSchemas } from "../petri/pre-supported-schemas"
 import ExplorerPanel from "../petri/explorer-panel"
 import type { JSONSchema } from "@/jsonjoy-builder/src/types/jsonSchema"
-import { Layers, FileText, TreePine, Database, BookText, Workflow, X, Wrench, MoreVertical, RefreshCw, Plus, Play, Beaker, Trash2, MessageSquare, FolderTree, LayoutDashboard, Maximize2, Minimize2 } from "lucide-react"
+import { Layers, TreePine, Database, BookText, Workflow, X, MessageSquare, FolderTree, LayoutDashboard, Maximize2, Minimize2 } from "lucide-react"
 import { Button } from "../ui/button"
 import { cn } from '@/lib/utils'
 import { DataSidebar } from './data/DataSidebar'
@@ -31,18 +32,17 @@ const tabs: TabItem[] = [
 	{ id: "structure", label: "Structure", icon: TreePine, parent: "page-builder" },
 	{ id: "data", label: "Data", icon: Database },
 	{ id: "schema", label: "Schema", icon: BookText },
-	{ id: "mcp-tools", label: "MCP Tools", icon: Wrench },
 	{ id: "chat", label: "Chat", icon: MessageSquare },
 	{ id: "workflow", label: "Workflow", icon: Workflow },
 ]
 
-import { fetchWorkflowList, fetchWorkflow, deleteWorkflowApi, listMcpTools, registerMcpServer, withApiErrorToast, listRegisteredMcpServers, deregisterMcpServer, fetchColorsList, saveWorkflow } from "../petri/petri-client"
+import { fetchWorkflowList, fetchWorkflow, deleteWorkflowApi, withApiErrorToast, fetchColorsList, saveWorkflow } from "../petri/petri-client"
 import ChatPanel from "@/components/chat/Chat"
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "../ui/dropdown-menu"
 import { serverToGraph } from "@/lib/workflow-conversion"
-import { useSystemSettings } from "../petri/system-settings-context"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import { useFlowServiceUrl } from '@/hooks/use-flow-service-url'
 import { toast } from '@/hooks/use-toast'
+
+const FLOW_SERVICE_MISSING_MESSAGE = 'Flow service not configured'
 type LeftPanelProps = {
 	isOpen: boolean
 	onClose: () => void
@@ -52,14 +52,15 @@ type LeftPanelProps = {
 	onSchemaSelect?: (schemaName: string, schema: JSONSchema) => void
   isMaximized: boolean
   onToggleMaximize: () => void
+  activeEditorType: EditorType | null
 }
-	export const LeftPanel: React.FC<LeftPanelProps> = ({ isOpen, onClose, onOpen, activeTab, setActiveTab, onSchemaSelect, isMaximized, onToggleMaximize }) => {
+	export const LeftPanel: React.FC<LeftPanelProps> = ({ isOpen, onClose, onOpen, activeTab, setActiveTab, onSchemaSelect, isMaximized, onToggleMaximize, activeEditorType }) => {
 		const isHydrated = useIsHydrated()
 		const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([])
 		const [loading, setLoading] = useState(false)
 		const [error, setError] = useState<string | null>(null)
-		const { settings } = useSystemSettings()
-		const { names: preSupportedNames, load: loadPreSupported } = usePreSupportedSchemas()
+		const flowServiceUrl = useFlowServiceUrl({ includeDefault: false })
+		const { load: loadPreSupported } = usePreSupportedSchemas()
 		
 		// Track which parent tabs are expanded to show their children
 		const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set(["page-builder"]))
@@ -69,30 +70,32 @@ type LeftPanelProps = {
 			loadPreSupported()
 		}, [loadPreSupported])
 
-		// Expose flowServiceUrl globally for compatibility with old stores
-		useEffect(() => {
-			if (settings?.flowServiceUrl) {
-				(window as any).__goflow_flowServiceUrl = settings.flowServiceUrl
-			}
-		}, [settings?.flowServiceUrl])
-
 		// State for workflow-defined schemas and color sets
 		const [workflowDefinedColors, setWorkflowDefinedColors] = useState<string[]>([])
 		const [workflowJsonSchemas, setWorkflowJsonSchemas] = useState<{ name: string; schema: any }[]>([])
 
-		const fetchList = async () => {
+		const isPageEditorActive = activeEditorType === 'page'
+		const isWorkflowEditorActive = activeEditorType === 'workflow'
+		const pageSpecificTabs = new Set(["page-builder", "components", "structure"])
+
+		const fetchList = useCallback(async () => {
+			if (!flowServiceUrl) {
+				setError(FLOW_SERVICE_MISSING_MESSAGE)
+				setWorkflows([])
+				return
+			}
 			setLoading(true)
 			setError(null)
 			try {
-				const res = await fetchWorkflowList(settings.flowServiceUrl)
-				const arr = res?.cpns || res?.data?.cpns || []
-				setWorkflows(arr)
+				const res = await fetchWorkflowList(flowServiceUrl)
+				const collection = res?.cpns || res?.data?.cpns || []
+				setWorkflows(Array.isArray(collection) ? collection : [])
 			} catch (e: any) {
 				setError(e?.message || "Failed to load workflows")
 			} finally {
 				setLoading(false)
 			}
-		}
+		}, [flowServiceUrl])
 
 		// Local cache of the currently loaded workflow nodes/edges so ExplorerPanel
 		// can render the places/transitions/arcs without relying on the canvas.
@@ -105,19 +108,18 @@ type LeftPanelProps = {
 
 		// Load defined schemas from server API
 		useEffect(() => {
-			if (!settings.flowServiceUrl) {
+			if (!flowServiceUrl) {
 				setWorkflowDefinedColors([])
 				setWorkflowJsonSchemas([])
 				return
 			}
 
+			const url = flowServiceUrl
 			let cancelled = false
 			async function loadDefinedSchemas() {
 				try {
-					// Fetch defined schemas from server API
-					const response = await fetchColorsList(settings.flowServiceUrl)
+					const response = await fetchColorsList(url)
 					if (!cancelled) {
-						// API returns { success: boolean, data: { colors: string[], schemas?: any[] } }
 						const data = response?.data || response
 						const colors = Array.isArray(data.colors) ? data.colors : []
 						const schemas = Array.isArray(data.schemas) ? data.schemas : []
@@ -135,118 +137,38 @@ type LeftPanelProps = {
 
 			loadDefinedSchemas()
 			return () => { cancelled = true }
-		}, [settings.flowServiceUrl])
-
-		// MCP dialog state (migrated from FlowWorkspace)
-		const [mcpAddOpen, setMcpAddOpen] = useState(false)
-		const [mcpAddForm, setMcpAddForm] = useState<{ baseUrl: string; name: string; id: string; timeoutMs?: number }>({ baseUrl: '', name: '', id: '' })
-		const [mcpDiscovering, setMcpDiscovering] = useState(false)
-		const [mcpDiscovered, setMcpDiscovered] = useState<any[] | null>(null)
-
-		// Registered MCP servers (displayed in MCP Tools tab)
-		const [mcpServers, setMcpServers] = useState<any[]>([])
-		const [mcpLoading, setMcpLoading] = useState(false)
-		const [mcpError, setMcpError] = useState<string | null>(null)
-		const [deregistering, setDeregistering] = useState<string | null>(null)
-		const [mcpDetailsOpen, setMcpDetailsOpen] = useState(false)
-		const [mcpDetailsServer, setMcpDetailsServer] = useState<any | null>(null)
-
-		const fetchMcpServers = async () => {
-			if (!settings?.flowServiceUrl) {
-				setMcpError('Missing flowServiceUrl')
-				return
-			}
-			setMcpLoading(true)
-			setMcpError(null)
-			try {
-				console.debug('[LeftPanel] fetchMcpServers: calling listRegisteredMcpServers', { flowServiceUrl: settings.flowServiceUrl })
-				const list = await listRegisteredMcpServers(settings.flowServiceUrl)
-				console.debug('[LeftPanel] fetchMcpServers: received', { length: Array.isArray(list) ? list.length : null, sample: (Array.isArray(list) && list.length>0) ? list[0] : list })
-				// API responds with { success:true, data: { count, servers: [...] } } in some setups
-				if (list && !Array.isArray(list) && (list as any).data && Array.isArray((list as any).data.servers)) {
-					setMcpServers((list as any).data.servers)
-				} else {
-					setMcpServers(Array.isArray(list) ? list : [])
-				}
-			} catch (e: any) {
-				console.error('[LeftPanel] fetchMcpServers: error', e)
-				setMcpError(e?.message || 'Failed to load MCP servers')
-			} finally {
-				setMcpLoading(false)
-			}
-		}
-
-		const verifyAndDiscoverMcp = async () => {
-			const base = mcpAddForm.baseUrl.trim().replace(/\/$/, '')
-			if (!base) { toast({ title: 'Enter base URL' }); return }
-			if (!settings.flowServiceUrl) { toast({ title: 'Missing flowServiceUrl', variant: 'destructive' }); return }
-			setMcpDiscovering(true); setMcpDiscovered(null)
-			try {
-				const arr = await withApiErrorToast(listMcpTools(settings.flowServiceUrl, { baseUrl: base, timeoutMs: mcpAddForm.timeoutMs }), toast, 'Discover MCP tools')
-				setMcpDiscovered(arr)
-				if (!arr || arr.length === 0) toast({ title: 'No tools discovered', description: 'Server returned no tools' })
-			} catch (e:any) {
-				setMcpDiscovered([])
-			} finally { setMcpDiscovering(false) }
-		}
-
-		const handleRegisterDiscovered = async (selectedNames: string[]) => {
-			if (!settings.flowServiceUrl) return
-			const base = mcpAddForm.baseUrl.trim().replace(/\/$/, '')
-			const picked = (mcpDiscovered||[]).filter((t:any)=> selectedNames.includes(t.name))
-			if (picked.length === 0) { toast({ title: 'Nothing selected' }); return }
-			try {
-				const toolPayload = (mcpDiscovered||[]).map((t:any)=> ({ name: t.name, enabled: selectedNames.includes(t.name) }))
-				await withApiErrorToast(registerMcpServer(settings.flowServiceUrl, { baseUrl: base, name: mcpAddForm.name || undefined, id: mcpAddForm.id || undefined, timeoutMs: mcpAddForm.timeoutMs, tools: toolPayload }), toast, 'Register MCP server')
-				toast({ title: 'MCP server registered', description: base })
-				setMcpAddOpen(false)
-				setMcpDiscovered(null)
-				setMcpAddForm({ baseUrl: '', name: '', id: '' })
-				// refresh the list after registration
-				fetchMcpServers()
-			} catch (e:any) { /* handled by toast wrapper */ }
-		}
-
-		const handleDeregister = async (s: any, index?: number) => {
-			if (!settings?.flowServiceUrl) return
-			const key = s?.id || s?.endpoint || s?.baseUrl || String(index || '')
-			if (!confirm('Deregister MCP server ' + (s?.name || key) + '?')) return
-			setDeregistering(key)
-			try {
-				await withApiErrorToast(deregisterMcpServer(settings.flowServiceUrl, { id: s?.id, baseUrl: s?.baseUrl || s?.endpoint }), toast, 'Deregister MCP server')
-				toast({ title: 'Deregistered', description: s?.baseUrl || s?.endpoint || key })
-				// refresh list
-				fetchMcpServers()
-			} catch (e:any) {
-				// error already shown by wrapper
-			} finally {
-				setDeregistering(null)
-			}
-		}
+		}, [flowServiceUrl])
 
 		const handleWorkflowSelect = async (id: string) => {
+			if (!flowServiceUrl) {
+				setWorkflowError(FLOW_SERVICE_MISSING_MESSAGE)
+				setSelectedWorkflowId(null)
+				return
+			}
 			setLoadingWorkflow(true)
 			setWorkflowError(null)
 			try {
-				if (settings.flowServiceUrl) {
-					const res = await fetchWorkflow(settings.flowServiceUrl, id)
-					const swf = res?.data || res
-					try {
-						const g = serverToGraph(swf)
-						setWfNodes(g.graph.nodes || [])
-						setWfEdges(g.graph.edges || [])
-						setWorkflowGraphCache(prev => ({ ...prev, [id]: { nodes: g.graph.nodes || [], edges: g.graph.edges || [] } }))
-					} catch (e) {
-						// fallback: try raw arrays if conversion not possible
-						const nodes = res?.data?.nodes || res?.nodes || []
-						const edges = res?.data?.edges || res?.edges || []
-						setWfNodes(nodes)
-						setWfEdges(edges)
+				const res = await fetchWorkflow(flowServiceUrl, id)
+				const swf = res?.data ?? res
+				try {
+					const graph = serverToGraph(swf)
+					setWfNodes(graph.graph.nodes || [])
+					setWfEdges(graph.graph.edges || [])
+					setWorkflowGraphCache(prev => ({ ...prev, [id]: { nodes: graph.graph.nodes || [], edges: graph.graph.edges || [] } }))
+				} catch (conversionError) {
+					// fallback: try raw arrays if conversion not possible
+					const nodes = res?.data?.nodes || res?.nodes || []
+					const edges = res?.data?.edges || res?.edges || []
+					setWfNodes(nodes)
+					setWfEdges(edges)
+					if (process.env.NODE_ENV !== 'production') {
+						console.warn('[LeftPanel] Failed to convert workflow to graph, falling back to raw arrays', conversionError)
 					}
 				}
 				setSelectedWorkflowId(id)
-				// notify FlowWorkspace (which listens for this global event)
-				try { window.dispatchEvent(new CustomEvent('goflow-explorer-select', { detail: { id } })) } catch {}
+				try {
+					window.dispatchEvent(new CustomEvent('goflow-explorer-select', { detail: { id } }))
+				} catch {}
 			} catch (e: any) {
 				setWorkflowError(e?.message || 'Failed to load workflow')
 			} finally {
@@ -255,11 +177,14 @@ type LeftPanelProps = {
 		}
 
 		const handleDeleteWorkflow = async (id: string) => {
-			if (!settings.flowServiceUrl) return
+			if (!flowServiceUrl) {
+				setError(FLOW_SERVICE_MISSING_MESSAGE)
+				return
+			}
 			if (!confirm('Delete workflow ' + id + '?')) return
 			setLoading(true)
 			try {
-				await deleteWorkflowApi(settings.flowServiceUrl, id)
+				await deleteWorkflowApi(flowServiceUrl, id)
 				setWorkflows((list) => list.filter(w => w.id !== id))
 				// inform FlowWorkspace about deletion
 				try { window.dispatchEvent(new CustomEvent('goflow-workflow-deleted', { detail: { id } })) } catch {}
@@ -271,13 +196,16 @@ type LeftPanelProps = {
 		}
 
 		const handleCreateWorkflow = async () => {
-			if (!settings.flowServiceUrl) return
+			if (!flowServiceUrl) {
+				setError(FLOW_SERVICE_MISSING_MESSAGE)
+				return
+			}
 			setLoading(true)
 			try {
 				const newId = `wf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`
 				const name = `Workflow ${newId.slice(-4)}`
 				const empty = { id: newId, name, description: '', colorSets: [], places: [], transitions: [], arcs: [], initialMarking: {}, declarations: {} }
-				await withApiErrorToast(saveWorkflow(settings.flowServiceUrl, empty), toast, 'Create workflow')
+				await withApiErrorToast(saveWorkflow(flowServiceUrl, empty), toast, 'Create workflow')
 				setWorkflows((list) => ([...(Array.isArray(list) ? list : []), { id: newId, name }]))
 				setWorkflowGraphCache(prev => ({ ...prev, [newId]: { nodes: [], edges: [] } }))
 				setSelectedWorkflowId(newId)
@@ -291,20 +219,38 @@ type LeftPanelProps = {
 			}
 		}
 
-		const handleRefresh = () => fetchList()
+		const handleRefresh = () => { void fetchList() }
 
 		useEffect(() => {
-			if (activeTab === "workflow" && isOpen) fetchList()
-			if (activeTab === "mcp-tools" && isOpen) fetchMcpServers()
+			setError(null)
+			setWorkflowError(null)
+			setWorkflows([])
+			setWorkflowGraphCache({})
+			setSelectedWorkflowId(null)
+			setWfNodes([])
+			setWfEdges([])
+		}, [flowServiceUrl])
+
+		useEffect(() => {
+			if (activeTab === "workflow" && isOpen) {
+				if (!flowServiceUrl) {
+					setError(FLOW_SERVICE_MISSING_MESSAGE)
+				} else {
+					void fetchList()
+				}
+			}
 
 			const onGraphUpdate = (e: any) => {
 				const wfId = e?.detail?.workflowId
 				const graph = e?.detail?.graph
 				if (wfId && graph) setWorkflowGraphCache(prev => ({ ...prev, [wfId]: graph }))
 			}
+
 			window.addEventListener('goflow-explorer-graph-updated', onGraphUpdate as EventListener)
-			return () => window.removeEventListener('goflow-explorer-graph-updated', onGraphUpdate as EventListener)
-		}, [activeTab, isOpen, settings.flowServiceUrl])
+			return () => {
+				window.removeEventListener('goflow-explorer-graph-updated', onGraphUpdate as EventListener)
+			}
+		}, [activeTab, fetchList, flowServiceUrl, isOpen])
 
 	const renderTabContent = () => {
 		switch (activeTab) {
@@ -362,158 +308,6 @@ type LeftPanelProps = {
 					/>
 				case "chat":
 					return <div className="flex-1 overflow-hidden"><ChatPanel /></div>
-				case "mcp-tools":
-					return (
-						<>
-							<div className="flex-1 p-4">
-								<div className="flex items-center justify-between mb-3">
-									<div className="flex items-center gap-2">
-										<Button size="sm" variant="outline" onClick={() => fetchMcpServers()} disabled={mcpLoading}>Refresh</Button>
-										<Button onClick={() => { setMcpAddOpen(true) }}>Add Server</Button>
-									</div>
-								</div>
-
-								{mcpLoading ? (
-									<div className="text-sm text-center py-6">Loading...</div>
-								) : mcpError ? (
-									<div className="text-sm text-destructive">{mcpError}</div>
-								) : mcpServers.length === 0 ? (
-									<div className="text-sm text-neutral-500">No registered MCP servers.</div>
-								) : (
-									<div className="grid gap-3">
-										{mcpServers.map((s: any, i: number) => {
-											const key = s.id || s.endpoint || s.baseUrl || String(i)
-											const toolsCount = (typeof s.toolCount === 'number') ? s.toolCount : (s.tools && Array.isArray(s.tools) ? s.tools.length : 0)
-											return (
-												<div key={key} className="p-3 rounded border bg-card flex items-start justify-between">
-													<div className="flex-1">
-														<div className="text-sm font-semibold">{s.name || '-'}</div>
-														<div className="text-xs text-muted-foreground break-words">{s.endpoint || s.baseUrl || '-'}</div>
-													</div>
-													<div className="ml-3 flex items-start gap-2">
-														<div className="text-sm text-blue-600 font-medium">{toolsCount}</div>
-														<DropdownMenu>
-															<DropdownMenuTrigger asChild>
-																<button className="size-6 p-1 rounded hover:bg-accent"> <MoreVertical className="w-4 h-4" /> </button>
-															</DropdownMenuTrigger>
-															<DropdownMenuContent sideOffset={6} align="end">
-																<DropdownMenuItem onClick={() => { setMcpDetailsServer(s); setMcpDetailsOpen(true) }}>Details</DropdownMenuItem>
-																<DropdownMenuItem onClick={() => handleDeregister(s, i)}>Delete</DropdownMenuItem>
-															</DropdownMenuContent>
-														</DropdownMenu>
-													</div>
-												</div>
-											)
-										})}
-									</div>
-								)}
-							</div>
-
-							{/* Local MCP Add Dialog rendered in LeftPanel */}
-							<Dialog open={mcpAddOpen} onOpenChange={setMcpAddOpen}>
-								<DialogContent className="max-w-xl">
-									<DialogHeader>
-										<DialogTitle>Add MCP server</DialogTitle>
-										<DialogDescription>Enter the MCP httpstream base URL and discover tools to register.</DialogDescription>
-									</DialogHeader>
-									<div className="space-y-2 text-xs">
-										<div className="flex items-center gap-2">
-											<label className="w-24 text-right">Base URL</label>
-											<input className="flex-1 rounded border px-2 py-1" placeholder="https://data.lizhao.net/api/mcp" value={mcpAddForm.baseUrl} onChange={e=>setMcpAddForm(f=>({...f, baseUrl: e.target.value }))} />
-										</div>
-										<div className="flex items-center gap-2">
-											<label className="w-24 text-right">Name</label>
-											<input className="flex-1 rounded border px-2 py-1" placeholder="Optional label" value={mcpAddForm.name} onChange={e=>setMcpAddForm(f=>({...f, name: e.target.value }))} />
-										</div>
-										<div className="flex items-center gap-2">
-											<label className="w-24 text-right">Server ID</label>
-											<input className="flex-1 rounded border px-2 py-1" placeholder="Optional identifier" value={mcpAddForm.id} onChange={e=>setMcpAddForm(f=>({...f, id: e.target.value }))} />
-										</div>
-										<div className="flex items-center gap-2">
-											<label className="w-24 text-right">Timeout (ms)</label>
-											<input className="w-40 rounded border px-2 py-1" type="number" placeholder="8000" value={mcpAddForm.timeoutMs||''} onChange={e=>setMcpAddForm(f=>({...f, timeoutMs: e.target.value? Number(e.target.value): undefined }))} />
-										</div>
-										<div className="flex items-center gap-2 justify-end">
-											<Button size="sm" variant="secondary" onClick={verifyAndDiscoverMcp} disabled={mcpDiscovering}>{mcpDiscovering? 'Discovering…' : 'Discover Tools'}</Button>
-										</div>
-										{Array.isArray(mcpDiscovered) && (
-											<div className="max-h-60 overflow-auto rounded border">
-												<table className="w-full text-xs">
-													<thead className="bg-neutral-50 text-neutral-600">
-														<tr>
-															<th className="px-2 py-1 text-left">Enabled</th>
-															<th className="px-2 py-1 text-left">Name</th>
-															<th className="px-2 py-1 text-left">Description</th>
-														</tr>
-													</thead>
-													<tbody>
-														{mcpDiscovered.map((t:any, i:number) => (
-															<tr key={i} className="odd:bg-white even:bg-neutral-50">
-																<td className="border-t px-2 py-1"><input type="checkbox" onChange={(e)=>{ const name=t.name; setMcpDiscovered(arr=>{ const next=(arr||[]).map((x:any)=> ({...x})); const idx=next.findIndex((x:any)=>x.name===name); if (idx>=0) next[idx]._selected = e.target.checked; return next }) }} /></td>
-																<td className="border-t px-2 py-1">{t.name}</td>
-																<td className="border-t px-2 py-1">{t.description || ''}</td>
-															</tr>
-														))}
-													</tbody>
-												</table>
-											</div>
-										)}
-									</div>
-									<DialogFooter>
-										<Button variant="secondary" onClick={()=> setMcpAddOpen(false)}>Cancel</Button>
-										<Button onClick={()=> handleRegisterDiscovered((mcpDiscovered||[]).filter((t:any)=>t._selected).map((t:any)=>t.name))} disabled={!Array.isArray(mcpDiscovered) || (mcpDiscovered||[]).every((t:any)=>!t._selected)}>Register Selected</Button>
-									</DialogFooter>
-								</DialogContent>
-							</Dialog>
-
-							{/* MCP Details Dialog (read-only) */}
-							<Dialog open={mcpDetailsOpen} onOpenChange={setMcpDetailsOpen}>
-								<DialogContent className="max-w-lg">
-									<DialogHeader>
-										<DialogTitle>MCP Server Details</DialogTitle>
-										<DialogDescription>Registered MCP server information (read only)</DialogDescription>
-									</DialogHeader>
-									<div className="space-y-2 text-sm">
-										<div className="flex items-center gap-2">
-											<div className="w-28 text-right text-xs text-muted-foreground">Name</div>
-											<div className="flex-1 font-semibold">{mcpDetailsServer?.name || '-'}</div>
-										</div>
-										<div className="flex items-center gap-2">
-											<div className="w-28 text-right text-xs text-muted-foreground">Endpoint</div>
-											<div className="flex-1 text-xs text-muted-foreground break-words">{mcpDetailsServer?.endpoint || mcpDetailsServer?.baseUrl || '-'}</div>
-										</div>
-										<div className="flex items-center gap-2">
-											<div className="w-28 text-right text-xs text-muted-foreground">Server ID</div>
-											<div className="flex-1 text-xs">{mcpDetailsServer?.id || '-'}</div>
-										</div>
-										<div className="flex items-center gap-2">
-											<div className="w-28 text-right text-xs text-muted-foreground">Tools</div>
-											<div className="flex-1 text-xs text-blue-600">{(mcpDetailsServer?.tools && Array.isArray(mcpDetailsServer.tools)) ? mcpDetailsServer.tools.length : (typeof mcpDetailsServer?.toolCount === 'number' ? mcpDetailsServer.toolCount : 0)}</div>
-										</div>
-										{mcpDetailsServer?.tools && Array.isArray(mcpDetailsServer.tools) && (
-											<div className="max-h-48 overflow-auto rounded border p-2 text-xs">
-												{mcpDetailsServer.tools.map((t:any, idx:number) => {
-													const name = typeof t === 'string' ? t : (t?.name || String(t))
-													const enabled = typeof t === 'object' ? (t?.enabled ?? t?.Enabled ?? true) : true
-													return (
-														<div key={idx} className="py-1 border-b last:border-b-0 flex items-center justify-between">
-															<div className="truncate">{name}</div>
-															<div className={enabled ? 'text-xs px-2 py-0.5 rounded bg-green-50 text-green-700' : 'text-xs px-2 py-0.5 rounded bg-muted/10 text-muted-foreground'}>
-																{enabled ? 'Enabled' : 'Disabled'}
-															</div>
-														</div>
-													)
-												})}
-											</div>
-										)}
-									</div>
-									<DialogFooter>
-										<Button variant="secondary" onClick={() => setMcpDetailsOpen(false)}>Close</Button>
-									</DialogFooter>
-								</DialogContent>
-							</Dialog>
-						</>
-					)
 				default:
 					return <ComponentsTab />
 			}
@@ -529,10 +323,12 @@ type LeftPanelProps = {
 					const isChild = !!tab.parent
 					const isExpanded = expandedParents.has(tab.id)
 					const shouldShow = !isChild || expandedParents.has(tab.parent!)
+					const isDisabled = (!isPageEditorActive && pageSpecificTabs.has(tab.id)) || (!isWorkflowEditorActive && tab.id === "workflow")
 					
 					if (!shouldShow) return null
 					
 					const handleClick = () => {
+						if (isDisabled) return
 						if (isParent) {
 							// Toggle expansion for parent tabs
 							setExpandedParents(prev => {
@@ -564,10 +360,12 @@ type LeftPanelProps = {
 						<button
 							key={tab.id}
 							onClick={handleClick}
+							disabled={isDisabled}
 							className={cn(
 								"w-12 h-12 flex items-center justify-center border-b border-border hover:bg-accent transition-colors group relative",
 								isHydrated && activeTab === tab.id && isOpen ? "bg-accent text-accent-foreground" : "text-muted-foreground",
-								isChild && "bg-muted/70 border-l-2 border-l-primary/30"
+								isChild && "bg-muted/70 border-l-2 border-l-primary/30",
+								isDisabled && "opacity-40 hover:bg-muted/50 cursor-not-allowed"
 							)}
 							title={tab.label}
 						>

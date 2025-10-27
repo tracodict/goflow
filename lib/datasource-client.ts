@@ -1,7 +1,9 @@
 // Thin REST client wrappers – Phase 1 (Mongo only implemented server side later)
 import { DatasourceDetail, DatasourceSummary, QueryAST, QueryResult } from './datasource-types'
+import { encodeWorkspaceId } from './workspace/id'
 
 const BASE = '/api'
+const WS_BASE = '/api/ws'
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -38,8 +40,26 @@ export async function deleteDatasource(id: string): Promise<{ ok: boolean }> {
   return json<{ ok: boolean }>(r)
 }
 
-export async function testDatasource(id: string, secretOverride?: Record<string,any>): Promise<{ ok: boolean; latencyMs?: number }> {
-  const r = await fetch(`${BASE}/datasources/${id}/test`, { method:'POST', headers:{'Content-Type':'application/json'}, body: secretOverride ? JSON.stringify({ secret: secretOverride }) : undefined })
+export async function testDatasource(
+  workspaceId: string,
+  id: string,
+  options: { secretOverride?: Record<string, any>; published?: boolean } = {}
+): Promise<{ ok: boolean; latencyMs?: number }> {
+  const { secretOverride, published } = options
+  const encodedWorkspace = encodeWorkspaceId(workspaceId)
+  const params = new URLSearchParams()
+
+  if (published) {
+    params.set('published', 'true')
+  }
+
+  const url = `${WS_BASE}/${encodedWorkspace}/ds/${encodeURIComponent(id)}/test${params.toString() ? `?${params.toString()}` : ''}`
+
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: secretOverride ? JSON.stringify({ secret: secretOverride }) : undefined
+  })
   return json(r)
 }
 

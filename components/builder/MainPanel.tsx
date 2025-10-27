@@ -5,12 +5,15 @@ import type { FC } from "react"
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useBuilderStore } from "@/stores/pagebuilder/editor"
 import { BuilderStoreProvider, useBuilderStoreContext, clearTabStore, getTabStore } from "@/stores/pagebuilder/editor-context"
+import { clearTabState, getTabState, setTabState } from "@/stores/pagebuilder/tab-state-cache"
 import { useWorkspace } from "@/stores/workspace-store"
+import "@/components/workspace/file-handler"
 import { PageWorkspace } from "./PageWorkspace"
 import { FlowWorkspace } from "../petri/flow-workspace"
-import DataWorkspace from "@/components/data/DataWorkspace"
 import { SchemaViewer } from "./SchemaViewer"
-import { VerticalToolbar } from "./VerticalToolbar"
+import { DataSourceEditorLoader } from "./DataSourceEditorLoader"
+import { QueryEditorLoader } from "./QueryEditorLoader"
+import { McpEditorLoader } from "./McpEditorLoader"
 import type { JSONSchema } from "@/jsonjoy-builder/src/types/jsonSchema"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
@@ -41,7 +44,7 @@ import { cn } from "@/lib/utils"
 import { toast } from "@/hooks/use-toast"
 
 // Editor types
-type EditorType = 'page' | 'schema' | 'query' | 'workflow' | 'datasource' | 'mcp'
+export type EditorType = 'page' | 'schema' | 'query' | 'workflow' | 'datasource' | 'mcp'
 
 interface EditorTab {
   id: string
@@ -104,7 +107,7 @@ interface MainPanelProps {
   rightPanelWidth: number
   isLeftPanelOpen: boolean
   isRightPanelOpen: boolean
-  onFocusedTabChange?: (tabId: string | null) => void
+  onFocusedTabChange?: (info: { tabId: string | null; type: EditorType | null }) => void
 }
 
 const STORAGE_KEY = 'goflow-main-panel-state'
@@ -129,11 +132,6 @@ export const MainPanel: React.FC<MainPanelProps> = ({
   
   // Track which tab is focused (controls builder store)
   const [focusedTabId, setFocusedTabId] = useState<string | null>('welcome')
-  
-  // Notify parent when focused tab changes
-  useEffect(() => {
-    onFocusedTabChange?.(focusedTabId)
-  }, [focusedTabId, onFocusedTabChange])
   
   // Close confirmation dialog state
   const [closeConfirmation, setCloseConfirmation] = useState<{
@@ -169,6 +167,24 @@ export const MainPanel: React.FC<MainPanelProps> = ({
       return panel.activeTabId
     }
   }
+
+  const findTabById = (panel: PanelConfig, tabId: string | null): EditorTab | null => {
+    if (!tabId) return null
+    if (isSplitPanel(panel)) {
+      for (const child of panel.children) {
+        const result = findTabById(child, tabId)
+        if (result) return result
+      }
+      return null
+    }
+    return panel.tabs.find((tab) => tab.id === tabId) || null
+  }
+
+  // Notify parent when focused tab changes
+  useEffect(() => {
+    const tab = findTabById(rootPanel, focusedTabId)
+    onFocusedTabChange?.({ tabId: focusedTabId, type: tab?.type ?? null })
+  }, [focusedTabId, rootPanel, onFocusedTabChange])
 
   // Restore from localStorage after mount (client-side only)
   useEffect(() => {
@@ -324,7 +340,7 @@ export const MainPanel: React.FC<MainPanelProps> = ({
     const closingTab = findTab(rootPanel)
     if (closingTab && closingTab.id.startsWith('file:')) {
       const filePath = closingTab.id.substring(5)
-      tabStateCache.delete(filePath)
+  clearTabState(filePath)
       // Clear the builder store for this tab
       clearTabStore(closingTab.id)
       console.log('Cleared cache and store for closed tab:', filePath)
@@ -366,16 +382,63 @@ export const MainPanel: React.FC<MainPanelProps> = ({
   
   const handleCloseConfirmSave = async () => {
     if (!closeConfirmation) return
-    
-    const file = files.get(closeConfirmation.filePath)
-    if (file) {
-      try {
+
+    const { filePath, panelId, tabId } = closeConfirmation
+    const file = files.get(filePath)
+    if (!file) return
+
+    const extension = filePath.split('.').pop()?.toLowerCase()
+
+    try {
+      if (extension === 'cpn') {
+        if (typeof window === 'undefined') {
+          throw new Error('Workflow files can only be saved in the browser environment')
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          let settled = false
+          let timeoutId: number | undefined
+
+          const cleanup = () => {
+            if (settled) return
+            settled = true
+            if (timeoutId !== undefined) {
+              window.clearTimeout(timeoutId)
+            }
+            window.removeEventListener('goflow-file-saved', handleSaved as EventListener)
+          }
+
+          const handleSaved = (event: Event) => {
+            const ce = event as CustomEvent<{ path?: string }>
+            if (ce?.detail?.path === filePath) {
+              cleanup()
+              resolve()
+            }
+          }
+
+          timeoutId = window.setTimeout(() => {
+            cleanup()
+            reject(new Error('Timed out waiting for workflow save'))
+          }, 8000)
+
+          window.addEventListener('goflow-file-saved', handleSaved as EventListener)
+
+          window.dispatchEvent(new CustomEvent('goflow-save-file', {
+            detail: { path: filePath }
+          }))
+        })
+      } else {
         await saveFile(file.path, file.content)
-        closeTab(closeConfirmation.panelId, closeConfirmation.tabId, true)
-        setCloseConfirmation(null)
-      } catch (error) {
-        // Error already shown by saveFile
       }
+
+      closeTab(panelId, tabId, true)
+      setCloseConfirmation(null)
+    } catch (error: any) {
+      toast({
+        title: 'Failed to save file',
+        description: error?.message || 'Unknown error',
+        variant: 'destructive'
+      })
     }
   }
   
@@ -398,7 +461,7 @@ export const MainPanel: React.FC<MainPanelProps> = ({
           if (tabStore) {
             const currentElements = tabStore.getState().elements
             console.log('Saving tab state to cache:', filePath, Object.keys(currentElements).length, 'elements')
-            tabStateCache.set(filePath, currentElements)
+            setTabState(filePath, currentElements)
           } else {
             console.warn('No store found while saving tab state. Skipping cache update for', filePath)
           }
@@ -812,14 +875,6 @@ export const MainPanel: React.FC<MainPanelProps> = ({
       {renderPanel(rootPanel)}
 
       {/* Vertical Toolbar */}
-      {!isPreviewMode && (
-        <VerticalToolbar
-          leftOffset={10}
-          rightOffset={150}
-          bottomOffset={10}
-        />
-      )}
-      
       {/* Close confirmation dialog */}
       <AlertDialog open={!!closeConfirmation} onOpenChange={() => setCloseConfirmation(null)}>
         <AlertDialogContent>
@@ -847,8 +902,6 @@ export const MainPanel: React.FC<MainPanelProps> = ({
 }
 
 // Cache for tab-specific page states
-const tabStateCache = new Map<string, Record<string, any>>()
-
 // Page workspace loader that loads page data from workspace file
 interface PageWorkspaceLoaderProps {
   tabId: string
@@ -913,7 +966,7 @@ const PageWorkspaceLoader: React.FC<PageWorkspaceLoaderProps> = ({ tabId, filePa
     const alreadyLoaded = lastLoadedFileRef.current === fileContentHash
     
     // Check if we have cached state for this tab (only use cache if already loaded)
-    const cachedState = tabStateCache.get(filePath)
+  const cachedState = getTabState(filePath)
     if (cachedState && alreadyLoaded) {
       console.log('Restoring cached state for:', filePath)
       setLocalElements(cachedState)
@@ -932,7 +985,7 @@ const PageWorkspaceLoader: React.FC<PageWorkspaceLoaderProps> = ({ tabId, filePa
         console.log('Loading elements:', pageData.elements)
         setLocalElements(pageData.elements)
         // Cache the loaded state
-        tabStateCache.set(filePath, pageData.elements)
+  setTabState(filePath, pageData.elements)
         // Mark as loaded
         lastLoadedFileRef.current = fileContentHash
       } else {
@@ -953,7 +1006,7 @@ const PageWorkspaceLoader: React.FC<PageWorkspaceLoaderProps> = ({ tabId, filePa
           }
         }
         setLocalElements(defaultElements)
-        tabStateCache.set(filePath, defaultElements)
+  setTabState(filePath, defaultElements)
         lastLoadedFileRef.current = fileContentHash
       }
       setIsLoading(false)
@@ -1014,7 +1067,7 @@ const PageWorkspaceLoader: React.FC<PageWorkspaceLoaderProps> = ({ tabId, filePa
         console.log('Saving page data:', filePath, 'with', Object.keys(currentElements).length, 'elements')
         
         // Update cache with saved state
-        tabStateCache.set(filePath, currentElements)
+  setTabState(filePath, currentElements)
         saveFile(filePath, JSON.stringify(pageData, null, 2))
         
         // Mark as saved in the tab's store
@@ -1126,24 +1179,30 @@ const EditorContent: React.FC<EditorContentProps> = ({
     
     case 'query':
       return (
-        <div
-          style={{
-            overflow: "auto",
-            transform: `scale(${canvasScale})`,
-            transformOrigin: "0 0",
-            width: `${100 / canvasScale}%`,
-            height: `${100 / canvasScale}%`,
-          }}
-        >
-          <DataWorkspace />
-        </div>
+        <QueryEditorLoader
+          tabId={tab.id}
+          filePath={tab.filePath}
+          isFocused={isFocused}
+        />
       )
     
     case 'datasource':
-      return <div className="p-4">Data Source editor (to be implemented)</div>
+      return (
+        <DataSourceEditorLoader
+          tabId={tab.id}
+          filePath={tab.filePath}
+          isFocused={isFocused}
+        />
+      )
     
     case 'mcp':
-      return <div className="p-4">MCP Tool editor (to be implemented)</div>
+      return (
+        <McpEditorLoader
+          tabId={tab.id}
+          filePath={tab.filePath}
+          isFocused={isFocused}
+        />
+      )
     
     default:
       return <div className="p-4">Unknown editor type</div>

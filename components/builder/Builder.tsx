@@ -5,10 +5,11 @@ import { useBuilderStore } from "../../stores/pagebuilder/editor"
 import { FocusedTabProvider } from "../../stores/pagebuilder/editor-context"
 import { LeftPanel } from "./LeftPanel"
 import { MainPanel } from "./MainPanel"
+import type { EditorType } from "./MainPanel"
 import { RightPanel } from "./RightPanel"
 import { ResizeHandle } from "./ResizeHandle"
 import { SystemSettingsProvider, useSystemSettings } from "../petri/system-settings-context"
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import type { JSONSchema } from "@/jsonjoy-builder/src/types/jsonSchema"
 import {
   Menubar,
@@ -24,12 +25,24 @@ import { Button } from "../ui/button"
 import { FileMenu } from "./FileMenu"
 
 export const Builder: React.FC = () => {
-  const { isPreviewMode, canvasScale, leftPanelWidth, rightPanelWidth, setLeftPanelWidth, setRightPanelWidth } = useBuilderStore()
+  const {
+    isPreviewMode,
+    canvasScale,
+    leftPanelWidth,
+    rightPanelWidth,
+    setLeftPanelWidth,
+    setRightPanelWidth,
+    togglePreviewMode,
+    toggleContainerBorders,
+    showContainerBorders,
+    setCanvasScale,
+  } = useBuilderStore()
   const [isLeftPanelOpen, setLeftPanelOpen] = useState(true)
   const [isRightPanelOpen, setRightPanelOpen] = useState(true)
   const [isLeftPanelMaximized, setLeftPanelMaximized] = useState(false)
   const [isRightPanelMaximized, setRightPanelMaximized] = useState(false)
   const [focusedTabId, setFocusedTabId] = useState<string | null>(null)
+  const [activeEditorType, setActiveEditorType] = useState<EditorType | null>(null)
   const [showSystemSettings, setShowSystemSettings] = useState(false)
   const [activeTab, setActiveTab] = useState<string>(() => {
     // Restore from localStorage or default to workspace
@@ -44,6 +57,13 @@ export const Builder: React.FC = () => {
   const [selectedSchema, setSelectedSchema] = useState<{ name: string; schema: JSONSchema } | null>(null)
   const { session: userSession, loading: sessionLoading } = useSession()
   const primaryRole = (userSession?.roles || [])[0]
+
+  const handleFocusedTabChange = useCallback(({ tabId, type }: { tabId: string | null; type: EditorType | null }) => {
+    setFocusedTabId(tabId)
+    setActiveEditorType(type ?? null)
+  }, [])
+
+  const isPageEditorActive = activeEditorType === 'page'
 
   // Persist active tab to localStorage
   const handleSetActiveTab = (tab: string) => {
@@ -69,6 +89,22 @@ export const Builder: React.FC = () => {
     }
   }
 
+  const handleTogglePreview = useCallback(() => {
+    togglePreviewMode()
+  }, [togglePreviewMode])
+
+  const handleToggleContainerBorder = useCallback(() => {
+    toggleContainerBorders()
+  }, [toggleContainerBorders])
+
+  const handleZoomIn = useCallback(() => {
+    setCanvasScale(Math.min(2, +(canvasScale + 0.05).toFixed(2)))
+  }, [canvasScale, setCanvasScale])
+
+  const handleZoomOut = useCallback(() => {
+    setCanvasScale(Math.max(0.5, +(canvasScale - 0.05).toFixed(2)))
+  }, [canvasScale, setCanvasScale])
+
   return (
     <SystemSettingsProvider>
     <FocusedTabProvider focusedTabId={focusedTabId}>
@@ -86,6 +122,31 @@ export const Builder: React.FC = () => {
               <MenubarItem onClick={() => setShowSystemSettings(true)}>
                 System Settings
               </MenubarItem>
+              {isPageEditorActive && (
+                <>
+                  <MenubarSeparator />
+                  <MenubarItem
+                    onClick={handleTogglePreview}
+                    role="menuitemcheckbox"
+                    aria-checked={isPreviewMode}
+                  >
+                    {isPreviewMode ? 'Exit Preview' : 'Preview'}
+                  </MenubarItem>
+                  <MenubarItem
+                    onClick={handleToggleContainerBorder}
+                    role="menuitemcheckbox"
+                    aria-checked={showContainerBorders}
+                  >
+                    Show/Hide Container Border
+                  </MenubarItem>
+                  <MenubarItem onClick={handleZoomIn} disabled={canvasScale >= 2}>
+                    Zoom In
+                  </MenubarItem>
+                  <MenubarItem onClick={handleZoomOut} disabled={canvasScale <= 0.5}>
+                    Zoom Out
+                  </MenubarItem>
+                </>
+              )}
             </MenubarContent>
           </MenubarMenu>
           <MenubarMenu>
@@ -147,6 +208,7 @@ export const Builder: React.FC = () => {
                 setLeftPanelMaximized(false)
                 setLeftPanelOpen(true)
               }}
+              activeEditorType={activeEditorType}
             />
           </div>
         ) : isRightPanelMaximized ? (
@@ -186,6 +248,7 @@ export const Builder: React.FC = () => {
                     setLeftPanelMaximized(true)
                     setRightPanelMaximized(false)
                   }}
+                  activeEditorType={activeEditorType}
                 />
                 {isLeftPanelOpen && (
                   <ResizeHandle direction="left" onResize={(delta) => setLeftPanelWidth(leftPanelWidth + delta)} />
@@ -202,7 +265,7 @@ export const Builder: React.FC = () => {
               rightPanelWidth={rightPanelWidth}
               isLeftPanelOpen={isLeftPanelOpen}
               isRightPanelOpen={isRightPanelOpen}
-              onFocusedTabChange={setFocusedTabId}
+              onFocusedTabChange={handleFocusedTabChange}
             />
 
             {!isPreviewMode && isRightPanelOpen && (

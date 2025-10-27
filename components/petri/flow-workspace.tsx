@@ -58,7 +58,9 @@ import { validateWorkflow } from './petri-client'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
 import { Button as UIButton } from '@/components/ui/button'
+import { useFlowServiceUrl } from '@/hooks/use-flow-service-url'
 import CodeMirror from '@uiw/react-codemirror'
+import { useWorkspace } from '@/stores/workspace-store'
 
 const nodeTypes = { place: PlaceNode, transition: TransitionNode } as any
 const edgeTypes = { labeled: LabeledEdge } as any
@@ -102,6 +104,10 @@ function CanvasInner() {
   const [resizing, setResizing] = useState(false)
   const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null)
   const [editedMap, setEditedMap] = useState<Record<string, boolean>>({});
+  const saveWorkspaceFile = useWorkspace(state => state.saveFile)
+  const markWorkspaceFileDirty = useWorkspace(state => state.markFileDirty)
+  const workspacePathByIdRef = useRef<Record<string, string>>({})
+  const workspaceIdByPathRef = useRef<Record<string, string>>({})
   const [contextMenu, setContextMenu] = useState<{
     open: boolean
     x: number
@@ -134,7 +140,8 @@ function CanvasInner() {
   const [activeMonitorTab, setActiveMonitorTab] = useState<string>('root')
   // Simulation state (initialized after settings available)
   const { settings } = useSystemSettings();
-  const { sims, activeSimId, activeSim, start: startSim, select: selectSim, step: stepSim, stepInteractive: stepSimInteractive, fire: fireSim, run: runSim, remove: deleteSim, refreshActive: refreshSim, loading: simLoading, running: simRunning } = useSimulation({ flowServiceUrl: settings.flowServiceUrl, workflowId: activeWorkflowId })
+  const flowServiceUrl = useFlowServiceUrl()
+  const { sims, activeSimId, activeSim, start: startSim, select: selectSim, step: stepSim, stepInteractive: stepSimInteractive, fire: fireSim, run: runSim, remove: deleteSim, refreshActive: refreshSim, loading: simLoading, running: simRunning } = useSimulation({ flowServiceUrl: flowServiceUrl ?? undefined, workflowId: activeWorkflowId })
   const [simStepLimit, setSimStepLimit] = useState(50)
   // (Moved manual sim form utilities after workflowMeta definition for ordering)
   // Sync simulation marking onto canvas place nodes
@@ -292,91 +299,150 @@ function CanvasInner() {
 
   // Fetch workflow list from server
   const fetchServerWorkflowList = useCallback(async () => {
-    if (!settings.flowServiceUrl) return;
+    if (!flowServiceUrl) return;
     try {
-      const list = await withApiErrorToast(import("./petri-client").then(m => m.fetchWorkflowList(settings.flowServiceUrl)), toast, 'Fetch workflows');
-      const arr = Array.isArray(list?.data?.cpns) ? list.data.cpns : []
+      const list = await withApiErrorToast(import("./petri-client").then(m => m.fetchWorkflowList(flowServiceUrl)), toast, 'Fetch workflows');
+      const arr = (Array.isArray(list?.cpns)
+        ? list.cpns
+        : Array.isArray(list?.data?.cpns)
+          ? list.data.cpns
+          : Array.isArray(list?.data)
+            ? list.data
+            : Array.isArray(list)
+              ? list
+              : []) as ServerWorkflow[]
       setServerWorkflows(arr);
       setServerWorkflowsFetched(true);
     } catch (err: any) {
   // toast already shown
     }
-  }, [settings.flowServiceUrl]);
+  }, [flowServiceUrl]);
 
   // Handler for selecting a workflow in Explorer (server or mockup) with microtask deferral
-  const onExplorerSelect = useCallback((workflowId: string) => {
-    if (!settings.flowServiceUrl) return
+  const onExplorerSelect = useCallback((workflowId: string, options?: { data?: ServerWorkflow }) => {
+    const hasProvidedData = !!options?.data
+    if (!flowServiceUrl && !hasProvidedData) return
     // Defer actual state updates to avoid triggering during ExplorerPanel render
     queueMicrotask(async () => {
-      let swf = serverWorkflowCache[workflowId]
+      let swf = options?.data ?? serverWorkflowCache[workflowId]
       if (!swf) {
+        if (!flowServiceUrl) return
         try {
-          const resp = await withApiErrorToast(fetchWorkflow(settings.flowServiceUrl!, workflowId), toast, 'Fetch workflow')
-          swf = resp.data as ServerWorkflow
+          const resp = await withApiErrorToast(fetchWorkflow(flowServiceUrl, workflowId), toast, 'Fetch workflow')
+          swf = (resp?.data as ServerWorkflow) || (resp as unknown as ServerWorkflow)
           setServerWorkflowCache(prev => ({ ...prev, [workflowId]: swf! }))
-          const g = serverToGraph(swf!)
-          setWorkflowGraphCache(prev => ({ ...prev, [workflowId]: g.graph }))
-          let stored: any = {}
-          try { stored = JSON.parse(localStorage.getItem('goflow.declarations.'+workflowId) || '{}') } catch {}
-          const allServerColorSetLines = (swf!.colorSets || []).filter(cs => /^\s*colset\s+/i.test(cs))
-          const decls = (swf as any).declarations && Object.keys((swf as any).declarations).length
-            ? (swf as any).declarations
-            : { ...stored, color: allServerColorSetLines }
-          if (Array.isArray((swf as any).jsonSchemas)) {
-            (decls as any).jsonSchemas = (swf as any).jsonSchemas
-          }
-          const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
-          const colorSetNames = allServerColorSetLines.map(l => { const m = l.match(nameRegex); return m? m[1]: '' }).filter(Boolean)
-          setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: colorSetNames, declarations: decls } }))
-          requestAnimationFrame(() => { setNodes(g.graph.nodes); setEdges(g.graph.edges) })
-          historyRef.current = { past: [], present: { nodes: g.graph.nodes.map(n => ({ ...n })), edges: g.graph.edges.map(e => ({ ...e })) }, future: [] }
-          isLoadingWorkflowRef.current = true
-          // Broadcast parsed names including built-ins
-          window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: Array.from(new Set([ ...DEFAULT_COLOR_SETS, ...colorSetNames ])) } }))
-        } catch(e:any) { return }
-      } else {
-        const graph = workflowGraphCache[workflowId] || serverToGraph(swf).graph
-        if (!workflowGraphCache[workflowId]) setWorkflowGraphCache(prev => ({ ...prev, [workflowId]: graph }))
-        requestAnimationFrame(() => { setNodes(graph.nodes); setEdges(graph.edges) })
-        if (!workflowMeta[workflowId]) {
-          let stored: any = {}
-          try { stored = JSON.parse(localStorage.getItem('goflow.declarations.'+workflowId) || '{}') } catch {}
-          const allServerColorSetLines = (swf!.colorSets || []).filter(cs => /^\s*colset\s+/i.test(cs))
-          const decls = (swf as any).declarations && Object.keys((swf as any).declarations).length
-            ? (swf as any).declarations
-            : { ...stored, color: allServerColorSetLines }
-          if (Array.isArray((swf as any).jsonSchemas)) {
-            (decls as any).jsonSchemas = (swf as any).jsonSchemas
-          }
-          const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
-          const colorSetNames = allServerColorSetLines.map(l => { const m = l.match(nameRegex); return m? m[1]: '' }).filter(Boolean)
-          setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: colorSetNames, declarations: decls } }))
+        } catch (e: any) {
+          return
         }
-        historyRef.current = { past: [], present: { nodes: graph.nodes.map(n => ({ ...n })), edges: graph.edges.map(e => ({ ...e })) }, future: [] }
-        isLoadingWorkflowRef.current = true
-        // Broadcast parsed names including built-ins. If meta already existed, reuse its list.
-        const broadcastNames = (() => {
-          if (workflowMeta[workflowId]) return Array.from(new Set([ ...DEFAULT_COLOR_SETS, ...((workflowMeta[workflowId]?.colorSets)||[]) ]))
-          // If meta did not exist, we have just computed colorSetNames above
-          const allServerColorSetLines = (swf!.colorSets || []).filter(cs => /^\s*colset\s+/i.test(cs))
-          const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
-          const parsed = allServerColorSetLines.map(l => { const m = l.match(nameRegex); return m? m[1]: '' }).filter(Boolean)
-          return Array.from(new Set([ ...DEFAULT_COLOR_SETS, ...parsed ]))
-        })()
-        window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: broadcastNames } }))
+      } else {
+        setServerWorkflowCache(prev => ({ ...prev, [workflowId]: swf! }))
       }
-      setSelectedRef(null); setTokensOpenForPlaceId(null); setGuardOpenForTransitionId(null)
+
+      if (!swf) return
+
+      if (options?.data) {
+        setServerWorkflowsFetched(true)
+      }
+      setServerWorkflows(prev => {
+        const existingIndex = prev.findIndex(w => w.id === workflowId)
+        if (existingIndex >= 0) {
+          const next = [...prev]
+          next[existingIndex] = { ...next[existingIndex], name: swf!.name || next[existingIndex].name }
+          return next
+        }
+        return [...prev, { id: workflowId, name: swf!.name || workflowId }]
+      })
+
+      if (!options?.data) {
+        const existingPath = workspacePathByIdRef.current[workflowId]
+        if (existingPath) {
+          delete workspaceIdByPathRef.current[existingPath]
+        }
+        delete workspacePathByIdRef.current[workflowId]
+      }
+
+      const cachedGraph = options?.data ? undefined : workflowGraphCache[workflowId]
+      const graph = cachedGraph || serverToGraph(swf).graph
+      if (options?.data || !cachedGraph) {
+        setWorkflowGraphCache(prev => ({ ...prev, [workflowId]: graph }))
+      }
+
+      if (process.env.NODE_ENV !== 'production') {
+        console.debug('[FlowWorkspace] preparing workflow render', {
+          workflowId,
+          source: options?.data ? 'workspace-file' : 'server',
+          nodeCount: graph.nodes.length,
+          edgeCount: graph.edges.length,
+          hasWorkflowCache: Boolean(workflowGraphCache[workflowId]),
+        })
+      }
+
+      requestAnimationFrame(() => { setNodes(graph.nodes); setEdges(graph.edges) })
+
+      let stored: any = {}
+      try { stored = JSON.parse(localStorage.getItem('goflow.declarations.'+workflowId) || '{}') } catch {}
+      const allServerColorSetLines = (swf!.colorSets || []).filter(cs => /^\s*colset\s+/i.test(cs))
+      const decls = (swf as any).declarations && Object.keys((swf as any).declarations).length
+        ? (swf as any).declarations
+        : { ...stored, color: allServerColorSetLines }
+      if (Array.isArray((swf as any).jsonSchemas)) {
+        (decls as any).jsonSchemas = (swf as any).jsonSchemas
+      }
+      const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
+      const colorSetNames = allServerColorSetLines.map(l => { const m = l.match(nameRegex); return m? m[1]: '' }).filter(Boolean)
+      setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: colorSetNames, declarations: decls } }))
+
+      historyRef.current = { past: [], present: { nodes: graph.nodes.map(n => ({ ...n })), edges: graph.edges.map(e => ({ ...e })) }, future: [] }
+      isLoadingWorkflowRef.current = true
+
+      const broadcastNames = colorSetNames.length
+        ? Array.from(new Set([ ...DEFAULT_COLOR_SETS, ...colorSetNames ]))
+        : Array.from(new Set([ ...DEFAULT_COLOR_SETS, ...((workflowMeta[workflowId]?.colorSets) || []) ]))
+      window.dispatchEvent(new CustomEvent('goflow-colorSets', { detail: { colorSets: broadcastNames } }))
+
+      setSelectedRef(null)
+      setTokensOpenForPlaceId(null)
+      setGuardOpenForTransitionId(null)
       setActiveWorkflowId(workflowId)
       setEditedMap(prev => ({ ...prev, [workflowId]: false }))
-  // previously would auto-open panel when tokens/guard opened; now just ensure leftTab set appropriately
+      // previously would auto-open panel when tokens/guard opened; now just ensure leftTab set appropriately
     })
-  }, [settings.flowServiceUrl, serverWorkflowCache, workflowGraphCache, workflowMeta])
+  }, [flowServiceUrl, serverWorkflowCache, workflowGraphCache, workflowMeta])
 
   // Listen to explorer selection events dispatched from other panels
   useEffect(() => {
     const handler = (e: any) => {
       const id = e?.detail?.id
-      if (id) onExplorerSelect(id)
+      const data = e?.detail?.data as ServerWorkflow | undefined
+      if (id) onExplorerSelect(id, data ? { data } : undefined)
+    }
+    const openHandler = (e: any) => {
+      const detail = e?.detail
+      const incoming = detail?.data as ServerWorkflow | undefined
+      if (!incoming) return
+
+      const inferredId = incoming.id || (typeof detail?.path === 'string' ? detail.path.split('/').pop()?.replace(/\.cpn$/i, '') : undefined)
+      if (!inferredId) return
+      const normalizedId = inferredId.trim()
+      if (!normalizedId) return
+
+      if (typeof detail?.path === 'string' && detail.path.trim()) {
+        const trimmedPath = detail.path.trim()
+        const previousPath = workspacePathByIdRef.current[normalizedId]
+        if (previousPath && previousPath !== trimmedPath) {
+          delete workspaceIdByPathRef.current[previousPath]
+        }
+        workspacePathByIdRef.current[normalizedId] = trimmedPath
+        workspaceIdByPathRef.current[trimmedPath] = normalizedId
+      }
+
+      const workflowData: ServerWorkflow = { ...incoming, id: normalizedId, name: incoming.name || normalizedId }
+      if (!Array.isArray(workflowData.places) || !Array.isArray(workflowData.transitions) || !Array.isArray(workflowData.arcs)) {
+        console.warn('goflow-open-workflow missing required workflow structure', detail?.path)
+        return
+      }
+
+      onExplorerSelect(normalizedId, { data: workflowData })
     }
     const delHandler = (e: any) => {
       const id = e?.detail?.id
@@ -386,8 +452,16 @@ function CanvasInner() {
         setNodes([])
         setEdges([])
       }
+      if (typeof id === 'string' && id.length) {
+        const existingPath = workspacePathByIdRef.current[id]
+        if (existingPath) {
+          delete workspacePathByIdRef.current[id]
+          delete workspaceIdByPathRef.current[existingPath]
+        }
+      }
     }
     window.addEventListener('goflow-explorer-select', handler as EventListener)
+    window.addEventListener('goflow-open-workflow', openHandler as EventListener)
     window.addEventListener('goflow-workflow-deleted', delHandler as EventListener)
     // Listen for entity selection events from explorer (left panel)
     const entityHandler = (e: any) => {
@@ -414,21 +488,113 @@ function CanvasInner() {
     window.addEventListener('goflow-explorer-entity-select', entityHandler as EventListener)
     return () => {
       window.removeEventListener('goflow-explorer-select', handler as EventListener)
+      window.removeEventListener('goflow-open-workflow', openHandler as EventListener)
       window.removeEventListener('goflow-workflow-deleted', delHandler as EventListener)
       window.removeEventListener('goflow-explorer-entity-select', entityHandler as EventListener)
     }
   }, [onExplorerSelect, activeWorkflowId])
 
-  
+  const persistWorkflow = useCallback(async (workflowId: string, options?: { targetPath?: string }) => {
+    if (!workflowId) return null
 
-  // Auto-fetch workflow list when side panel is visible (no need to press button)
-  useEffect(() => {
-    if (!serverWorkflowsFetched && settings.flowServiceUrl) {
-      (async () => {
-        try { await withApiErrorToast(fetchServerWorkflowList(), toast, 'Fetch workflows') } catch(e) { /* toasted */ }
-      })()
+    const currentNodes = nodesRef.current
+    const currentEdges = edgesRef.current
+    const meta = workflowMeta[workflowId]
+    const serverBase = serverWorkflowCache[workflowId]
+    const payload = graphToServer(
+      serverBase,
+      workflowId,
+      meta?.name || workflowId,
+      { nodes: currentNodes, edges: currentEdges },
+      meta?.colorSets ?? [],
+      meta?.description,
+      meta?.declarations
+    )
+
+    const explicitPath = typeof options?.targetPath === 'string' && options.targetPath.trim().length ? options.targetPath.trim() : undefined
+    const workspacePath = explicitPath || workspacePathByIdRef.current[workflowId]
+
+    if (process.env.NODE_ENV !== 'production') {
+      try {
+        console.debug('[FlowWorkspace] persistWorkflow arcs', payload.arcs.map(a => ({ id: a.id, readonly: (a as any).readonly, ReadOnly: (a as any).ReadOnly })))
+      } catch (err) {
+        // ignore debug issues
+      }
     }
-  }, [serverWorkflowsFetched, settings.flowServiceUrl, fetchServerWorkflowList])
+
+    if (workspacePath) {
+      try {
+        const serialized = JSON.stringify(payload, null, 2)
+        await saveWorkspaceFile(workspacePath, serialized)
+      } catch (err) {
+        return null
+      }
+      const after = useWorkspace.getState().files.get(workspacePath)
+      if (after && after.dirty === false) {
+        setServerWorkflowCache(prev => ({ ...prev, [workflowId]: payload }))
+        setEditedMap(prev => ({ ...prev, [workflowId]: false }))
+        return 'workspace'
+      }
+      return null
+    }
+
+    if (!flowServiceUrl) {
+      toast({
+        title: 'Unable to save workflow',
+        description: 'No Flow service is configured for saving this workflow.',
+        variant: 'destructive'
+      })
+      return null
+    }
+
+    try {
+      await withApiErrorToast(saveWorkflow(flowServiceUrl, payload), toast, 'Save')
+      setServerWorkflowCache(prev => ({ ...prev, [workflowId]: payload }))
+      setEditedMap(prev => ({ ...prev, [workflowId]: false }))
+      toast({ title: 'Saved', description: 'Workflow saved successfully' })
+      return 'flow-service'
+    } catch (err) {
+      return null
+    }
+  }, [workflowMeta, serverWorkflowCache, saveWorkspaceFile, flowServiceUrl, toast])
+
+  useEffect(() => {
+    const handleSaveFile = (event: Event) => {
+      const ce = event as CustomEvent<{ path?: string }>
+      const detailPathRaw = ce?.detail?.path
+      if (!detailPathRaw || typeof detailPathRaw !== 'string') return
+      const detailPath = detailPathRaw.trim()
+      if (!detailPath.toLowerCase().endsWith('.cpn')) return
+
+      const mappedId = workspaceIdByPathRef.current[detailPath]
+      const derivedId = detailPath.split('/').pop()?.replace(/\.cpn$/i, '')
+      const workflowId = mappedId || derivedId
+      if (!workflowId) return
+      if (workflowId !== activeWorkflowId) return
+
+      const previousPath = workspacePathByIdRef.current[workflowId]
+      if (previousPath && previousPath !== detailPath) {
+        delete workspaceIdByPathRef.current[previousPath]
+      }
+      workspacePathByIdRef.current[workflowId] = detailPath
+      workspaceIdByPathRef.current[detailPath] = workflowId
+
+      const savePromise = persistWorkflow(workflowId, { targetPath: detailPath })
+      savePromise?.then((mode) => {
+        if (!mode || typeof window === 'undefined') return
+        window.dispatchEvent(new CustomEvent('goflow-file-saved', {
+          detail: { path: detailPath, workflowId, mode }
+        }))
+      }).catch(() => {
+        /* errors already surfaced via toast */
+      })
+    }
+
+    window.addEventListener('goflow-save-file', handleSaveFile as EventListener)
+    return () => {
+      window.removeEventListener('goflow-save-file', handleSaveFile as EventListener)
+    }
+  }, [persistWorkflow, activeWorkflowId])
 
   const edited = activeWorkflowId ? editedMap[activeWorkflowId] ?? false : false;
 
@@ -442,6 +608,15 @@ function CanvasInner() {
       return e ? { type: "edge", edge: e } : null
     }
   }, [selectedRef, nodes, edges])
+
+  useEffect(() => {
+    const pathMap = workspacePathByIdRef.current
+    for (const [id, isEdited] of Object.entries(editedMap)) {
+      const path = pathMap[id]
+      if (!path) continue
+      markWorkspaceFileDirty(path, !!isEdited)
+    }
+  }, [editedMap, markWorkspaceFileDirty])
 
   useEffect(() => {
     function onDocClick() {
@@ -958,7 +1133,7 @@ function CanvasInner() {
     [setNodes],
   )
 
-  const { marking: serverMarking, enabled, loading: monitorLoading, fastForwarding: monitorFastForwarding, globalClock, currentStep, refresh: refreshMonitorData, fire: fireTransitionMon, step: doMonitorStep, fastForward: monitorFastForward, forwardToEnd: monitorForwardToEnd, rollback: monitorRollback, reset: resetMonitor } = useMonitor({ workflowId: activeWorkflowId, flowServiceUrl: settings.flowServiceUrl, setNodes })
+  const { marking: serverMarking, enabled, loading: monitorLoading, fastForwarding: monitorFastForwarding, globalClock, currentStep, refresh: refreshMonitorData, fire: fireTransitionMon, step: doMonitorStep, fastForward: monitorFastForward, forwardToEnd: monitorForwardToEnd, rollback: monitorRollback, reset: resetMonitor } = useMonitor({ workflowId: activeWorkflowId, flowServiceUrl: flowServiceUrl ?? undefined, setNodes })
 
   // Event (a) open Monitor tab & (b) workflow change while on Monitor
   // Legacy monitor refresh left intact; will be removed when MonitorPanel replaced.
@@ -1037,10 +1212,10 @@ function CanvasInner() {
   // ---- MCP helpers ----
   type ToolCatalogItem = { id: string; name: string; type: string; description?: string; inputSchema?: any; outputSchema?: any; config?: any; enabled?: boolean }
   const refreshMcpServers = useCallback(async () => {
-    if (!settings.flowServiceUrl) return
+    if (!flowServiceUrl) return
     setMcpLoading(true); setMcpError(null)
     try {
-      const serversRaw: any[] = await withApiErrorToast(listRegisteredMcpServers(settings.flowServiceUrl), toast, 'Load MCP servers')
+      const serversRaw: any[] = await withApiErrorToast(listRegisteredMcpServers(flowServiceUrl), toast, 'Load MCP servers')
       const baseServers: McpServer[] = (serversRaw||[]).map((s:any) => ({
         id: s.id || s.baseUrl,
         name: s.name || (()=>{ try { return new URL(s.baseUrl).host } catch { return s.baseUrl } })(),
@@ -1053,7 +1228,7 @@ function CanvasInner() {
       const servers: McpServer[] = await Promise.all(baseServers.map(async (srv) => {
         if (typeof srv.toolCount === 'number') return srv
         try {
-          const tools = await listMcpTools(settings.flowServiceUrl!, { baseUrl: srv.baseUrl, timeoutMs: srv.timeoutMs })
+          const tools = await listMcpTools(flowServiceUrl, { baseUrl: srv.baseUrl, timeoutMs: srv.timeoutMs })
           return { ...srv, toolCount: Array.isArray(tools) ? tools.length : undefined }
         } catch { return srv }
       }))
@@ -1061,52 +1236,52 @@ function CanvasInner() {
     } catch(e:any) {
       setMcpError(e?.message || String(e))
     } finally { setMcpLoading(false) }
-  }, [settings.flowServiceUrl])
+  }, [flowServiceUrl])
 
   useEffect(() => { if (showSystem && systemTab==='mcp') { refreshMcpServers() } }, [showSystem, systemTab, refreshMcpServers])
 
   const openMcpDetails = useCallback(async (srv: McpServer) => {
-    if (!settings.flowServiceUrl) return
+    if (!flowServiceUrl) return
     try {
-      const items = await withApiErrorToast(listMcpTools(settings.flowServiceUrl, { baseUrl: srv.baseUrl, timeoutMs: srv.timeoutMs }), toast, 'Load MCP tools')
+      const items = await withApiErrorToast(listMcpTools(flowServiceUrl, { baseUrl: srv.baseUrl, timeoutMs: srv.timeoutMs }), toast, 'Load MCP tools')
       setMcpDetails(Array.isArray(items) ? items : [])
       setMcpDetailsOpen({ open: true, server: srv })
     } catch(e:any) { /* toasted */ }
-  }, [settings.flowServiceUrl])
+  }, [flowServiceUrl])
 
   const handleMcpDelete = useCallback(async (srv: McpServer) => {
-    if (!settings.flowServiceUrl) { toast({ title: 'Flow service URL missing', variant: 'destructive' }); return }
+    if (!flowServiceUrl) { toast({ title: 'Flow service URL missing', variant: 'destructive' }); return }
     try {
-      await withApiErrorToast(deregisterMcpServer(settings.flowServiceUrl, { id: srv.id, baseUrl: srv.baseUrl }), toast, 'Deregister MCP server')
+      await withApiErrorToast(deregisterMcpServer(flowServiceUrl, { id: srv.id, baseUrl: srv.baseUrl }), toast, 'Deregister MCP server')
       toast({ title: 'MCP server removed', description: srv.baseUrl })
       await refreshMcpServers()
     } catch(e:any) { /* toasted */ }
-  }, [settings.flowServiceUrl, refreshMcpServers])
+  }, [flowServiceUrl, refreshMcpServers])
 
   const verifyAndDiscoverMcp = useCallback(async () => {
     const base = mcpAddForm.baseUrl.trim().replace(/\/$/, '')
     if (!base) { toast({ title: 'Enter baseUrl', variant: 'destructive' }); return }
-    if (!settings.flowServiceUrl) { toast({ title: 'Flow service URL missing', variant: 'destructive' }); return }
+    if (!flowServiceUrl) { toast({ title: 'Flow service URL missing', variant: 'destructive' }); return }
     setMcpDiscovering(true); setMcpDiscovered(null)
     try {
-      const arr = await withApiErrorToast(listMcpTools(settings.flowServiceUrl, { baseUrl: base, timeoutMs: mcpAddForm.timeoutMs }), toast, 'Discover MCP tools')
+      const arr = await withApiErrorToast(listMcpTools(flowServiceUrl, { baseUrl: base, timeoutMs: mcpAddForm.timeoutMs }), toast, 'Discover MCP tools')
       setMcpDiscovered(arr)
       if (!arr || arr.length===0) toast({ title: 'No tools discovered', description: 'Server returned no tools' })
     } catch(e:any) {
       setMcpDiscovered([])
       // withApiErrorToast already toasts; keep minimal fallback only
     } finally { setMcpDiscovering(false) }
-  }, [mcpAddForm, settings.flowServiceUrl])
+  }, [mcpAddForm, flowServiceUrl])
 
   const handleRegisterDiscovered = useCallback(async (selectedNames: string[]) => {
-    if (!settings.flowServiceUrl) return
+    if (!flowServiceUrl) return
     const base = mcpAddForm.baseUrl.trim().replace(/\/$/, '')
     const picked = (mcpDiscovered||[]).filter((t:any)=> selectedNames.includes(t.name))
     if (picked.length===0) { toast({ title: 'Nothing selected' }); return }
     try {
       // 1) Register/ensure MCP server exists in catalog with explicit tool enable list
   const toolPayload = (mcpDiscovered||[]).map((t:any)=> ({ name: t.name, enabled: selectedNames.includes(t.name) }))
-      await withApiErrorToast(registerMcpServer(settings.flowServiceUrl, { baseUrl: base, name: mcpAddForm.name || undefined, id: mcpAddForm.id || undefined, timeoutMs: mcpAddForm.timeoutMs, tools: toolPayload }), toast, 'Register MCP server')
+      await withApiErrorToast(registerMcpServer(flowServiceUrl, { baseUrl: base, name: mcpAddForm.name || undefined, id: mcpAddForm.id || undefined, timeoutMs: mcpAddForm.timeoutMs, tools: toolPayload }), toast, 'Register MCP server')
       // 2) Refresh MCP server list (authoritative) and close dialog
       toast({ title: 'MCP server registered', description: base })
       await refreshMcpServers()
@@ -1114,7 +1289,7 @@ function CanvasInner() {
       setMcpDiscovered(null)
       setMcpAddForm({ baseUrl: '', name: '', id: '' })
     } catch(e:any) { /* toasted */ }
-  }, [settings.flowServiceUrl, mcpDiscovered, mcpAddForm, refreshMcpServers])
+  }, [flowServiceUrl, mcpDiscovered, mcpAddForm, refreshMcpServers])
 
   return (
     <div ref={containerRef} className="flex h-full w-full gap-4">
@@ -1279,18 +1454,16 @@ function CanvasInner() {
           <MiniMap zoomable pannable />
           <CanvasControls
             onSave={async () => {
-              if (!activeWorkflowId || !settings.flowServiceUrl) return
-              const meta = workflowMeta[activeWorkflowId]
-              const serverBase = serverWorkflowCache[activeWorkflowId]
-              try {
-                const payload = graphToServer(serverBase, activeWorkflowId, meta?.name || activeWorkflowId, { nodes, edges }, meta?.colorSets || [], meta?.description, meta?.declarations)
-                // TEMP DEBUG: log arcs to verify readonly flag emission
-                try { console.log('[debug-save] arcs payload', payload.arcs.map(a => ({ id: a.id, readonly: (a as any).readonly, ReadOnly: (a as any).ReadOnly }))) } catch(e){}
-                await withApiErrorToast(saveWorkflow(settings.flowServiceUrl, payload), toast, 'Save')
-                setServerWorkflowCache(prev => ({ ...prev, [activeWorkflowId]: payload }))
-                setEditedMap(prev => ({ ...prev, [activeWorkflowId]: false }))
-                toast({ title: 'Saved', description: 'Workflow saved successfully' })
-              } catch(e:any){ /* already toasted */ }
+              if (!activeWorkflowId) return
+              const mode = await persistWorkflow(activeWorkflowId)
+              if (mode && typeof window !== 'undefined') {
+                const path = workspacePathByIdRef.current[activeWorkflowId]
+                if (path) {
+                  window.dispatchEvent(new CustomEvent('goflow-file-saved', {
+                    detail: { path, workflowId: activeWorkflowId, mode }
+                  }))
+                }
+              }
             }}
             edited={edited}
             interactive={interactive}
@@ -1303,10 +1476,10 @@ function CanvasInner() {
             addTransition={addTransition}
             onAutoLayout={() => autoLayout()}
             onValidate={async () => {
-              if (!activeWorkflowId || !settings.flowServiceUrl) return
+              if (!activeWorkflowId || !flowServiceUrl) return
               setValidating(true)
               try {
-                const result = await withApiErrorToast(validateWorkflow(settings.flowServiceUrl, activeWorkflowId), toast, 'Validate')
+                const result = await withApiErrorToast(validateWorkflow(flowServiceUrl, activeWorkflowId), toast, 'Validate')
                 const v = result.violations || []
                 setViolations(v)
                 if (v.length > 0) {
@@ -1465,12 +1638,12 @@ function CanvasInner() {
               onRefreshWorkflows: () => fetchServerWorkflowList(),
               onDeclarationsApply: onDeclarationsApply,
               onCreateWorkflow: async () => {
-                if (!settings.flowServiceUrl) return
+                if (!flowServiceUrl) return
                 try {
                   const newId = `wf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`
                   const name = `Workflow ${newId.slice(-4)}`
                   const empty = { id: newId, name, description: '', colorSets: [], places: [], transitions: [], arcs: [], initialMarking: {}, declarations: {} }
-                  await withApiErrorToast(saveWorkflow(settings.flowServiceUrl, empty), toast, 'Create workflow')
+                  await withApiErrorToast(saveWorkflow(flowServiceUrl, empty), toast, 'Create workflow')
                   setServerWorkflows(wfs => ([...(Array.isArray(wfs) ? wfs : []), { id: newId, name }]))
                   setWorkflowMeta(meta => ({ ...meta, [newId]: { name, description: '', colorSets: [] } }))
                   onExplorerSelect(newId)
@@ -1478,10 +1651,10 @@ function CanvasInner() {
                 } catch(e:any){ /* already toasted */ }
               },
               onDeleteWorkflow: async (id: string) => {
-                if (!settings.flowServiceUrl) return
+                if (!flowServiceUrl) return
                 if (!confirm('Delete workflow ' + id + '?')) return
                 try {
-                  await withApiErrorToast(deleteWorkflowApi(settings.flowServiceUrl, id), toast, 'Delete workflow')
+                  await withApiErrorToast(deleteWorkflowApi(flowServiceUrl, id), toast, 'Delete workflow')
                   setServerWorkflows(list => list.filter(w => w.id !== id))
                   if (activeWorkflowId === id) { setActiveWorkflowId(null); setNodes([]); setEdges([]) }
                   toast({ title: 'Deleted', description: id })

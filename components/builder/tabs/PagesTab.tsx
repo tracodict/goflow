@@ -125,11 +125,27 @@ export const PagesTab: React.FC = () => {
       // Open the file in the workspace (will trigger file handler)
       try {
         await useWorkspace.getState().openFile(filePath)
-        
-        // Dispatch file open event for handlers to process
+
+        const extension = filePath.split('.').pop() || ''
+
+        // Notify tab system
         window.dispatchEvent(new CustomEvent('goflow-file-opened', {
           detail: { path: filePath }
         }))
+
+        // Invoke workspace file handlers (page builder, workflow editor, etc.)
+        // Defer until after React renders the corresponding editor tab so the listeners are mounted.
+        const emitOpenFile = () => {
+          window.dispatchEvent(new CustomEvent('goflow-open-file', {
+            detail: { path: filePath, extension }
+          }))
+        }
+
+        if (typeof window.requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => emitOpenFile())
+        } else {
+          setTimeout(emitOpenFile, 0)
+        }
         
         toast({
           title: "File Opened",
@@ -237,10 +253,15 @@ export const PagesTab: React.FC = () => {
 
     const oldPath = item.id
     const pathParts = oldPath.split('/')
-    const isPage = oldPath.endsWith('.page')
+    const oldFileName = pathParts[pathParts.length - 1]
+    const extensionIndex = oldFileName.lastIndexOf('.')
+    const extension = extensionIndex > 0 ? oldFileName.substring(extensionIndex) : ''
     
     // Build new path
-    pathParts[pathParts.length - 1] = isPage ? `${trimmedName}.page` : trimmedName
+    const nextFileName = item.type === 'file' && extension
+      ? `${trimmedName}${extension}`
+      : trimmedName
+    pathParts[pathParts.length - 1] = nextFileName
     const newPath = pathParts.join('/')
 
     try {

@@ -1,23 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Octokit } from '@octokit/rest'
 import { getTokenFromSession } from '@/lib/github-session'
+import { parseGitHubWorkspaceId } from '@/lib/workspace/id'
 
-export async function POST(request: NextRequest) {
+type RouteParams = {
+  params: {
+    workspaceId: string
+  }
+}
+
+const WORKSPACE_FOLDERS = ['Pages', 'DataSources', 'Queries', 'Workflows', 'Schemas', 'MCPTools']
+
+export async function POST(_: NextRequest, { params }: RouteParams) {
   const token = await getTokenFromSession()
-  
+
   if (!token) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  
+
   const octokit = new Octokit({ auth: token })
-  const { owner, repo, branch } = await request.json()
-  
-  const folders = ['Pages', 'DataSources', 'Queries', 'Workflows', 'Schemas', 'MCPTools']
-  
+  const { owner, repo, branch } = parseGitHubWorkspaceId(params.workspaceId)
+
   try {
-    for (const folder of folders) {
+    for (const folder of WORKSPACE_FOLDERS) {
       try {
-        // Check if folder exists
         await octokit.rest.repos.getContent({
           owner,
           repo,
@@ -25,8 +31,7 @@ export async function POST(request: NextRequest) {
           ref: branch
         })
       } catch (error: any) {
-        if (error.status === 404) {
-          // Create folder with .gitkeep file
+        if (error?.status === 404) {
           await octokit.rest.repos.createOrUpdateFileContents({
             owner,
             repo,
@@ -35,15 +40,17 @@ export async function POST(request: NextRequest) {
             content: Buffer.from('').toString('base64'),
             branch
           })
+        } else {
+          throw error
         }
       }
     }
-    
+
     return NextResponse.json({ success: true })
   } catch (error: any) {
-    console.error('GitHub init folders error:', error)
+    console.error('GitHub init-folders error:', error)
     return NextResponse.json(
-      { error: error.message || 'Failed to initialize folders' }, 
+      { error: error?.message || 'Failed to initialize workspace folders' },
       { status: 500 }
     )
   }

@@ -1,8 +1,9 @@
 import { create } from 'zustand'
 import { DatasourceSummary, DatasourceType, QueryAST, QueryResult, DatasourceError, DatasourceDetail } from '@/lib/datasource-types'
-import { listDatasources, executeAdhoc, getDatasource, updateDatasource, deleteDatasource, testDatasource } from '@/lib/datasource-client'
+import { listDatasources, executeAdhoc, getDatasource, updateDatasource, deleteDatasource, testDatasource as testDatasourceApi } from '@/lib/datasource-client'
 import { listDataSources } from '@/lib/datastore-client'
 import { useSystemSettings } from '@/components/petri/system-settings-context'
+import { useWorkspace } from '@/stores/workspace-store'
 
 interface ExecutionState {
   running: boolean
@@ -21,7 +22,7 @@ interface DatasourceState {
   fetchDetail: (id: string) => Promise<DatasourceDetail | undefined>
   patchDatasource: (id: string, payload: { name?: string; config?: Record<string,any>; secret?: Record<string,any> }) => Promise<DatasourceDetail | undefined>
   removeDatasource: (id: string) => Promise<void>
-  testDatasource: (id: string, secretOverride?: Record<string,any>) => Promise<{ ok: boolean; latencyMs?: number }|undefined>
+  testDatasource: (id: string, options?: Record<string,any> | { secretOverride?: Record<string,any>; published?: boolean }) => Promise<{ ok: boolean; latencyMs?: number }|undefined>
   connectDatasource: (id: string) => Promise<void>
 }
 
@@ -87,9 +88,29 @@ export const useDatasourceStore = create<DatasourceState>((set, get) => ({
     try { await deleteDatasource(id) } catch {}
     set(s => ({ datasources: s.datasources.filter(d=> d.id!==id), details: Object.fromEntries(Object.entries(s.details).filter(([k])=> k!==id)) }))
   },
-  async testDatasource(id, secretOverride) {
+  async testDatasource(id, options) {
+    let secretOverride: Record<string, any> | undefined
+    let published: boolean | undefined
+
+    if (options) {
+      if (typeof (options as any)?.published !== 'undefined' || typeof (options as any)?.secretOverride !== 'undefined') {
+        const opts = options as { secretOverride?: Record<string, any>; published?: boolean }
+        secretOverride = opts.secretOverride
+        published = opts.published
+      } else {
+        secretOverride = options as Record<string, any>
+      }
+    }
+
+    const workspaceId = useWorkspace.getState().workspaceId
+
+    if (!workspaceId) {
+      console.warn('Cannot test datasource without an active workspace')
+      return undefined
+    }
+
     try {
-      const res = await testDatasource(id, secretOverride)
+      const res = await testDatasourceApi(workspaceId, id, { secretOverride, published })
       if (res?.ok) {
         // Persist metadata into detail & list if already loaded
         set(s => ({

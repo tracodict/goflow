@@ -18,6 +18,8 @@ interface Ctx {
 
 const SystemSettingsContext = createContext<Ctx | null>(null)
 const LS_KEY = 'goflow.systemSettings'
+const COOKIE_KEY = 'goflow.systemSettings'
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 365 // ~1 year
 
 function loadInitial(): SystemSettings {
   if (typeof window === 'undefined') return { ...DEFAULT_SETTINGS }
@@ -38,6 +40,12 @@ export const SystemSettingsProvider: React.FC<{ children: React.ReactNode }> = (
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(LS_KEY, JSON.stringify(settings))
+      try {
+        const payload = encodeURIComponent(JSON.stringify(settings))
+        document.cookie = `${COOKIE_KEY}=${payload}; path=/; max-age=${COOKIE_MAX_AGE}; sameSite=lax`
+      } catch {
+        // ignore cookie write failures
+      }
     }
   }, [settings])
 

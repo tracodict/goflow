@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { toast } from '@/hooks/use-toast'
+import { buildGitHubWorkspaceId, encodeWorkspaceId } from '@/lib/workspace/id'
+import type { WorkspaceProvider } from '@/lib/workspace/provider'
 
 export interface FileTreeNode {
   name: string
@@ -16,9 +18,15 @@ export interface WorkspaceFile {
   content: string
   sha: string
   dirty: boolean
+  data?: unknown
 }
 
+const WORKSPACE_STORAGE_KEY = 'goflow-workspace'
+const WORKSPACE_PROVIDER: WorkspaceProvider = (process.env.NEXT_PUBLIC_WORKSPACE_PROVIDER as WorkspaceProvider) || 'github'
+
 interface WorkspaceState {
+  provider: WorkspaceProvider
+  workspaceId: string | null
   owner: string | null
   repo: string | null
   branch: string | null
@@ -69,482 +77,615 @@ function getFileTemplate(extension: string): string {
     'qry': JSON.stringify({ query_type: 'sql', query: 'SELECT 1' }, null, 2),
     'cpn': JSON.stringify({ places: [], transitions: [], arcs: [] }, null, 2),
     'color': JSON.stringify({ name: '', fields: [] }, null, 2),
-    'mcp': JSON.stringify({ command: '', args: [] }, null, 2),
+  'mcp': JSON.stringify({ id: '', name: '', baseUrl: '', timeoutMs: 8000, tools: [], resources: [] }, null, 2),
   }
   return templates[extension] || '{}'
 }
 
+function getWorkspaceBasePath(workspaceId: string | null) {
+  if (!workspaceId) return null
+  return `/api/ws/${encodeWorkspaceId(workspaceId)}`
+}
+
+interface StoredWorkspace {
+  provider: WorkspaceProvider
+  workspaceId: string
+  owner: string
+  repo: string
+  branch: string
+  baseBranch: string
+}
+
+function loadWorkspaceFromStorage(): StoredWorkspace | null {
+  if (typeof window === 'undefined') return null
+
+  const raw = localStorage.getItem(WORKSPACE_STORAGE_KEY)
+  if (!raw) return null
+
+  try {
+    return JSON.parse(raw) as StoredWorkspace
+  } catch (error) {
+    console.warn('Failed to parse stored workspace payload:', error)
+    localStorage.removeItem(WORKSPACE_STORAGE_KEY)
+    return null
+  }
+}
+
+function saveWorkspaceToStorage(payload: StoredWorkspace) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(payload))
+}
+
+function clearWorkspaceStorage() {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem(WORKSPACE_STORAGE_KEY)
+}
+
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
+  provider: WORKSPACE_PROVIDER,
+  workspaceId: null,
   owner: null,
   repo: null,
   branch: null,
   baseBranch: 'main',
   files: new Map(),
   tree: [],
-  // Initialize isRestoring to true if there's saved workspace data
-  isRestoring: typeof window !== 'undefined' && !!localStorage.getItem('goflow-workspace'),
-  
+  isRestoring: typeof window !== 'undefined' && loadWorkspaceFromStorage() !== null,
+
   openWorkspace: async ({ owner, repo }) => {
+    if (WORKSPACE_PROVIDER !== 'github') {
+      const message = 'Only the GitHub workspace provider is currently supported.'
+      toast({
+        title: 'Unsupported workspace provider',
+        description: message,
+        variant: 'destructive'
+      })
+      throw new Error(message)
+    }
+
     try {
       const tempBranch = `goflow-${Date.now()}`
-      
-      // 1. Create temp branch from main
-      const openRes = await fetch('/api/github/workspace/open', {
+      const baseBranch = 'main'
+      const workspaceId = buildGitHubWorkspaceId({ owner, repo, branch: tempBranch })
+      const basePath = getWorkspaceBasePath(workspaceId)
+
+      if (!basePath) {
+        throw new Error('Failed to resolve workspace path')
+      }
+
+      const headers = { 'Content-Type': 'application/json' }
+
+      const openRes = await fetch(`${basePath}/open`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ owner, repo, baseBranch: 'main', tempBranch })
+        headers,
+        body: JSON.stringify({ baseBranch })
       })
-      
+
       if (!openRes.ok) {
-        const error = await openRes.json()
+        const error = await openRes.json().catch(() => ({}))
         throw new Error(error.error || 'Failed to open workspace')
       }
-      
-      // 2. Ensure folder structure exists
-      await fetch('/api/github/workspace/init-folders', {
+
+      const initRes = await fetch(`${basePath}/init-folders`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ owner, repo, branch: tempBranch })
+        headers
       })
-      
-      set({ owner, repo, branch: tempBranch, baseBranch: 'main', tree: [] })
-      
-      // 3. Persist to localStorage
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('goflow-workspace', JSON.stringify({ owner, repo, branch: tempBranch }))
+
+      if (!initRes.ok) {
+        const error = await initRes.json().catch(() => ({}))
+        throw new Error(error.error || 'Failed to initialize workspace folders')
       }
-      
-      // 4. Load file tree
+
+      set({
+        provider: WORKSPACE_PROVIDER,
+        workspaceId,
+        owner,
+        repo,
+        branch: tempBranch,
+        baseBranch,
+        files: new Map(),
+        tree: [],
+        isRestoring: false
+      })
+
+      saveWorkspaceToStorage({
+        provider: WORKSPACE_PROVIDER,
+        workspaceId,
+        owner,
+        repo,
+        branch: tempBranch,
+        baseBranch
+      })
+
       await get().loadFileTree()
-      
+
       toast({
         title: 'Workspace opened',
-        description: `${owner}/${repo} (branch: ${tempBranch})`,
+        description: `${owner}/${repo} (branch: ${tempBranch})`
       })
     } catch (error: any) {
       toast({
         title: 'Failed to open workspace',
-        description: error.message,
+        description: error?.message || 'Unknown error',
         variant: 'destructive'
       })
       throw error
     }
   },
-  
+
   closeWorkspace: () => {
     set({
+      workspaceId: null,
       owner: null,
       repo: null,
       branch: null,
+      baseBranch: 'main',
       files: new Map(),
-      tree: []
+      tree: [],
+      isRestoring: false
     })
-    
-    // Remove from localStorage
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('goflow-workspace')
-    }
-    
+
+    clearWorkspaceStorage()
+
     toast({
-      title: 'Workspace closed',
+      title: 'Workspace closed'
     })
   },
-  
+
   restoreWorkspace: async () => {
-    // Try to restore workspace from localStorage
     if (typeof window === 'undefined') return
-    
-    const saved = localStorage.getItem('goflow-workspace')
+
+    const saved = loadWorkspaceFromStorage()
     if (!saved) {
       set({ isRestoring: false })
       return
     }
-    
-    set({ isRestoring: true })
-    
-    try {
-      const { owner, repo, branch } = JSON.parse(saved)
-      
-      // Validate the branch still exists
-      const res = await fetch(
-        `/api/github/workspace/tree?owner=${owner}&repo=${repo}&branch=${branch}`
-      )
-      
-      if (res.ok) {
-        // Branch exists, restore the workspace
-        const tree = await res.json()
-        set({ owner, repo, branch, baseBranch: 'main', tree, isRestoring: false })
-        
-        toast({
-          title: 'Workspace restored',
-          description: `${owner}/${repo}`,
-        })
-      } else {
-        // Branch doesn't exist, clear localStorage
-        localStorage.removeItem('goflow-workspace')
-        set({ isRestoring: false })
-      }
-    } catch (error) {
-      // Invalid data in localStorage, clear it
-      localStorage.removeItem('goflow-workspace')
+
+    if (saved.provider !== WORKSPACE_PROVIDER) {
+      clearWorkspaceStorage()
       set({ isRestoring: false })
+      return
     }
-  },
-  
-  loadFileTree: async () => {
-    const { owner, repo, branch } = get()
-    
-    if (!owner || !repo || !branch) return
-    
+
+    const basePath = getWorkspaceBasePath(saved.workspaceId)
+    if (!basePath) {
+      clearWorkspaceStorage()
+      set({ isRestoring: false })
+      return
+    }
+
+    set({
+      provider: WORKSPACE_PROVIDER,
+      workspaceId: saved.workspaceId,
+      owner: saved.owner,
+      repo: saved.repo,
+      branch: saved.branch,
+      baseBranch: saved.baseBranch,
+      isRestoring: true
+    })
+
     try {
-      const res = await fetch(
-        `/api/github/workspace/tree?owner=${owner}&repo=${repo}&branch=${branch}`
-      )
-      
+      const res = await fetch(`${basePath}/tree`)
       if (!res.ok) {
         throw new Error('Failed to load file tree')
       }
-      
+
+      const tree = await res.json()
+      set({ tree, isRestoring: false })
+
+      toast({
+        title: 'Workspace restored',
+        description: `${saved.owner}/${saved.repo}`
+      })
+    } catch (error: any) {
+      console.error('Workspace restore failed:', error)
+      clearWorkspaceStorage()
+      set({
+        workspaceId: null,
+        owner: null,
+        repo: null,
+        branch: null,
+        baseBranch: 'main',
+        files: new Map(),
+        tree: [],
+        isRestoring: false
+      })
+    }
+  },
+
+  loadFileTree: async () => {
+    const { workspaceId } = get()
+    const basePath = getWorkspaceBasePath(workspaceId)
+    if (!basePath) return
+
+    try {
+      const res = await fetch(`${basePath}/tree`)
+
+      if (!res.ok) {
+        throw new Error('Failed to load file tree')
+      }
+
       const tree = await res.json()
       set({ tree })
+      return tree
     } catch (error: any) {
       toast({
         title: 'Failed to load file tree',
-        description: error.message,
-        variant: 'destructive'
-      })
-    }
-  },
-  
-  openFile: async (path: string) => {
-    // Wait for workspace restoration to complete
-    let { owner, repo, branch, files, isRestoring } = get()
-    
-    // If workspace is still restoring, wait for it
-    if (isRestoring) {
-      await new Promise<void>((resolve) => {
-        const checkInterval = setInterval(() => {
-          const state = get()
-          if (!state.isRestoring) {
-            clearInterval(checkInterval)
-            resolve()
-          }
-        }, 100)
-        
-        // Timeout after 10 seconds
-        setTimeout(() => {
-          clearInterval(checkInterval)
-          resolve()
-        }, 10000)
-      })
-      
-      // Refresh state after waiting
-      ;({ owner, repo, branch, files } = get())
-    }
-    
-    // Check if already loaded
-    if (files.has(path)) {
-      // File already loaded, nothing more to do
-      return
-    }
-    
-    if (!owner || !repo || !branch) return
-    
-    try {
-      const res = await fetch(
-        `/api/github/workspace/file?owner=${owner}&repo=${repo}&branch=${branch}&path=${encodeURIComponent(path)}`
-      )
-      
-      if (!res.ok) {
-        throw new Error('Failed to load file')
-      }
-      
-      const { content, sha } = await res.json()
-      const type = getFileTypeFromPath(path)
-      
-      files.set(path, { path, type, content, sha, dirty: false })
-      set({ files: new Map(files) })
-    } catch (error: any) {
-      toast({
-        title: 'Failed to open file',
-        description: error.message,
-        variant: 'destructive'
-      })
-    }
-  },
-  
-  saveFile: async (path: string, content: string) => {
-    const { owner, repo, branch, files } = get()
-    const file = files.get(path)
-    
-    if (!file || !owner || !repo || !branch) return
-    
-    try {
-      const res = await fetch('/api/github/workspace/file', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ owner, repo, branch, path, content, sha: file.sha })
-      })
-      
-      if (!res.ok) {
-        throw new Error('Failed to save file')
-      }
-      
-      const { sha: newSha } = await res.json()
-      
-      file.content = content
-      file.sha = newSha
-      file.dirty = false
-      
-      set({ files: new Map(files) })
-      
-      toast({
-        title: 'File saved',
-        description: path,
-      })
-    } catch (error: any) {
-      toast({
-        title: 'Failed to save file',
-        description: error.message,
-        variant: 'destructive'
-      })
-    }
-  },
-  
-  saveWorkspace: async (commitMessage: string) => {
-    const { owner, repo, branch, baseBranch } = get()
-    
-    if (!owner || !repo || !branch) return
-    
-    try {
-      const res = await fetch('/api/github/workspace/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ owner, repo, branch, baseBranch, commitMessage })
-      })
-      
-      if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.error || 'Failed to save workspace')
-      }
-      
-      toast({
-        title: 'Workspace saved',
-        description: 'Changes merged to main branch',
-      })
-    } catch (error: any) {
-      toast({
-        title: 'Failed to save workspace',
-        description: error.message,
+        description: error?.message || 'Unknown error',
         variant: 'destructive'
       })
       throw error
     }
   },
-  
-  createFile: async (folder: string, name: string, isFolder?: boolean) => {
-    const { owner, repo, branch } = get()
-    
-    if (!owner || !repo || !branch) return
-    
-    if (isFolder) {
-      // Create folder by creating a .gitkeep file inside it
-      const path = `${folder}/${name}/.gitkeep`
-      
-      try {
-        const res = await fetch('/api/github/workspace/file', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ owner, repo, branch, path, content: '' })
-        })
-        
-        if (!res.ok) {
-          throw new Error('Failed to create folder')
-        }
-        
-        await get().loadFileTree()
-        
-        toast({
-          title: 'Folder created',
-          description: `${folder}/${name}`,
-        })
-      } catch (error: any) {
-        toast({
-          title: 'Failed to create folder',
-          description: error.message,
-          variant: 'destructive'
-        })
-      }
-    } else {
-      const extension = getFolderExtension(folder)
-      const path = `${folder}/${name}.${extension}`
-      const template = getFileTemplate(extension)
-      
-      try {
-        const res = await fetch('/api/github/workspace/file', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ owner, repo, branch, path, content: template })
-        })
-        
-        if (!res.ok) {
-          throw new Error('Failed to create file')
-        }
-        
-        await get().loadFileTree()
-        await get().openFile(path)
-        
-        toast({
-          title: 'File created',
-          description: path,
-        })
-      } catch (error: any) {
-        toast({
-          title: 'Failed to create file',
-          description: error.message,
-          variant: 'destructive'
-        })
-      }
+
+  openFile: async (path: string) => {
+    let { workspaceId, files, isRestoring } = get()
+
+    if (isRestoring) {
+      await new Promise<void>((resolve) => {
+        const start = Date.now()
+        const interval = setInterval(() => {
+          const state = get()
+          if (!state.isRestoring || Date.now() - start > 10000) {
+            clearInterval(interval)
+            resolve()
+          }
+        }, 100)
+      })
+
+      ;({ workspaceId, files, isRestoring } = get())
     }
-  },
-  
-  deleteFile: async (path: string) => {
-    const { owner, repo, branch, files } = get()
-    
-    if (!owner || !repo || !branch) return
-    
+
+    if (!workspaceId) return
+
+    if (files.has(path)) {
+      return
+    }
+
+    const basePath = getWorkspaceBasePath(workspaceId)
+    if (!basePath) return
+
     try {
-      // Get file SHA first
-      const fileRes = await fetch(
-        `/api/github/workspace/file?owner=${owner}&repo=${repo}&branch=${branch}&path=${path}`
-      )
-      
-      if (!fileRes.ok) {
-        throw new Error('Failed to fetch file for deletion')
-      }
-      
-      const { sha } = await fileRes.json()
-      
-      // Delete the file
-      const res = await fetch('/api/github/workspace/file', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ owner, repo, branch, path, sha })
-      })
-      
+      const res = await fetch(`${basePath}/file?path=${encodeURIComponent(path)}`)
+
       if (!res.ok) {
-        throw new Error('Failed to delete file')
+        throw new Error('Failed to load file')
       }
-      
-      // Remove from local state
-      files.delete(path)
+
+      const payload = await res.json()
+      const shaHeader = res.headers.get('x-github-file-sha')
+      const sha = typeof shaHeader === 'string' && shaHeader.length > 0 ? shaHeader : payload?.sha
+      if (!sha) {
+        throw new Error('Missing file sha in response')
+      }
+
+      const rawData = payload?.data ?? null
+      const type = getFileTypeFromPath(path)
+
+      let content: string
+      if (typeof rawData === 'string') {
+        content = rawData
+      } else if (rawData && typeof rawData === 'object') {
+        try {
+          content = JSON.stringify(rawData, null, 2)
+        } catch {
+          content = ''
+        }
+      } else {
+        content = ''
+      }
+
+      files.set(path, { path, type, content, sha, dirty: false, data: rawData })
       set({ files: new Map(files) })
-      
-      // Reload file tree
-      await get().loadFileTree()
-      
-      toast({
-        title: 'File deleted',
-        description: path,
-      })
     } catch (error: any) {
       toast({
-        title: 'Failed to delete file',
-        description: error.message,
+        title: 'Failed to open file',
+        description: error?.message || 'Unknown error',
         variant: 'destructive'
       })
     }
   },
-  
-  renameFile: async (oldPath: string, newPath: string) => {
-    const { owner, repo, branch, files } = get()
-    
-    if (!owner || !repo || !branch) return
-    
+
+  saveFile: async (path: string, content: string) => {
+    const { workspaceId, files } = get()
+    const file = files.get(path)
+
+    if (!workspaceId || !file) return
+
+    const basePath = getWorkspaceBasePath(workspaceId)
+    if (!basePath) return
+
     try {
-      // Get the old file content and SHA
-      const fileRes = await fetch(
-        `/api/github/workspace/file?owner=${owner}&repo=${repo}&branch=${branch}&path=${oldPath}`
-      )
-      
+      const res = await fetch(`${basePath}/file`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, content, sha: file.sha })
+      })
+
+      if (!res.ok) {
+        throw new Error('Failed to save file')
+      }
+
+      const { sha: newSha } = await res.json()
+
+      file.content = content
+      file.sha = newSha
+      file.dirty = false
+      try {
+        file.data = JSON.parse(content)
+      } catch {
+        file.data = content
+      }
+
+      set({ files: new Map(files) })
+
+      toast({
+        title: 'File saved',
+        description: path
+      })
+    } catch (error: any) {
+      toast({
+        title: 'Failed to save file',
+        description: error?.message || 'Unknown error',
+        variant: 'destructive'
+      })
+    }
+  },
+
+  saveWorkspace: async (commitMessage: string) => {
+    const { workspaceId, baseBranch } = get()
+    if (!workspaceId) return
+
+    const basePath = getWorkspaceBasePath(workspaceId)
+    if (!basePath) return
+
+    try {
+      const res = await fetch(`${basePath}/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commitMessage, baseBranch })
+      })
+
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}))
+        throw new Error(error.error || 'Failed to save workspace')
+      }
+
+      toast({
+        title: 'Workspace saved',
+        description: 'Changes merged to main branch'
+      })
+    } catch (error: any) {
+      toast({
+        title: 'Failed to save workspace',
+        description: error?.message || 'Unknown error',
+        variant: 'destructive'
+      })
+      throw error
+    }
+  },
+
+  createFile: async (folder: string, name: string, isFolder?: boolean) => {
+    const { workspaceId } = get()
+    if (!workspaceId) return
+
+    const basePath = getWorkspaceBasePath(workspaceId)
+    if (!basePath) return
+
+    const headers = { 'Content-Type': 'application/json' }
+
+    try {
+      if (isFolder) {
+        const path = `${folder}/${name}/.gitkeep`
+        const res = await fetch(`${basePath}/file`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ path, content: '' })
+        })
+
+        if (!res.ok) {
+          throw new Error('Failed to create folder')
+        }
+
+        await get().loadFileTree()
+
+        toast({
+          title: 'Folder created',
+          description: `${folder}/${name}`
+        })
+      } else {
+        const extension = getFolderExtension(folder)
+        const path = `${folder}/${name}.${extension}`
+        const template = getFileTemplate(extension)
+
+        const res = await fetch(`${basePath}/file`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ path, content: template })
+        })
+
+        if (!res.ok) {
+          throw new Error('Failed to create file')
+        }
+
+        await get().loadFileTree()
+        await get().openFile(path)
+
+        toast({
+          title: 'File created',
+          description: path
+        })
+      }
+    } catch (error: any) {
+      toast({
+        title: isFolder ? 'Failed to create folder' : 'Failed to create file',
+        description: error?.message || 'Unknown error',
+        variant: 'destructive'
+      })
+    }
+  },
+
+  deleteFile: async (path: string) => {
+    const { workspaceId, files } = get()
+    if (!workspaceId) return
+
+    const basePath = getWorkspaceBasePath(workspaceId)
+    if (!basePath) return
+
+    try {
+      const fileRes = await fetch(`${basePath}/file?path=${encodeURIComponent(path)}`)
+
+      if (!fileRes.ok) {
+        throw new Error('Failed to fetch file for deletion')
+      }
+
+      const payload = await fileRes.json()
+      const shaHeader = fileRes.headers.get('x-github-file-sha')
+      const sha = typeof shaHeader === 'string' && shaHeader.length > 0 ? shaHeader : payload?.sha
+      if (!sha) {
+        throw new Error('Missing file sha in response')
+      }
+
+      const res = await fetch(`${basePath}/file`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, sha })
+      })
+
+      if (!res.ok) {
+        throw new Error('Failed to delete file')
+      }
+
+      files.delete(path)
+      set({ files: new Map(files) })
+
+      await get().loadFileTree()
+
+      toast({
+        title: 'File deleted',
+        description: path
+      })
+    } catch (error: any) {
+      toast({
+        title: 'Failed to delete file',
+        description: error?.message || 'Unknown error',
+        variant: 'destructive'
+      })
+    }
+  },
+
+  renameFile: async (oldPath: string, newPath: string) => {
+    const { workspaceId, files } = get()
+    if (!workspaceId) return
+
+    const basePath = getWorkspaceBasePath(workspaceId)
+    if (!basePath) return
+
+    try {
+      const fileRes = await fetch(`${basePath}/file?path=${encodeURIComponent(oldPath)}`)
+
       if (!fileRes.ok) {
         throw new Error('Failed to fetch file for rename')
       }
-      
-      const { content, sha: oldSha } = await fileRes.json()
-      
-      // If renaming a datasource file, update the ID inside the file
+
+      const payload = await fileRes.json()
+      const shaHeader = fileRes.headers.get('x-github-file-sha')
+      const oldSha = typeof shaHeader === 'string' && shaHeader.length > 0 ? shaHeader : payload?.sha
+      if (!oldSha) {
+        throw new Error('Missing file sha in response')
+      }
+
+      const rawData = payload?.data ?? null
+      let content: string
+      if (typeof rawData === 'string') {
+        content = rawData
+      } else if (rawData && typeof rawData === 'object') {
+        try {
+          content = JSON.stringify(rawData, null, 2)
+        } catch {
+          content = ''
+        }
+      } else {
+        content = ''
+      }
+
       let updatedContent = content
       if (oldPath.endsWith('.ds') && newPath.endsWith('.ds')) {
         try {
           const dsData = JSON.parse(content)
           const oldFileName = oldPath.split('/').pop()?.replace('.ds', '')
           const newFileName = newPath.split('/').pop()?.replace('.ds', '')
-          
-          // Update the id field to match the new filename
+
           if (dsData.id === oldFileName && newFileName) {
             dsData.id = newFileName
             updatedContent = JSON.stringify(dsData, null, 2)
           }
-        } catch (e) {
-          console.warn('Failed to update datasource ID during rename:', e)
-          // Continue with original content if parsing fails
+        } catch (error) {
+          console.warn('Failed to update datasource ID during rename:', error)
         }
       }
-      
-      // Create new file with updated content
-      const createRes = await fetch('/api/github/workspace/file', {
+
+      const headers = { 'Content-Type': 'application/json' }
+
+      const createRes = await fetch(`${basePath}/file`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ owner, repo, branch, path: newPath, content: updatedContent })
+        headers,
+        body: JSON.stringify({ path: newPath, content: updatedContent })
       })
-      
+
       if (!createRes.ok) {
         throw new Error('Failed to create renamed file')
       }
-      
-      // Delete old file
-      const deleteRes = await fetch('/api/github/workspace/file', {
+
+      const deleteRes = await fetch(`${basePath}/file`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ owner, repo, branch, path: oldPath, sha: oldSha })
+        headers,
+        body: JSON.stringify({ path: oldPath, sha: oldSha })
       })
-      
+
       if (!deleteRes.ok) {
         throw new Error('Failed to delete old file')
       }
-      
-      // Update local state
+
       const oldFile = files.get(oldPath)
       if (oldFile) {
         files.delete(oldPath)
-        files.set(newPath, { ...oldFile, path: newPath, content: updatedContent })
+        let nextData: unknown = rawData
+        if (updatedContent !== content) {
+          try {
+            nextData = JSON.parse(updatedContent)
+          } catch {
+            nextData = updatedContent
+          }
+        }
+        files.set(newPath, { ...oldFile, path: newPath, content: updatedContent, data: nextData })
         set({ files: new Map(files) })
       }
-      
-      // Reload file tree
+
       await get().loadFileTree()
-      
+
       toast({
         title: 'File renamed',
-        description: `${oldPath} → ${newPath}`,
+        description: `${oldPath} → ${newPath}`
       })
     } catch (error: any) {
       toast({
         title: 'Failed to rename file',
-        description: error.message,
+        description: error?.message || 'Unknown error',
         variant: 'destructive'
       })
     }
   },
-  
+
   markFileDirty: (path: string, dirty: boolean) => {
     const { files } = get()
     const file = files.get(path)
-    
-    if (file) {
-      file.dirty = dirty
-      set({ files: new Map(files) })
-    }
-  },
+
+    if (!file) return
+
+    if (file.dirty === dirty) return
+
+    file.dirty = dirty
+    set({ files: new Map(files) })
+  }
 }))
