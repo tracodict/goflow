@@ -9,7 +9,7 @@ import { clearTabState, getTabState, setTabState } from "@/stores/pagebuilder/ta
 import { useWorkspace } from "@/stores/workspace-store"
 import "@/components/workspace/file-handler"
 import { PageWorkspace } from "./PageWorkspace"
-import { FlowWorkspace } from "../petri/flow-workspace"
+import { FlowWorkspaceLoader } from "./FlowWorkspaceLoader"
 import { SchemaViewer } from "./SchemaViewer"
 import { DataSourceEditorLoader } from "./DataSourceEditorLoader"
 import { QueryEditorLoader } from "./QueryEditorLoader"
@@ -1173,7 +1173,11 @@ const EditorContent: React.FC<EditorContentProps> = ({
             height: `${100 / canvasScale}%`,
           }}
         >
-          <FlowWorkspace />
+          <FlowWorkspaceLoader
+            tabId={tab.id}
+            filePath={tab.filePath}
+            isFocused={isFocused}
+          />
         </div>
       )
     

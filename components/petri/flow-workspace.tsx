@@ -61,6 +61,7 @@ import { Button as UIButton } from '@/components/ui/button'
 import { useFlowServiceUrl } from '@/hooks/use-flow-service-url'
 import CodeMirror from '@uiw/react-codemirror'
 import { useWorkspace } from '@/stores/workspace-store'
+import { setTabState } from '@/stores/pagebuilder/tab-state-cache'
 
 const nodeTypes = { place: PlaceNode, transition: TransitionNode } as any
 const edgeTypes = { labeled: LabeledEdge } as any
@@ -367,6 +368,11 @@ function CanvasInner() {
         setWorkflowGraphCache(prev => ({ ...prev, [workflowId]: graph }))
       }
 
+      const workspacePath = workspacePathByIdRef.current[workflowId]
+      if (workspacePath) {
+        setTabState(workspacePath, { workflow: swf })
+      }
+
       if (process.env.NODE_ENV !== 'production') {
         console.debug('[FlowWorkspace] preparing workflow render', {
           workflowId,
@@ -407,7 +413,7 @@ function CanvasInner() {
       setEditedMap(prev => ({ ...prev, [workflowId]: false }))
       // previously would auto-open panel when tokens/guard opened; now just ensure leftTab set appropriately
     })
-  }, [flowServiceUrl, serverWorkflowCache, workflowGraphCache, workflowMeta])
+  }, [flowServiceUrl, serverWorkflowCache, workflowGraphCache, workflowMeta, setTabState])
 
   // Listen to explorer selection events dispatched from other panels
   useEffect(() => {
@@ -473,16 +479,19 @@ function CanvasInner() {
         setSelectedRef({ type: 'node', id })
         setNodes(nds => nds.map(n => n.id===id ? { ...n, selected: true } : { ...n, selected: false }))
         setEdges(eds => eds.map(e => ({ ...e, selected: false })))
+        setLeftTab('property')
       } else if (kind === 'arc') {
         setExplorerSelection(null)
         setSelectedRef({ type: 'edge', id })
         setEdges(eds => eds.map(e => e.id===id ? { ...e, selected: true } : { ...e, selected: false }))
         setNodes(nds => nds.map(n => ({ ...n, selected: false })))
+        setLeftTab('property')
       } else if (kind === 'declarations') {
         setSelectedRef(null)
         setExplorerSelection({ kind: 'declarations', id })
         setNodes(nds => nds.map(n => ({ ...n, selected: false })))
         setEdges(eds => eds.map(e => ({ ...e, selected: false })))
+        setLeftTab('property')
       }
     }
     window.addEventListener('goflow-explorer-entity-select', entityHandler as EventListener)
@@ -492,7 +501,7 @@ function CanvasInner() {
       window.removeEventListener('goflow-workflow-deleted', delHandler as EventListener)
       window.removeEventListener('goflow-explorer-entity-select', entityHandler as EventListener)
     }
-  }, [onExplorerSelect, activeWorkflowId])
+  }, [onExplorerSelect, activeWorkflowId, setLeftTab])
 
   const persistWorkflow = useCallback(async (workflowId: string, options?: { targetPath?: string }) => {
     if (!workflowId) return null
@@ -526,6 +535,7 @@ function CanvasInner() {
       try {
         const serialized = JSON.stringify(payload, null, 2)
         await saveWorkspaceFile(workspacePath, serialized)
+        setTabState(workspacePath, { workflow: payload })
       } catch (err) {
         return null
       }
@@ -653,6 +663,7 @@ function CanvasInner() {
       if (!pid) return
       setSelectedRef({ type: "node", id: pid })
       setTokensOpenForPlaceId(pid)
+      setLeftTab('property')
   setGuardOpenForTransitionId(null)
       // panel mode removed; no-op
     }
@@ -662,6 +673,7 @@ function CanvasInner() {
       if (!tid) return
       setSelectedRef({ type: "node", id: tid })
   setGuardOpenForTransitionId(tid)
+      setLeftTab('property')
       // panel mode removed; no-op
     }
     document.addEventListener("click", onDocClick)
@@ -875,23 +887,30 @@ function CanvasInner() {
   const onSelectionChange = useCallback((params: { nodes?: Node[]; edges?: Edge[] }) => {
     const n = params.nodes?.[0]
     const e = params.edges?.[0]
+
     if (n) {
-      setSelectedRef({ type: "node", id: n.id })
-  setExplorerSelection(null)
+      setSelectedRef({ type: 'node', id: n.id })
+      setExplorerSelection(null)
       setTokensOpenForPlaceId((prev) => (prev === n.id ? prev : null))
-          setGuardOpenForTransitionId((prev) => (prev === n.id ? prev : null))
-    } else if (e) {
-      setSelectedRef({ type: "edge", id: e.id })
-  setExplorerSelection(null)
-      setTokensOpenForPlaceId(null)
-          setGuardOpenForTransitionId(null)
-    } else {
-      setSelectedRef(null)
-  setExplorerSelection(null)
-      setTokensOpenForPlaceId(null)
-          setGuardOpenForTransitionId(null)
+      setGuardOpenForTransitionId((prev) => (prev === n.id ? prev : null))
+      setLeftTab('property')
+      return
     }
-  }, [])
+
+    if (e) {
+      setSelectedRef({ type: 'edge', id: e.id })
+      setExplorerSelection(null)
+      setTokensOpenForPlaceId(null)
+      setGuardOpenForTransitionId(null)
+      setLeftTab('property')
+      return
+    }
+
+    setSelectedRef(null)
+    setExplorerSelection(null)
+    setTokensOpenForPlaceId(null)
+    setGuardOpenForTransitionId(null)
+  }, [setLeftTab])
 
   const onNodeContextMenu = useCallback(
     (event: React.MouseEvent, node: Node) => {
@@ -1710,16 +1729,19 @@ function CanvasInner() {
                   setSelectedRef({ type: 'node', id })
                   setNodes(nds => nds.map(n => n.id===id ? { ...n, selected: true } : { ...n, selected: false }))
                   setEdges(eds => eds.map(e => ({ ...e, selected: false })))
+                  setLeftTab('property')
                 } else if (kind === 'arc') {
                   setExplorerSelection(null)
                   setSelectedRef({ type: 'edge', id })
                   setEdges(eds => eds.map(e => e.id===id ? { ...e, selected: true } : { ...e, selected: false }))
                   setNodes(nds => nds.map(n => ({ ...n, selected: false })))
+                  setLeftTab('property')
                 } else if (kind === 'declarations') {
                   setSelectedRef(null)
                   setExplorerSelection({ kind: 'declarations', id })
                   setNodes(nds => nds.map(n => ({ ...n, selected: false })))
                   setEdges(eds => eds.map(e => ({ ...e, selected: false })))
+                  setLeftTab('property')
                 }
               },
               selectedEntity: (() => {
