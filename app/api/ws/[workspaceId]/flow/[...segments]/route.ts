@@ -70,19 +70,6 @@ function resolveBaseUrl(request: Request): string | null {
   return normalizeBase(DEFAULT_FLOW_SERVICE_BASE)
 }
 
-function log(level: 'debug' | 'info' | 'warn' | 'error', message: string, meta?: Record<string, unknown>) {
-  const payload = meta ? { message, ...meta } : { message }
-  if (level === 'error') {
-    console.error('[flow-proxy]', payload)
-  } else if (level === 'warn') {
-    console.warn('[flow-proxy]', payload)
-  } else if (level === 'info') {
-    console.info('[flow-proxy]', payload)
-  } else {
-    console.debug('[flow-proxy]', payload)
-  }
-}
-
 type RouteParams = {
   workspaceId: string
   segments?: string[]
@@ -104,7 +91,6 @@ async function proxy(request: Request, context: ProxyContext) {
     : (maybePromise as RouteParams)
 
   if (!params?.workspaceId) {
-    log('error', 'Missing workspace id in flow proxy request', { path: request.url })
     return NextResponse.json({ error: 'Workspace id is required' }, { status: 400 })
   }
 
@@ -114,14 +100,12 @@ async function proxy(request: Request, context: ProxyContext) {
     try {
       return decodeWorkspaceId(workspaceId)
     } catch (error) {
-      log('warn', 'Failed to decode workspace id', { workspaceId, error })
       return workspaceId
     }
   })()
 
   const base = resolveBaseUrl(request)
   if (!base) {
-    log('error', 'Flow service base URL missing', { workspaceId })
     return NextResponse.json({ error: 'Flow service not configured' }, { status: 500 })
   }
 
@@ -171,28 +155,11 @@ async function proxy(request: Request, context: ProxyContext) {
     upstreamResponse = await fetch(target, init)
   } catch (error: any) {
     const duration = Date.now() - start
-    log('error', 'Flow service request failed', {
-      workspaceId: decodedWorkspaceId,
-      encodedWorkspaceId: workspaceId,
-      target,
-      method,
-      duration,
-      error: error?.message || error,
-    })
     return NextResponse.json({ error: 'Upstream flow service unreachable' }, { status: 502 })
   }
 
   const duration = Date.now() - start
   const status = upstreamResponse.status
-  const logLevel = status >= 500 ? 'error' : status === 404 ? 'warn' : 'debug'
-  log(logLevel, 'Proxied flow service request', {
-    workspaceId: decodedWorkspaceId,
-    encodedWorkspaceId: workspaceId,
-    target,
-    method,
-    status,
-    duration,
-  })
 
   const responseHeaders = new Headers(upstreamResponse.headers)
   responseHeaders.set('x-goflow-flow-proxy', '1')

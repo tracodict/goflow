@@ -1,5 +1,4 @@
 "use client"
-
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 // @ts-ignore dynamic form shared component (run mode)
@@ -146,6 +145,15 @@ function CanvasInner() {
   const flowServiceUrl = useFlowServiceUrl()
   const { sims, activeSimId, activeSim, start: startSim, select: selectSim, step: stepSim, stepInteractive: stepSimInteractive, fire: fireSim, run: runSim, remove: deleteSim, refreshActive: refreshSim, loading: simLoading, running: simRunning } = useSimulation({ flowServiceUrl: flowServiceUrl ?? undefined, workflowId: activeWorkflowId })
   const [simStepLimit, setSimStepLimit] = useState(50)
+  
+  // Compute marking for MonitorPanel (extract nested marking.places if present)
+  const simMarking = useMemo(() => {
+    const mk = activeSim?.marking
+    if (!mk) return {}
+    if (mk.places && typeof mk.places === 'object') return mk.places
+    return mk
+  }, [activeSim?.marking])
+  
   // (Moved manual sim form utilities after workflowMeta definition for ordering)
   // Sync simulation marking onto canvas place nodes
   useEffect(() => {
@@ -297,6 +305,23 @@ function CanvasInner() {
     const result = await stepSimInteractive()
     if (result?.manualTransition) await openManualSimForm(result.manualTransition)
   }, [stepSimInteractive, openManualSimForm])
+  
+  const handleFireTransition = useCallback(async (transitionId: string, bindingIndex: number) => {
+    // Find the transition in the enabled list
+    const transition = activeSim?.enabledTransitions?.find((t: any) => (t.id || t.transitionId) === transitionId)
+    if (!transition) return
+    
+    const tType = (transition.data ? transition.data.tType : transition.tType) || 'manual'
+    
+    // If it's a manual transition, open the form
+    if (tType.toLowerCase() === 'manual') {
+      await openManualSimForm(transition)
+    } else {
+      // For other types, fire directly
+      await fireSim(transitionId, bindingIndex)
+    }
+  }, [activeSim?.enabledTransitions, openManualSimForm, fireSim])
+  
   // Explorer-only selection (for non-canvas pseudo entities like declarations)
   const [explorerSelection, setExplorerSelection] = useState<{ kind: 'declarations'; id: string } | null>(null)
 
@@ -429,7 +454,7 @@ function CanvasInner() {
       const incoming = detail?.data as ServerWorkflow | undefined
       if (!incoming) return
 
-      const inferredId = incoming.id || (typeof detail?.path === 'string' ? detail.path.split('/').pop()?.replace(/\.cpn$/i, '') : undefined)
+      const inferredId = incoming.id || (typeof detail?.path === 'string' ? detail.path.split('/').pop()?.replace(/\.(cpn\.json|cpn)$/i, '') : undefined)
       if (!inferredId) return
       const normalizedId = inferredId.trim()
       if (!normalizedId) return
@@ -512,18 +537,25 @@ function CanvasInner() {
     const currentEdges = edgesRef.current
     const meta = workflowMeta[workflowId]
     const serverBase = serverWorkflowCache[workflowId]
+
+    const explicitPath = typeof options?.targetPath === 'string' && options.targetPath.trim().length ? options.targetPath.trim() : undefined
+    const workspacePath = explicitPath || workspacePathByIdRef.current[workflowId]
+
+    const fileDerivedId = workspacePath
+      ? workspacePath.split('/').pop()?.replace(/\.(cpn\.json|cpn)$/i, '')?.trim()
+      : undefined
+    const resolvedId = fileDerivedId && fileDerivedId.length ? fileDerivedId : workflowId
+    const resolvedName = meta?.name && meta.name.trim().length ? meta.name : resolvedId
+
     const payload = graphToServer(
       serverBase,
-      workflowId,
-      meta?.name || workflowId,
+      resolvedId,
+      resolvedName,
       { nodes: currentNodes, edges: currentEdges },
       meta?.colorSets ?? [],
       meta?.description,
       meta?.declarations
     )
-
-    const explicitPath = typeof options?.targetPath === 'string' && options.targetPath.trim().length ? options.targetPath.trim() : undefined
-    const workspacePath = explicitPath || workspacePathByIdRef.current[workflowId]
 
     if (process.env.NODE_ENV !== 'production') {
       try {
@@ -576,13 +608,28 @@ function CanvasInner() {
       const detailPathRaw = ce?.detail?.path
       if (!detailPathRaw || typeof detailPathRaw !== 'string') return
       const detailPath = detailPathRaw.trim()
-      if (!detailPath.toLowerCase().endsWith('.cpn')) return
+      const isCpnFile = detailPath.toLowerCase().endsWith('.cpn') || detailPath.toLowerCase().endsWith('.cpn.json')
+      if (!isCpnFile) return
 
       const mappedId = workspaceIdByPathRef.current[detailPath]
-      const derivedId = detailPath.split('/').pop()?.replace(/\.cpn$/i, '')
+      const derivedId = detailPath.split('/').pop()?.replace(/\.(cpn\.json|cpn)$/i, '')
       const workflowId = mappedId || derivedId
       if (!workflowId) return
-      if (workflowId !== activeWorkflowId) return
+
+      // If the derived ID is different from the active workflow ID, update the active workflow ID
+      // This happens when the file is renamed
+      if (workflowId !== activeWorkflowId) {
+        setActiveWorkflowId(workflowId)
+        // Update mappings
+        if (activeWorkflowId) {
+          const oldPath = workspacePathByIdRef.current[activeWorkflowId]
+          if (oldPath) {
+            delete workspaceIdByPathRef.current[oldPath]
+            workspacePathByIdRef.current[workflowId] = oldPath
+            workspaceIdByPathRef.current[oldPath] = workflowId
+          }
+        }
+      }
 
       const previousPath = workspacePathByIdRef.current[workflowId]
       if (previousPath && previousPath !== detailPath) {
@@ -1548,7 +1595,7 @@ function CanvasInner() {
                       if (!wfId) return
                       const cpnPath = workspacePathByIdRef.current[wfId]
                       const cpnFile = typeof cpnPath === 'string' ? cpnPath.split('/').pop() : undefined
-                      const cpnName = cpnFile ? cpnFile.replace(/\.cpn$/i, '') : wfId
+                      const cpnName = cpnFile ? cpnFile.replace(/\.(cpn\.json|cpn)$/i, '') : wfId
                       startSim({ cpnName })
                     }}
                     title="Start new simulation for current workflow"
@@ -1570,36 +1617,37 @@ function CanvasInner() {
                   {activeSim && <span className="text-[10px] text-neutral-500">Step {activeSim.currentStep ?? 0}</span>}
                 </div>
                 <div className="flex-1 overflow-hidden">
-                  <MonitorPanel
-                    open={!!activeSim}
-                    loading={simLoading}
-                    running={simRunning}
-                    // Simulation case provides enabled transitions directly under activeSim.enabledTransitions
-                    enabledTransitions={activeSim?.enabledTransitions || []}
-                    // Server shape uses marking.places; fallback to object if already flattened
-                    marking={(() => { const mk = activeSim?.marking; if (!mk) return {}; if (mk.places && typeof mk.places === 'object') return mk.places; return mk; })()}
-                    currentStep={activeSim?.currentStep}
-                    stepLimit={simStepLimit}
-                    onChangeStepLimit={(n)=> setSimStepLimit(n)}
-                    onStep={() => handleSimStep()}
-                    onRun={() => runSim(simStepLimit)}
-                    onRefresh={() => refreshSim()}
-                    onDelete={() => activeSimId ? deleteSim(activeSimId) : undefined}
-                    onReset={async () => {
-                      if (!activeSimId) return
-                      const id = activeSimId
-                      await deleteSim(id)
-                      // slight delay to allow server cleanup; then re-start
-                      setTimeout(() => {
-                        const wfId = activeWorkflowId
-                        if (!wfId) return
-                        const cpnPath = workspacePathByIdRef.current[wfId]
-                        const cpnFile = typeof cpnPath === 'string' ? cpnPath.split('/').pop() : undefined
-                        const cpnName = cpnFile ? cpnFile.replace(/\.cpn$/i, '') : wfId
-                        startSim({ cpnName })
-                      }, 50)
-                    }}
-                  />
+                  {activeSim && (
+                    <MonitorPanel
+                      open={true}
+                      loading={simLoading}
+                      running={simRunning}
+                      enabledTransitions={activeSim.enabledTransitions || []}
+                      marking={simMarking}
+                      currentStep={activeSim.currentStep}
+                      stepLimit={simStepLimit}
+                      onChangeStepLimit={(n)=> setSimStepLimit(n)}
+                      onStep={() => handleSimStep()}
+                      onRun={() => runSim(simStepLimit)}
+                      onRefresh={() => refreshSim()}
+                      onDelete={() => activeSimId ? deleteSim(activeSimId) : undefined}
+                      onFireTransition={handleFireTransition}
+                      onReset={async () => {
+                        if (!activeSimId) return
+                        const id = activeSimId
+                        await deleteSim(id)
+                        // slight delay to allow server cleanup; then re-start
+                        setTimeout(() => {
+                          const wfId = activeWorkflowId
+                          if (!wfId) return
+                          const cpnPath = workspacePathByIdRef.current[wfId]
+                          const cpnFile = typeof cpnPath === 'string' ? cpnPath.split('/').pop() : undefined
+                          const cpnName = cpnFile ? cpnFile.replace(/\.(cpn\.json|cpn)$/i, '') : wfId
+                          startSim({ cpnName })
+                        }, 50)
+                      }}
+                    />
+                  )}
                   {/* Workflow picker removed */}
                   {simFormOpen && (
                     <div className="fixed inset-0 z-[120] flex flex-col bg-white/95 backdrop-blur-sm">

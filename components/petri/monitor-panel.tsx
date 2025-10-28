@@ -1,4 +1,3 @@
-"use client"
 import { useCallback, useState, useEffect } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -21,10 +20,10 @@ export interface MonitorPanelProps {
   onRefresh: () => Promise<void> | void
   onDelete: () => Promise<void> | void
   onReset?: () => Promise<void> | void
+  onFireTransition?: (transitionId: string, bindingIndex: number) => Promise<void> | void
 }
 
-export function MonitorPanel({ open, loading, running, enabledTransitions, marking, currentStep, stepLimit, onChangeStepLimit, onStep, onRun, onRefresh, onDelete, onReset }: MonitorPanelProps) {
-  if (!open) return null
+export function MonitorPanel({ open, loading, running, enabledTransitions, marking, currentStep, stepLimit, onChangeStepLimit, onStep, onRun, onRefresh, onDelete, onReset, onFireTransition }: MonitorPanelProps) {
   const enabled = enabledTransitions // still list enabled transitions for manual firing if present
   const serverMarking = marking
   const [localLimit, setLocalLimit] = useState(stepLimit)
@@ -68,12 +67,18 @@ export function MonitorPanel({ open, loading, running, enabledTransitions, marki
             ) : (
               <div className="grid gap-2">
                 {enabled.map((t) => (
-                  <div key={t.id || t.transitionId} className="flex items-center justify-between rounded-md border px-2 py-1.5">
+                  <button
+                    key={t.id || t.transitionId}
+                    className="flex items-center justify-between rounded-md border px-2 py-1.5 hover:bg-neutral-50 cursor-pointer text-left"
+                    onClick={() => onFireTransition?.(t.id || t.transitionId, 0)}
+                    disabled={loading || running}
+                    title={`Click to fire transition: ${t.data ? t.data.name : t.name}`}
+                  >
                     <div className="flex items-center gap-2">
                       <TransitionIcon tType={((t.data ? t.data.tType : t.tType) || 'manual') as TransitionType} className="h-3.5 w-3.5" />
-                      <span className="text-xs" title={t.data ? t.data.name : t.name}>{t.data ? t.data.name : t.name}</span>
+                      <span className="text-xs">{t.data ? t.data.name : t.name}</span>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}

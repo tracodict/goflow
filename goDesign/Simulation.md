@@ -35,7 +35,7 @@ Persistence (`CaseState`) stores `mode` (optional for backward compatibility: em
 | `/api/sim/start` | POST | Create and immediately start a simulation case |
 | `/api/sim/get?caseId=...` | GET | Fetch current simulation case state |
 | `/api/sim/step` | POST | Execute one automatic firing layer (automatic transitions only) |
-| `/api/sim/fire` | POST | Explicitly fire a single (typically Manual) transition |
+| `/api/sim/fire` | POST | Fire a single (typically Manual) transition (no auto cascade unless cascade=true) |
 | `/api/sim/run` | POST | Execute repeated automatic steps until quiescent/completed or step limit reached |
 | `/api/sim/delete?caseId=...` | DELETE | Delete a terminated (or never-started) simulation case |
 
@@ -90,9 +90,23 @@ Fields:
 * `formData` (object, optional) – key/value pairs exposed to the transition's action function (Lua) via `formData` global.
 
 Behavior:
-1. Fires the specified transition (manual or other non-auto kinds you permit for experimentation) using the selected binding.
-2. Automatically triggers the same auto cascade that would occur after a manual firing in a production run (i.e., repeatedly fires enabled Auto transitions until quiescent before responding).
-3. Returns the full simulation case envelope (including updated marking and newly enabled transitions after cascade).
+1. Fires ONLY the specified transition (manual or other non-auto kinds you permit for experimentation) using the selected binding.
+2. Does NOT automatically run the auto cascade unless you pass `{"cascade": true}`.
+3. If `cascade=true`, after the manual firing completes the server deterministically fires enabled Auto transitions until quiescent (same logic as a production run after a manual step).
+4. Returns the full simulation case envelope after the requested operations.
+
+Example without cascade (inspect intermediate marking):
+```
+POST /api/sim/fire {"caseId":"sim-1","transitionId":"tFill","formData":{"v":10}}
+```
+Then progress autos explicitly:
+```
+POST /api/sim/step {"caseId":"sim-1"}
+```
+Or request automatic cascade in one call:
+```
+POST /api/sim/fire {"caseId":"sim-1","transitionId":"tFill","formData":{"v":10},"cascade":true}
+```
 
 `POST /api/sim/run`
 ```
@@ -137,7 +151,7 @@ Earlier preview builds temporarily allowed specifying `{"transitionId": "..."}` 
 
 Rationale for dedicated endpoint:
 * Clear separation of explicit user intent (manual fire) vs. engine-driven progression (automatic layer).
-* Simplifies client logic and avoids ambiguity around what constitutes a "step" when a manual transition is involved.
+* Optional `cascade` flag allows granular debugging (observe intermediate state) or one-shot convenience (fire+autos) without overloading semantics.
 
 ## Persistence Details
 
@@ -155,7 +169,7 @@ State hash input now includes a `mode=` line ensuring that simulation and produc
 
 `test/simulation_api_test.go` covers:
 1. CPN load, simulation start, step, run, get, delete.
-2. Manual transition firing via `/api/sim/fire` with automatic cascade validation.
+2. Manual transition firing via `/api/sim/fire` (no cascade) plus subsequent `/api/sim/step` for autos; cascade=true path can be covered separately.
 3. Deprecated legacy endpoint (`/api/simulation/step`) returning 410.
 
 Additional regression and determinism tests can be added as the random/seed feature is introduced.
@@ -168,7 +182,9 @@ Additional regression and determinism tests can be added as the random/seed feat
 POST /api/cpn/load      # load a CPN definition
 POST /api/sim/start {"cpnId":"order-cpn"} -> caseId: sim-abc
 POST /api/sim/fire {"caseId":"sim-abc","transitionId":"tManual","formData":{"v":10}}
-POST /api/sim/step {"caseId":"sim-abc"}
+POST /api/sim/step {"caseId":"sim-abc"}   # progress autos
+# or combined
+POST /api/sim/fire {"caseId":"sim-abc","transitionId":"tManual","formData":{"v":10},"cascade":true}
 POST /api/sim/run {"caseId":"sim-abc","stepLimit":50}
 GET  /api/sim/get?caseId=sim-abc
 DELETE /api/sim/delete?caseId=sim-abc

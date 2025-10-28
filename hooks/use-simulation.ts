@@ -90,11 +90,26 @@ export function useSimulation({ flowServiceUrl, workflowId }: UseSimulationOptio
         ...(opts?.variables ? { variables: opts.variables } : {}),
       }
       const resp = await fetchWithAuth(`${flowServiceUrl}/api/sim/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-  if (resp.status === 401) throw new Error('Unauthorized (401) – please log in')
-  if (!resp.ok) throw new Error(`start failed ${resp.status}`)
+      if (resp.status === 401) throw new Error('Unauthorized (401) – please log in')
+      if (!resp.ok) throw new Error(`start failed ${resp.status}`)
       const json = await resp.json()
       const data = json?.data || json
-  const sim: SimulationCase = { caseId: data.caseId, cpnId: data.cpnId, name: data.name || data.caseId, description: data.description, status: data.status, currentStep: data.currentStep, marking: data.marking, enabledTransitions: data.enabledTransitions, mode: data.mode }
+      
+      // Fetch full simulation state to get enabledTransitions
+      const fullData = await fetchSim(data.caseId)
+      const finalData = fullData || data
+      
+      const sim: SimulationCase = { 
+        caseId: finalData.caseId, 
+        cpnId: finalData.cpnId, 
+        name: finalData.name || finalData.caseId, 
+        description: finalData.description, 
+        status: finalData.status, 
+        currentStep: finalData.currentStep, 
+        marking: finalData.marking, 
+        enabledTransitions: finalData.enabledTransitions || [], 
+        mode: finalData.mode 
+      }
       setSims(prev => [sim, ...prev])
       setActiveSimId(sim.caseId)
     } catch (e:any) {
@@ -102,7 +117,7 @@ export function useSimulation({ flowServiceUrl, workflowId }: UseSimulationOptio
     } finally {
       setLoading(false)
     }
-  }, [flowServiceUrl, workflowId])
+  }, [flowServiceUrl, workflowId, fetchSim])
 
   const step = useCallback(async () => {
     if (!flowServiceUrl || !activeSimId) return
