@@ -1,4 +1,5 @@
 import { FlowWorkspace } from "@/components/petri/flow-workspace"
+import { FlowWorkspaceStoreProvider } from "@/stores/petri/flow-editor-context"
 import { SuppressResizeObserverError } from "@/components/util/suppress-ro-error"
 import RunMain from "@/components/run/main"
 
@@ -21,7 +22,9 @@ export default async function Page({ searchParams }: { searchParams?: Record<str
   return (
     <main className="h-screen w-full bg-neutral-50 text-neutral-900">
       <SuppressResizeObserverError />
-      <FlowWorkspace />
+      <FlowWorkspaceStoreProvider tabId={workflowId ?? "standalone-flow"}>
+        <FlowWorkspace />
+      </FlowWorkspaceStoreProvider>
     </main>
   )
 }

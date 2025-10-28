@@ -78,12 +78,18 @@ export function useSimulation({ flowServiceUrl, workflowId }: UseSimulationOptio
     return () => { if (refreshTimerRef.current) clearInterval(refreshTimerRef.current) }
   }, [activeSimId, refreshActive])
 
-  const start = useCallback(async (opts?: { name?: string; description?: string; variables?: any }) => {
+  const start = useCallback(async (opts?: { name?: string; description?: string; variables?: any; cpnName?: string }) => {
     if (!flowServiceUrl || !workflowId) return
     setLoading(true); setError(null)
     try {
-      const body = { cpnId: workflowId, ...(opts?.name ? { name: opts.name } : {}), ...(opts?.description ? { description: opts.description } : {}), ...(opts?.variables ? { variables: opts.variables } : {}) }
-  const resp = await fetchWithAuth(`${flowServiceUrl}/api/sim/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const body = {
+        cpnId: workflowId,
+        ...(opts?.cpnName ? { cpnName: opts.cpnName } : {}),
+        ...(opts?.name ? { name: opts.name } : {}),
+        ...(opts?.description ? { description: opts.description } : {}),
+        ...(opts?.variables ? { variables: opts.variables } : {}),
+      }
+      const resp = await fetchWithAuth(`${flowServiceUrl}/api/sim/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   if (resp.status === 401) throw new Error('Unauthorized (401) – please log in')
   if (!resp.ok) throw new Error(`start failed ${resp.status}`)
       const json = await resp.json()

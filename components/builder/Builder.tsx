@@ -221,6 +221,7 @@ export const Builder: React.FC = () => {
               }}
               onOpen={() => setRightPanelOpen(true)}
               activeTab={activeTab}
+              activeEditorType={activeEditorType}
               isMaximized
               onToggleMaximize={() => {
                 setRightPanelMaximized(false)
@@ -281,6 +282,7 @@ export const Builder: React.FC = () => {
                   }}
                   onOpen={() => setRightPanelOpen(true)}
                   activeTab={activeTab}
+                  activeEditorType={activeEditorType}
                   isMaximized={false}
                   onToggleMaximize={() => {
                     setRightPanelOpen(true)

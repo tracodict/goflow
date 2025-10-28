@@ -158,7 +158,12 @@ async function proxy(request: Request, context: ProxyContext) {
   init.next = { tags: cacheTags, revalidate: cacheable ? 30 : 0 }
 
   if (!['GET', 'HEAD'].includes(method)) {
+    // When forwarding a request body in Node/undici, fetch requires `duplex: 'half'`
+    // to allow streaming request bodies. Add duplex only when a body is present.
     init.body = request.body
+    try {
+      ;(init as any).duplex = 'half'
+    } catch {}
   }
 
   let upstreamResponse: Response

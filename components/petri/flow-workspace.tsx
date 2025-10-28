@@ -61,6 +61,7 @@ import { Button as UIButton } from '@/components/ui/button'
 import { useFlowServiceUrl } from '@/hooks/use-flow-service-url'
 import CodeMirror from '@uiw/react-codemirror'
 import { useWorkspace } from '@/stores/workspace-store'
+import { useFlowWorkspaceStoreContext } from '@/stores/petri/flow-editor-context'
 import { setTabState } from '@/stores/pagebuilder/tab-state-cache'
 
 const nodeTypes = { place: PlaceNode, transition: TransitionNode } as any
@@ -120,6 +121,7 @@ function CanvasInner() {
     y: 0,
     nodeId: null,
   })
+  const flowStore = useFlowWorkspaceStoreContext()
   const [showSystem, setShowSystem] = useState<boolean>(false)
   const [systemTab, setSystemTab] = useState<'simulation' | 'settings' | 'mcp'>('simulation')
   // Removed workflow picker state (direct simulation start only)
@@ -1310,6 +1312,214 @@ function CanvasInner() {
     } catch(e:any) { /* toasted */ }
   }, [flowServiceUrl, mcpDiscovered, mcpAddForm, refreshMcpServers])
 
+    const selectedEntity = useMemo(() => {
+      if (explorerSelection) return explorerSelection
+      if (!selectedRef) return null
+
+      if (selectedRef.type === 'node') {
+        const node = nodes.find((n) => n.id === selectedRef.id)
+        if (!node) return null
+        if (node.type === 'place') return { kind: 'place' as const, id: node.id }
+        if (node.type === 'transition') return { kind: 'transition' as const, id: node.id }
+        return null
+      }
+
+      const edge = edges.find((e) => e.id === selectedRef.id)
+      return edge ? { kind: 'arc' as const, id: edge.id } : null
+    }, [explorerSelection, selectedRef, nodes, edges])
+
+  const sidePanelDetail = useMemo(() => {
+    return {
+      open: true,
+      width: panelWidth,
+      onResizeStart: () => setResizing(true),
+      selected,
+      onUpdateNode: updateNode,
+      onUpdateEdge: updateEdge,
+      onRenamePlaceId: renamePlaceId,
+      onRenameTransitionId: renameTransitionId,
+      onRenameEdgeId: renameEdgeId,
+      tokensOpenForPlaceId: tokensOpenForPlaceId || undefined,
+      guardOpenForTransitionId: guardOpenForTransitionId || undefined,
+      tab: leftTab,
+      setTab: setLeftTab,
+      explorerWorkflows: serverWorkflows,
+      onExplorerSelect,
+      onRefreshWorkflows: () => { void fetchServerWorkflowList() },
+      onDeclarationsApply,
+      onCreateWorkflow: async () => {
+        if (!flowServiceUrl) return
+        try {
+          const newId = `wf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+          const name = `Workflow ${newId.slice(-4)}`
+          const empty = { id: newId, name, description: '', colorSets: [], places: [], transitions: [], arcs: [], initialMarking: {}, declarations: {} }
+          await withApiErrorToast(saveWorkflow(flowServiceUrl, empty), toast, 'Create workflow')
+          setServerWorkflows((wfs) => ([...(Array.isArray(wfs) ? wfs : []), { id: newId, name }]))
+          setWorkflowMeta((meta) => ({ ...meta, [newId]: { name, description: '', colorSets: [] } }))
+          onExplorerSelect(newId)
+          toast({ title: 'Created', description: name })
+        } catch (e: any) {
+          /* already toasted */
+        }
+      },
+      onDeleteWorkflow: async (id: string) => {
+        if (!flowServiceUrl) return
+        if (!confirm('Delete workflow ' + id + '?')) return
+        try {
+          await withApiErrorToast(deleteWorkflowApi(flowServiceUrl, id), toast, 'Delete workflow')
+          setServerWorkflows((list) => list.filter((w) => w.id !== id))
+          if (activeWorkflowId === id) {
+            setActiveWorkflowId(null)
+            setNodes([])
+            setEdges([])
+          }
+          toast({ title: 'Deleted', description: id })
+        } catch (e: any) {
+          /* toasted */
+        }
+      },
+      onRenameWorkflow: (id: string, name: string) => {
+        setWorkflowMeta((prev) => ({ ...prev, [id]: { ...(prev[id] || { colorSets: [] }), name } }))
+        setEditedMap((prev) => ({ ...prev, [id]: true }))
+        setServerWorkflows((list) => list.map((w) => (w.id === id ? { ...w, name } : w)))
+      },
+      workflowMeta,
+      activeWorkflowId,
+      explorerNodes: nodes,
+      explorerEdges: edges,
+      onAddPlace: () => {
+        const id = `p-${Math.random().toString(36).slice(2, 7)}`
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: 'place',
+            position: { x: 120, y: 120 },
+            data: { kind: 'place', name: `Place ${id.slice(-3)}`, colorSet: '', tokens: 0, tokenList: [] },
+          } as any,
+        ])
+        setEditedMap((m) => (activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m))
+      },
+      onRenamePlace: (pid: string, name: string) => setNodes((nds) => nds.map((n) => (n.id === pid && n.type === 'place' ? { ...n, data: { ...(n.data as any), name } } : n))),
+      onDeletePlace: (pid: string) => {
+        setNodes((nds) => nds.filter((n) => n.id !== pid))
+        setEdges((eds) => eds.filter((e) => e.source !== pid && e.target !== pid))
+        setEditedMap((m) => (activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m))
+      },
+      onAddTransition: () => {
+        const id = `t-${Math.random().toString(36).slice(2, 7)}`
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: 'transition',
+            position: { x: 360, y: 240 },
+            data: { kind: 'transition', name: `Transition ${id.slice(-3)}`, tType: 'Manual', guardExpression: 'true' },
+          } as any,
+        ])
+        setEditedMap((m) => (activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m))
+      },
+      onRenameTransition: (tid: string, name: string) => setNodes((nds) => nds.map((n) => (n.id === tid && n.type === 'transition' ? { ...n, data: { ...(n.data as any), name } } : n))),
+      onDeleteTransition: (tid: string) => {
+        setNodes((nds) => nds.filter((n) => n.id !== tid))
+        setEdges((eds) => eds.filter((e) => e.source !== tid && e.target !== tid))
+        setEditedMap((m) => (activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m))
+      },
+      onAddArc: () => {
+        const place = nodes.find((n) => n.type === 'place')
+        const trans = nodes.find((n) => n.type === 'transition')
+        if (!place || !trans) return
+        const id = `e-${Math.random().toString(36).slice(2, 7)}`
+        setEdges((eds) => [
+          ...eds,
+          { id, source: place.id, target: trans.id, type: 'labeled', data: { label: 'arc', expression: '' } } as any,
+        ])
+        setEditedMap((m) => (activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m))
+      },
+      onDeleteArc: (aid: string) => {
+        setEdges((eds) => eds.filter((e) => e.id !== aid))
+        setEditedMap((m) => (activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m))
+      },
+      onColorSetsChange: (next: string[]) => {
+        if (!activeWorkflowId) return
+        setWorkflowMeta((meta) => ({
+          ...meta,
+          [activeWorkflowId]: {
+            ...(meta[activeWorkflowId] || { name: activeWorkflowId, description: '', colorSets: [] }),
+            colorSets: next,
+          },
+        }))
+        setEditedMap((m) => ({ ...m, [activeWorkflowId]: true }))
+      },
+      onSelectEntity: (kind: 'place' | 'transition' | 'arc' | 'declarations', id: string) => {
+        if (kind === 'place' || kind === 'transition') {
+          setExplorerSelection(null)
+          setSelectedRef({ type: 'node', id })
+          setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, selected: true } : { ...n, selected: false })))
+          setEdges((eds) => eds.map((e) => ({ ...e, selected: false })))
+          setLeftTab('property')
+        } else if (kind === 'arc') {
+          setExplorerSelection(null)
+          setSelectedRef({ type: 'edge', id })
+          setEdges((eds) => eds.map((e) => (e.id === id ? { ...e, selected: true } : { ...e, selected: false })))
+          setNodes((nds) => nds.map((n) => ({ ...n, selected: false })))
+          setLeftTab('property')
+        } else if (kind === 'declarations') {
+          setSelectedRef(null)
+          setExplorerSelection({ kind: 'declarations', id })
+          setNodes((nds) => nds.map((n) => ({ ...n, selected: false })))
+          setEdges((eds) => eds.map((e) => ({ ...e, selected: false })))
+          setLeftTab('property')
+        }
+      },
+      selectedEntity,
+    }
+  }, [
+    nodes,
+    edges,
+    panelWidth,
+    selected,
+    updateNode,
+    updateEdge,
+    renamePlaceId,
+    renameTransitionId,
+    renameEdgeId,
+    tokensOpenForPlaceId,
+    guardOpenForTransitionId,
+    leftTab,
+    setLeftTab,
+    serverWorkflows,
+    onExplorerSelect,
+    fetchServerWorkflowList,
+    onDeclarationsApply,
+    flowServiceUrl,
+    toast,
+    setServerWorkflows,
+    setWorkflowMeta,
+  selectedEntity,
+  workflowMeta,
+    activeWorkflowId,
+    setNodes,
+    setEdges,
+    setEditedMap,
+    setExplorerSelection,
+  ])
+
+  useEffect(() => {
+    const storeState = flowStore.getState()
+    if (storeState.sidePanelDetail !== sidePanelDetail) {
+      storeState.setSidePanelDetail(sidePanelDetail)
+    }
+    window.dispatchEvent(new CustomEvent('goflow-sidepanel-props', { detail: sidePanelDetail }))
+  }, [flowStore, sidePanelDetail])
+
+  useEffect(() => {
+    const storeState = flowStore.getState()
+    if (storeState.selectedEntity !== selectedEntity) {
+      storeState.setSelectedEntity(selectedEntity)
+    }
+  }, [flowStore, selectedEntity])
+
   return (
     <div ref={containerRef} className="flex h-full w-full gap-4">
   {/* ...existing code... */}
@@ -1334,7 +1544,12 @@ function CanvasInner() {
                     disabled={simLoading}
                     onClick={() => {
                       if (!activeWorkflowId) { toast({ title: 'Open a workflow first', description: 'Select or load a workflow before starting a simulation', variant: 'destructive' }); return }
-                      startSim()
+                      const wfId = activeWorkflowId
+                      if (!wfId) return
+                      const cpnPath = workspacePathByIdRef.current[wfId]
+                      const cpnFile = typeof cpnPath === 'string' ? cpnPath.split('/').pop() : undefined
+                      const cpnName = cpnFile ? cpnFile.replace(/\.cpn$/i, '') : wfId
+                      startSim({ cpnName })
                     }}
                     title="Start new simulation for current workflow"
                   >+ Sim</button>
@@ -1375,7 +1590,14 @@ function CanvasInner() {
                       const id = activeSimId
                       await deleteSim(id)
                       // slight delay to allow server cleanup; then re-start
-                      setTimeout(() => { startSim() }, 50)
+                      setTimeout(() => {
+                        const wfId = activeWorkflowId
+                        if (!wfId) return
+                        const cpnPath = workspacePathByIdRef.current[wfId]
+                        const cpnFile = typeof cpnPath === 'string' ? cpnPath.split('/').pop() : undefined
+                        const cpnName = cpnFile ? cpnFile.replace(/\.cpn$/i, '') : wfId
+                        startSim({ cpnName })
+                      }, 50)
                     }}
                   />
                   {/* Workflow picker removed */}
@@ -1633,137 +1855,6 @@ function CanvasInner() {
         )}
       </div>
 
-      {/* SidePanel props are emitted to the outer RightPanel via a global event so RightPanel can render Flow side panel UI */}
-      {/* Emit registration event with the props object so RightPanel can consume them */}
-      {
-        (() => {
-          try {
-              const detail = {
-              open: true,
-              width: panelWidth,
-              onResizeStart: () => setResizing(true),
-              selected: selected,
-              onUpdateNode: updateNode,
-              onUpdateEdge: updateEdge,
-              onRenamePlaceId: (oldId: string, nextId: string) => renamePlaceId(oldId, nextId),
-              onRenameTransitionId: (oldId: string, nextId: string) => renameTransitionId(oldId, nextId),
-              onRenameEdgeId: (oldId: string, nextId: string) => renameEdgeId(oldId, nextId),
-              tokensOpenForPlaceId: tokensOpenForPlaceId || undefined,
-              guardOpenForTransitionId: guardOpenForTransitionId || undefined,
-              tab: leftTab,
-              setTab: setLeftTab,
-              explorerWorkflows: serverWorkflows,
-              onExplorerSelect: onExplorerSelect,
-              onRefreshWorkflows: () => fetchServerWorkflowList(),
-              onDeclarationsApply: onDeclarationsApply,
-              onCreateWorkflow: async () => {
-                if (!flowServiceUrl) return
-                try {
-                  const newId = `wf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`
-                  const name = `Workflow ${newId.slice(-4)}`
-                  const empty = { id: newId, name, description: '', colorSets: [], places: [], transitions: [], arcs: [], initialMarking: {}, declarations: {} }
-                  await withApiErrorToast(saveWorkflow(flowServiceUrl, empty), toast, 'Create workflow')
-                  setServerWorkflows(wfs => ([...(Array.isArray(wfs) ? wfs : []), { id: newId, name }]))
-                  setWorkflowMeta(meta => ({ ...meta, [newId]: { name, description: '', colorSets: [] } }))
-                  onExplorerSelect(newId)
-                  toast({ title: 'Created', description: name })
-                } catch(e:any){ /* already toasted */ }
-              },
-              onDeleteWorkflow: async (id: string) => {
-                if (!flowServiceUrl) return
-                if (!confirm('Delete workflow ' + id + '?')) return
-                try {
-                  await withApiErrorToast(deleteWorkflowApi(flowServiceUrl, id), toast, 'Delete workflow')
-                  setServerWorkflows(list => list.filter(w => w.id !== id))
-                  if (activeWorkflowId === id) { setActiveWorkflowId(null); setNodes([]); setEdges([]) }
-                  toast({ title: 'Deleted', description: id })
-                } catch(e:any) { /* toasted */ }
-              },
-              onRenameWorkflow: (id: string, name: string) => { setWorkflowMeta(prev => ({ ...prev, [id]: { ...(prev[id]||{ colorSets: [] }), name } })); setEditedMap(prev => ({ ...prev, [id]: true })); setServerWorkflows(list => list.map(w => w.id===id?{...w,name}:w)) },
-              workflowMeta: workflowMeta,
-              activeWorkflowId: activeWorkflowId,
-              explorerNodes: nodes,
-              explorerEdges: edges,
-              onAddPlace: () => {
-                const id = `p-${Math.random().toString(36).slice(2,7)}`
-                setNodes(nds => [...nds, { id, type:'place', position:{ x: 120, y: 120 }, data:{ kind:'place', name:`Place ${id.slice(-3)}`, colorSet:'', tokens:0, tokenList:[] } } as any])
-                setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
-              },
-              onRenamePlace: (pid: string, name: string) => setNodes(nds => nds.map(n => n.id===pid && n.type==='place'? { ...n, data:{ ...(n.data as any), name } } : n)),
-              onDeletePlace: (pid: string) => {
-                setNodes(nds => nds.filter(n => n.id !== pid))
-                setEdges(eds => eds.filter(e => e.source !== pid && e.target !== pid))
-                setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
-              },
-              onAddTransition: () => {
-                const id = `t-${Math.random().toString(36).slice(2,7)}`
-                setNodes(nds => [...nds, { id, type:'transition', position:{ x: 360, y: 240 }, data:{ kind:'transition', name:`Transition ${id.slice(-3)}`, tType:'Manual', guardExpression:'true' } } as any])
-                setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
-              },
-              onRenameTransition: (tid: string, name: string) => setNodes(nds => nds.map(n => n.id===tid && n.type==='transition'? { ...n, data:{ ...(n.data as any), name } } : n)),
-              onDeleteTransition: (tid: string) => {
-                setNodes(nds => nds.filter(n => n.id !== tid))
-                setEdges(eds => eds.filter(e => e.source !== tid && e.target !== tid))
-                setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
-              },
-              onAddArc: () => {
-                const place = nodes.find(n => n.type==='place')
-                const trans = nodes.find(n => n.type==='transition')
-                if (!place || !trans) return
-                const id = `e-${Math.random().toString(36).slice(2,7)}`
-                setEdges(eds => [...eds, { id, source: place.id, target: trans.id, type:'labeled', data:{ label:'arc', expression:'' } } as any])
-                setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
-              },
-              onDeleteArc: (aid: string) => {
-                setEdges(eds => eds.filter(e => e.id !== aid))
-                setEditedMap(m => activeWorkflowId ? { ...m, [activeWorkflowId]: true } : m)
-              },
-              onColorSetsChange: (next: string[]) => {
-                if (!activeWorkflowId) return
-                setWorkflowMeta(meta => ({ ...meta, [activeWorkflowId]: { ...(meta[activeWorkflowId]||{ name: activeWorkflowId, description:'', colorSets: [] }), colorSets: next } }))
-                setEditedMap(m => ({ ...m, [activeWorkflowId]: true }))
-              },
-              onSelectEntity: (kind: any, id: string) => {
-                if (kind === 'place' || kind === 'transition') {
-                  setExplorerSelection(null)
-                  setSelectedRef({ type: 'node', id })
-                  setNodes(nds => nds.map(n => n.id===id ? { ...n, selected: true } : { ...n, selected: false }))
-                  setEdges(eds => eds.map(e => ({ ...e, selected: false })))
-                  setLeftTab('property')
-                } else if (kind === 'arc') {
-                  setExplorerSelection(null)
-                  setSelectedRef({ type: 'edge', id })
-                  setEdges(eds => eds.map(e => e.id===id ? { ...e, selected: true } : { ...e, selected: false }))
-                  setNodes(nds => nds.map(n => ({ ...n, selected: false })))
-                  setLeftTab('property')
-                } else if (kind === 'declarations') {
-                  setSelectedRef(null)
-                  setExplorerSelection({ kind: 'declarations', id })
-                  setNodes(nds => nds.map(n => ({ ...n, selected: false })))
-                  setEdges(eds => eds.map(e => ({ ...e, selected: false })))
-                  setLeftTab('property')
-                }
-              },
-              selectedEntity: (() => {
-                if (explorerSelection) return explorerSelection
-                if (!selectedRef) return null
-                if (selectedRef.type === 'node') {
-                  const n = nodes.find(n => n.id === selectedRef.id)
-                  if (!n) return null
-                  if (n.type === 'place') return { kind: 'place' as const, id: n.id }
-                  if (n.type === 'transition') return { kind: 'transition' as const, id: n.id }
-                  return null
-                } else {
-                  const e = edges.find(e => e.id === selectedRef.id)
-                  return e ? { kind: 'arc' as const, id: e.id } : null
-                }
-              })(),
-            }
-            window.dispatchEvent(new CustomEvent('goflow-sidepanel-props', { detail }))
-          } catch (e) { /* best-effort */ }
-          return null
-        })()
-      }
       <Dialog open={validationOpen} onOpenChange={setValidationOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
