@@ -36,7 +36,7 @@ const tabs: TabItem[] = [
 	{ id: "workflow", label: "Workflow", icon: Workflow },
 ]
 
-import { fetchWorkflowList, fetchWorkflow, deleteWorkflowApi, withApiErrorToast, fetchColorsList, saveWorkflow } from "../petri/petri-client"
+import { fetchWorkflow, deleteWorkflowApi, withApiErrorToast, fetchColorsList, saveWorkflow } from "../petri/petri-client"
 import ChatPanel from "@/components/chat/Chat"
 import { serverToGraph } from "@/lib/workflow-conversion"
 import { useFlowServiceUrl } from '@/hooks/use-flow-service-url'
@@ -55,11 +55,10 @@ type LeftPanelProps = {
   activeEditorType: EditorType | null
 }
 	export const LeftPanel: React.FC<LeftPanelProps> = ({ isOpen, onClose, onOpen, activeTab, setActiveTab, onSchemaSelect, isMaximized, onToggleMaximize, activeEditorType }) => {
-		const isHydrated = useIsHydrated()
-		const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([])
-		const [loading, setLoading] = useState(false)
-		const [error, setError] = useState<string | null>(null)
-		const flowServiceUrl = useFlowServiceUrl({ includeDefault: false })
+	const isHydrated = useIsHydrated()
+	const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([])
+	const [error, setError] = useState<string | null>(null)
+	const flowServiceUrl = useFlowServiceUrl({ includeDefault: false })
 		const { load: loadPreSupported } = usePreSupportedSchemas()
 		
 		// Track which parent tabs are expanded to show their children
@@ -74,30 +73,9 @@ type LeftPanelProps = {
 		const [workflowDefinedColors, setWorkflowDefinedColors] = useState<string[]>([])
 		const [workflowJsonSchemas, setWorkflowJsonSchemas] = useState<{ name: string; schema: any }[]>([])
 
-		const isPageEditorActive = activeEditorType === 'page'
-		const isWorkflowEditorActive = activeEditorType === 'workflow'
-		const pageSpecificTabs = new Set(["page-builder", "components", "structure"])
-
-		const fetchList = useCallback(async () => {
-			if (!flowServiceUrl) {
-				setError(FLOW_SERVICE_MISSING_MESSAGE)
-				setWorkflows([])
-				return
-			}
-			setLoading(true)
-			setError(null)
-			try {
-				const res = await fetchWorkflowList(flowServiceUrl)
-				const collection = res?.cpns || res?.data?.cpns || []
-				setWorkflows(Array.isArray(collection) ? collection : [])
-			} catch (e: any) {
-				setError(e?.message || "Failed to load workflows")
-			} finally {
-				setLoading(false)
-			}
-		}, [flowServiceUrl])
-
-		// Local cache of the currently loaded workflow nodes/edges so ExplorerPanel
+	const isPageEditorActive = activeEditorType === 'page'
+	const isWorkflowEditorActive = activeEditorType === 'workflow'
+	const pageSpecificTabs = new Set(["page-builder", "components", "structure"])		// Local cache of the currently loaded workflow nodes/edges so ExplorerPanel
 		// can render the places/transitions/arcs without relying on the canvas.
 		const [wfNodes, setWfNodes] = useState<any[]>([])
 		const [wfEdges, setWfEdges] = useState<any[]>([])
@@ -176,13 +154,58 @@ type LeftPanelProps = {
 			}
 		}
 
-		const handleDeleteWorkflow = async (id: string) => {
+	// Listen for workflow opened in editor (populated by FlowWorkspace/FlowWorkspaceLoader)
+	useEffect(() => {
+		const openHandler = (e: any) => {
+			const detail = e?.detail || {}
+			// Prefer explicit id from data, fallback to path filename
+			let id: string | undefined = undefined
+			if (detail.data && typeof detail.data.id === 'string') id = detail.data.id
+			if (!id && typeof detail.path === 'string') {
+				const name = detail.path.split('/').pop() || detail.path
+				id = name.replace(/\.(cpn\.json|cpn|json)$/i, '')
+			}
+			if (!id) return
+			
+			// Set this workflow as the selected one
+			setSelectedWorkflowId(id)
+			
+			// Also add it to the workflows list if not already there
+			const workflowName = detail.data?.name || id
+			setWorkflows(prev => {
+				const exists = prev.some(w => w.id === id)
+				if (exists) return prev
+				return [...prev, { id, name: workflowName }]
+			})
+			
+			// attempt to set nodes/edges if provided
+			if (detail.data) {
+				try {
+					const graph = serverToGraph(detail.data).graph
+					setWfNodes(graph.nodes || [])
+					setWfEdges(graph.edges || [])
+					setWorkflowGraphCache(prev => ({ ...prev, [id!]: { nodes: graph.nodes || [], edges: graph.edges || [] } }))
+				} catch (err) {
+					// fallback to raw arrays if conversion fails
+					const nodes = detail.data.nodes || detail.data.places || []
+					const edges = detail.data.edges || detail.data.arcs || []
+					setWfNodes(nodes)
+					setWfEdges(edges)
+					setWorkflowGraphCache(prev => ({ ...prev, [id!]: { nodes, edges } }))
+				}
+			}
+		}
+		window.addEventListener('goflow-open-workflow', openHandler as EventListener)
+		return () => window.removeEventListener('goflow-open-workflow', openHandler as EventListener)
+	}, [])
+
+	const handleDeleteWorkflow = async (id: string) => {
 			if (!flowServiceUrl) {
 				setError(FLOW_SERVICE_MISSING_MESSAGE)
 				return
 			}
 			if (!confirm('Delete workflow ' + id + '?')) return
-			setLoading(true)
+			setLoadingWorkflow(true)
 			try {
 				await deleteWorkflowApi(flowServiceUrl, id)
 				setWorkflows((list) => list.filter(w => w.id !== id))
@@ -191,7 +214,7 @@ type LeftPanelProps = {
 			} catch (e: any) {
 				setError(e?.message || 'Failed to delete workflow')
 			} finally {
-				setLoading(false)
+				setLoadingWorkflow(false)
 			}
 		}
 
@@ -200,7 +223,7 @@ type LeftPanelProps = {
 				setError(FLOW_SERVICE_MISSING_MESSAGE)
 				return
 			}
-			setLoading(true)
+			setLoadingWorkflow(true)
 			try {
 				const newId = `wf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`
 				const name = `Workflow ${newId.slice(-4)}`
@@ -215,44 +238,45 @@ type LeftPanelProps = {
 			} catch (e:any) {
 				setError(e?.message || 'Failed to create workflow')
 			} finally {
-				setLoading(false)
-			}
+				setLoadingWorkflow(false)
+		}
+	}
+
+
+	const handleRefresh = () => {
+		// No longer fetching server list - workflow data comes from goflow-open-workflow event
+		// Just clear any error state
+		setError(null)
+		setWorkflowError(null)
+	}
+
+	useEffect(() => {
+		setError(null)
+		setWorkflowError(null)
+		setWorkflows([])
+		setWorkflowGraphCache({})
+		setSelectedWorkflowId(null)
+		setWfNodes([])
+		setWfEdges([])
+	}, [flowServiceUrl])
+
+	useEffect(() => {
+		// No longer fetching workflow list from server when tab opens
+		// Workflow data comes from goflow-open-workflow event
+		
+		const onGraphUpdate = (e: any) => {
+			const wfId = e?.detail?.workflowId
+			const graph = e?.detail?.graph
+			if (wfId && graph) setWorkflowGraphCache(prev => ({ ...prev, [wfId]: graph }))
 		}
 
-		const handleRefresh = () => { void fetchList() }
+		window.addEventListener('goflow-explorer-graph-updated', onGraphUpdate as EventListener)
+		return () => {
+			window.removeEventListener('goflow-explorer-graph-updated', onGraphUpdate as EventListener)
+		}
+	}, [activeTab, flowServiceUrl, isOpen])
 
-		useEffect(() => {
-			setError(null)
-			setWorkflowError(null)
-			setWorkflows([])
-			setWorkflowGraphCache({})
-			setSelectedWorkflowId(null)
-			setWfNodes([])
-			setWfEdges([])
-		}, [flowServiceUrl])
-
-		useEffect(() => {
-			if (activeTab === "workflow" && isOpen) {
-				if (!flowServiceUrl) {
-					setError(FLOW_SERVICE_MISSING_MESSAGE)
-				} else {
-					void fetchList()
-				}
-			}
-
-			const onGraphUpdate = (e: any) => {
-				const wfId = e?.detail?.workflowId
-				const graph = e?.detail?.graph
-				if (wfId && graph) setWorkflowGraphCache(prev => ({ ...prev, [wfId]: graph }))
-			}
-
-			window.addEventListener('goflow-explorer-graph-updated', onGraphUpdate as EventListener)
-			return () => {
-				window.removeEventListener('goflow-explorer-graph-updated', onGraphUpdate as EventListener)
-			}
-		}, [activeTab, fetchList, flowServiceUrl, isOpen])
-
-	const renderTabContent = () => {
+const renderTabContent = () => {
 		switch (activeTab) {
 			case "workspace":
 				// Placeholder: use existing Pages tab for file explorer
@@ -287,12 +311,25 @@ type LeftPanelProps = {
 						</div>
 					)
 				case "workflow":
-					if (loading) return <div className="p-4 text-center text-muted-foreground">Loading workflows...</div>
 					if (error) return <div className="p-4 text-center text-destructive">{error}</div>
 					return <ExplorerPanel
-						workflows={workflows}
-						nodes={wfNodes}
-						edges={wfEdges}
+							workflows={
+								// If the workspace editor is active and a workflow is open, show only that workflow
+								(isWorkflowEditorActive && selectedWorkflowId)
+									? workflows.filter(w => w.id === selectedWorkflowId)
+									: workflows
+							}
+							nodes={
+								// if we have a cached graph for the selected workflow, prefer that
+								(isWorkflowEditorActive && selectedWorkflowId && workflowGraphCache[selectedWorkflowId])
+									? workflowGraphCache[selectedWorkflowId].nodes
+									: wfNodes
+							}
+							edges={
+								(isWorkflowEditorActive && selectedWorkflowId && workflowGraphCache[selectedWorkflowId])
+									? workflowGraphCache[selectedWorkflowId].edges
+									: wfEdges
+							}
 						workflowGraphs={workflowGraphCache}
 						activeWorkflowId={selectedWorkflowId}
 						onWorkflowSelect={handleWorkflowSelect}
