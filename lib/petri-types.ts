@@ -15,6 +15,7 @@ export type TransitionData = {
   name: string
   tType: TransitionType
   guardExpression?: string
+  scriptLanguage?: string
   transitionDelay?: number // delay (time units) before firing completes (advances global clock)
   time?: { cron?: string; delaySec?: number }
   manual?: { assignee?: string; formSchema?: string; layoutSchema?: string }
@@ -71,7 +72,7 @@ export type PlaceData = {
 }
 
 export type PetriNodeData = PlaceData | TransitionData
-export type PetriEdgeData = { label?: string; expression?: string; readonly?: boolean }
+export type PetriEdgeData = { label?: string; expression?: string; readonly?: boolean; scriptLanguage?: string }
 
 import type { Node } from "@xyflow/react"
 export function isPlace(n: Node<PetriNodeData>) { return n.type === 'place' }

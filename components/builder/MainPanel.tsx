@@ -901,8 +901,189 @@ export const MainPanel: React.FC<MainPanelProps> = ({
   )
 }
 
-// Cache for tab-specific page states
-// Page workspace loader that loads page data from workspace file
+// Schema workspace loader that loads schema data from workspace file
+interface SchemaWorkspaceLoaderProps {
+  tabId: string
+  filePath?: string
+  isFocused: boolean
+}
+
+const SchemaWorkspaceLoader: React.FC<SchemaWorkspaceLoaderProps> = ({ tabId, filePath, isFocused }) => {
+  const { files, markFileDirty, openFile, saveFile } = useWorkspace()
+  const [isLoading, setIsLoading] = useState(true)
+  const [schema, setSchema] = useState<JSONSchema | null>(null)
+  const [schemaName, setSchemaName] = useState<string>('')
+  const lastLoadedFileRef = useRef<string | null>(null)
+  const loadAttemptedRef = useRef<Set<string>>(new Set())
+
+  // Load schema data when filePath changes
+  useEffect(() => {
+    if (!filePath) {
+      setIsLoading(false)
+      return
+    }
+
+    console.log('Loading schema:', filePath)
+
+    const file = files.get(filePath)
+    if (!file) {
+      // File not loaded yet - trigger load from workspace
+      if (!loadAttemptedRef.current.has(filePath)) {
+        console.log('File not in cache, loading from workspace:', filePath)
+        loadAttemptedRef.current.add(filePath)
+        setIsLoading(true)
+        openFile(filePath)
+          .then(() => {
+            // File loaded, the effect will re-run and process it
+            console.log('File loaded successfully:', filePath)
+          })
+          .catch(error => {
+            console.error('Failed to load file from workspace:', error)
+            toast({
+              title: 'Failed to load schema file',
+              description: error.message,
+              variant: 'destructive'
+            })
+            setIsLoading(false)
+            loadAttemptedRef.current.delete(filePath)
+          })
+      }
+      return
+    }
+
+    // We have the file now, remove from attempted set
+    loadAttemptedRef.current.delete(filePath)
+
+    // Check if we've already loaded this exact file content
+    const fileContentHash = `${filePath}-${file.sha || file.content.length}`
+    const alreadyLoaded = lastLoadedFileRef.current === fileContentHash
+
+    if (alreadyLoaded && schema) {
+      console.log('Schema already loaded for:', filePath)
+      setIsLoading(false)
+      return
+    }
+
+    // Load from workspace file (fresh load or cache miss)
+    console.log('Loading fresh schema content from workspace file:', filePath)
+    try {
+      const schemaData = JSON.parse(file.content) as JSONSchema
+      console.log('Parsed schema data from file:', filePath)
+
+      setSchema(schemaData)
+      setSchemaName(filePath.split('/').pop()?.replace('.color', '') || 'Schema')
+      lastLoadedFileRef.current = fileContentHash
+      setIsLoading(false)
+    } catch (error) {
+      console.error('Failed to parse schema data:', error)
+      toast({
+        title: 'Failed to load schema',
+        description: 'Invalid schema data format',
+        variant: 'destructive'
+      })
+      setIsLoading(false)
+    }
+  }, [filePath, files, openFile])
+
+  const handleSchemaChange = (updatedSchema: JSONSchema) => {
+    // This is called on every edit for live updates
+    // We don't save here - the SchemaViewer has its own Save button
+    setSchema(updatedSchema)
+    // Mark file as dirty to indicate unsaved changes
+    if (filePath) {
+      markFileDirty(filePath, true)
+    }
+  }
+
+  const handleSave = async () => {
+    if (!filePath || !schema) return
+
+    console.log('Saving schema to file:', filePath)
+    try {
+      await saveFile(filePath, JSON.stringify(schema, null, 2))
+      console.log('Schema saved successfully:', filePath)
+      markFileDirty(filePath, false)
+      toast({
+        title: 'Schema saved',
+        description: 'Schema file has been updated successfully',
+      })
+    } catch (error: any) {
+      console.error('Failed to save schema:', error)
+      toast({
+        title: 'Failed to save schema',
+        description: error?.message || 'Unknown error',
+        variant: 'destructive'
+      })
+    }
+  }
+
+  // Save handler - listens for global save events
+  useEffect(() => {
+    if (!filePath) return
+
+    const handleGlobalSave = (e: CustomEvent) => {
+      if (e.detail.path === filePath) {
+        console.log('Global save event received for schema:', filePath)
+
+        // Save the current schema state
+        saveFile(filePath, JSON.stringify(schema, null, 2))
+          .then(() => {
+            console.log('Schema saved successfully via global save:', filePath)
+            markFileDirty(filePath, false)
+            toast({
+              title: 'Schema saved',
+              description: 'Schema file has been updated successfully',
+            })
+          })
+          .catch(error => {
+            console.error('Failed to save schema via global save:', error)
+            toast({
+              title: 'Failed to save schema',
+              description: error?.message || 'Unknown error',
+              variant: 'destructive'
+            })
+          })
+      }
+    }
+
+    window.addEventListener('goflow-save-file', handleGlobalSave as EventListener)
+    return () => window.removeEventListener('goflow-save-file', handleGlobalSave as EventListener)
+  }, [filePath, schema, saveFile, markFileDirty])
+
+  const handleClose = () => {
+    // Close logic if needed - could navigate away or close tab
+    console.log('Schema editor closed')
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-muted-foreground">Loading schema...</div>
+      </div>
+    )
+  }
+
+  if (!schema) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        <div className="text-center">
+          <p>Failed to load schema</p>
+          <p className="text-xs mt-1">Check the file format and try again</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <SchemaViewer
+      schema={schema}
+      schemaName={schemaName}
+      onSchemaChange={handleSchemaChange}
+      onSave={handleSave}
+      onClose={handleClose}
+    />
+  )
+}
 interface PageWorkspaceLoaderProps {
   tabId: string
   filePath?: string
@@ -1150,17 +1331,13 @@ const EditorContent: React.FC<EditorContentProps> = ({
       )
     
     case 'schema':
-      if (selectedSchema) {
-        return (
-          <SchemaViewer
-            schema={selectedSchema.schema}
-            schemaName={selectedSchema.name}
-            onSchemaChange={onSchemaChange}
-            onClose={onSchemaClose}
-          />
-        )
-      }
-      return <div className="p-4">Schema editor (to be implemented)</div>
+      return (
+        <SchemaWorkspaceLoader
+          tabId={tab.id}
+          filePath={tab.filePath}
+          isFocused={isFocused}
+        />
+      )
     
     case 'workflow':
       return (

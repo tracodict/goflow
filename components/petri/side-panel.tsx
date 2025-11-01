@@ -23,6 +23,7 @@ import { useSystemSettings } from './system-settings-context'
 import { listMcpTools, listRegisteredMcpTools } from './petri-client'
 import { StreamLanguage } from '@codemirror/language'
 import { lua } from '@codemirror/legacy-modes/mode/lua'
+import { go as goMode } from '@codemirror/legacy-modes/mode/go'
 import { EditorView } from '@codemirror/view'
 import { json } from '@codemirror/lang-json'
 import { usePreSupportedSchemas } from './pre-supported-schemas'
@@ -256,9 +257,15 @@ export function SidePanel({
               if (node.type === 'place') {
                 return <PlaceEditor node={node} onUpdate={onUpdateNode} onRenameId={onRenamePlaceId} forceOpenTokens={tokensOpenForPlaceId === node.id} scrollContainerRef={contentRef} />
               }
-              return <TransitionEditor node={node} onUpdate={onUpdateNode} onRenameId={onRenameTransitionId} focusGuard={guardOpenForTransitionId === node.id} scrollContainerRef={contentRef} />
+              return <TransitionEditor node={node} onUpdate={onUpdateNode} onUpdateEdge={onUpdateEdge} explorerEdges={explorerEdges} onRenameId={onRenameTransitionId} focusGuard={guardOpenForTransitionId === node.id} scrollContainerRef={contentRef} />
             }
-            return <EdgeEditor edge={effectiveSelected.edge} onUpdate={onUpdateEdge} onRenameId={onRenameEdgeId} />
+            return <EdgeEditor edge={effectiveSelected.edge} onUpdate={onUpdateEdge} onRenameId={onRenameEdgeId} isGoMode={(() => {
+              // Determine if this edge is connected to a transition with Go mode
+              const sourceNode = explorerNodes?.find(n => n.id === effectiveSelected.edge.source)
+              const targetNode = explorerNodes?.find(n => n.id === effectiveSelected.edge.target)
+              const connectedTransition = sourceNode?.type === 'transition' ? sourceNode : targetNode?.type === 'transition' ? targetNode : null
+              return connectedTransition ? (connectedTransition.data as any)?.scriptLanguage === 'go' : false
+            })()} />
           })()}
         </div>
       </div>
@@ -587,12 +594,16 @@ function TokenEditor({
 function TransitionEditor({
   node,
   onUpdate,
+  onUpdateEdge,
+  explorerEdges,
   onRenameId,
   focusGuard,
   scrollContainerRef,
 }: {
   node: Node<PetriNodeData>
   onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
+  onUpdateEdge: (id: string, patch: Partial<PetriEdgeData>) => void
+  explorerEdges?: any[]
   onRenameId?: (oldId: string, nextId: string) => { ok: boolean; reason?: string }
   focusGuard?: boolean
   scrollContainerRef: React.RefObject<HTMLElement | null>
@@ -626,9 +637,25 @@ function TransitionEditor({
   const [idError, setIdError] = useState<string>("")
   const isValidIdent = (s: string) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s)
 
+  // Script language value directly from node data (no local state needed)
+  const scriptLanguage = ((node.data as any).scriptLanguage === 'lua' ? 'lua' : 'go') as 'go' | 'lua'
+  
+  // Computed value for backward compatibility with existing code
+  const isGoMode = scriptLanguage === 'go'
+
   // --- Guard Expression FIX ---
   const lastLocalEditRef = useRef<number>(0)
   const [guardText, setGuardText] = useState<string>(() => (node as any).guardExpression || (node.data as any).guardExpression || "")
+  
+  // ensure new transitions default to go (only when scriptLanguage is undefined/null)
+  useEffect(() => {
+    const lang = (node.data as any).scriptLanguage
+    // Only set default if scriptLanguage is explicitly undefined or null (not set yet)
+    if (lang === undefined || lang === null) {
+      onUpdate(node.id, { scriptLanguage: 'go' } as any)
+    }
+  }, [node.id, onUpdate])
+  
   // Only update from props if node id changes or not recently edited locally
   useEffect(() => {
     const incoming = (node as any).guardExpression || (node.data as any).guardExpression || ""
@@ -686,19 +713,49 @@ function TransitionEditor({
 
       {tType !== 'Tools' && (
         <div ref={inscRef} className="space-y-2">
-          <Label className="text-sm">Guard Expression</Label>
-          <ResizableCodeMirror
-            value={guardText}
-            initialHeight={160}
-            extensions={[EditorView.lineWrapping, StreamLanguage.define(lua) as any]}
-            onChange={(val: string) => setGuardText(val)}
-            storageKey="side-panel-guard-expression"
-            placeholder="Lua guard expression..."
-          />
-          <p className="text-xs text-neutral-500">
-            Lua-like guard expression. Example: <code>if amount &gt; 1000 then return "review" else return "auto" end</code>
-          </p>
-        </div>
+            <Label className="text-sm">Guard Expression</Label>
+            <div className="flex items-center gap-2 mb-2">
+              <label className="inline-flex items-center gap-2 text-sm">
+                <span className="text-sm">Language:</span>
+                <select
+                  value={scriptLanguage}
+                  onChange={(e) => {
+                    const newLang = e.target.value as 'go' | 'lua'
+                    onUpdate(node.id, { scriptLanguage: newLang } as any)
+                    // Also update connected edges immediately
+                    if (explorerEdges) {
+                      const connectedEdges = explorerEdges.filter(edge => edge.source === node.id || edge.target === node.id)
+                      connectedEdges.forEach(edge => {
+                        onUpdateEdge(edge.id, { scriptLanguage: newLang } as any)
+                      })
+                    }
+                  }}
+                  className="border rounded px-2 py-1 text-sm"
+                >
+                  <option value="go">Go</option>
+                  <option value="lua">Lua</option>
+                </select>
+              </label>
+              <div className="text-xs text-neutral-500">(controls guard, action and arc editors)</div>
+            </div>
+            <ResizableCodeMirror
+              value={guardText}
+              initialHeight={160}
+              extensions={[(EditorView.lineWrapping), StreamLanguage.define(isGoMode ? goMode : lua) as any]}
+              onChange={(val: string) => setGuardText(val)}
+              storageKey="side-panel-guard-expression"
+              placeholder={isGoMode ? "Go guard expression..." : "Lua guard expression..."}
+            />
+            <p className="text-xs text-neutral-500">
+              {isGoMode ? (
+                <>
+                  Go guard expression. Example: <code>{'if amount > 1000 { return "review" } else { return "auto" }'}</code>
+                </>
+              ) : (
+                <>Lua-like guard expression. Example: <code>if amount &gt; 1000 then return "review" else return "auto" end</code></>
+              )}
+            </p>
+          </div>
       )}
 
       <div className="rounded border bg-neutral-50 px-2 py-1 text-xs text-neutral-600">
@@ -709,7 +766,7 @@ function TransitionEditor({
   {tType !== 'Tools' && (
     <>
       <SubPageSection node={node} onUpdate={onUpdate} />
-      <ActionFunctionEditor node={node} onUpdate={onUpdate} />
+      <ActionFunctionEditor node={node} onUpdate={onUpdate} isGoMode={isGoMode} />
       <ActionOutputsEditor node={node} onUpdate={onUpdate} />
       <div className="mt-6 space-y-2">
         <Label htmlFor="t-delay" className="text-sm">Transition Delay</Label>
@@ -1148,7 +1205,7 @@ function ManualEditor({
   )
 }
 
-function ActionFunctionEditor({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
+function ActionFunctionEditor({ node, onUpdate, isGoMode }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void; isGoMode: boolean }) {
   const actionFunction = (node.data as any).actionFunction || ""
   const [editorHeight, setEditorHeight] = useState<number>(160)
   const resizeRef = useRef<HTMLDivElement | null>(null)
@@ -1171,12 +1228,12 @@ function ActionFunctionEditor({ node, onUpdate }: { node: Node<PetriNodeData>; o
       <ResizableCodeMirror
         value={actionFunction}
         initialHeight={160}
-        extensions={[EditorView.lineWrapping, StreamLanguage.define(lua) as any]}
+        extensions={[EditorView.lineWrapping, StreamLanguage.define(isGoMode ? goMode : lua) as any]}
         onChange={(val: string) => onUpdate(node.id, { actionFunction: val } as any)}
         storageKey="side-panel-action-function"
-        placeholder="Lua action function..."
+        placeholder={isGoMode ? "Go action function..." : "Lua action function..."}
       />
-      <p className="text-xs text-neutral-500">Define a Lua function named <code>{`${node.id}_action`}</code>. Example: <code>{`function ${node.id}_action(a,b) return a+b end`}</code></p>
+      <p className="text-xs text-neutral-500">Define a {isGoMode ? 'Go' : 'Lua'} function named <code>{`${node.id}_action`}</code>. Example: {isGoMode ? (<code>{`func ${node.id}_action(a,b) { return a + b }`}</code>) : (<code>{`function ${node.id}_action(a,b) return a+b end`}</code>)}</p>
     </div>
   )
 }
@@ -1373,10 +1430,12 @@ function EdgeEditor({
   edge,
   onUpdate,
   onRenameId,
+  isGoMode,
 }: {
   edge: Edge<PetriEdgeData>
   onUpdate: (id: string, patch: Partial<PetriEdgeData>) => void
   onRenameId?: (oldId: string, nextId: string) => { ok: boolean; reason?: string }
+  isGoMode?: boolean
 }) {
   const [expr, setExpr] = React.useState<string>(() => (edge.data as any)?.expression || "");
   React.useEffect(() => {
@@ -1410,7 +1469,7 @@ function EdgeEditor({
         value={expr}
         initialHeight={80}
         extensions={[
-          StreamLanguage.define(lua) as any,
+          StreamLanguage.define((isGoMode ?? ((edge.data as any).scriptLanguage === 'go')) ? goMode : lua) as any,
           EditorView.lineWrapping,
         ]}
         onChange={(v: string) => {
@@ -1418,7 +1477,7 @@ function EdgeEditor({
           onUpdate(edge.id, { expression: v } as any);
         }}
         storageKey="side-panel-arc-expression"
-        placeholder="Lua expression for arc (e.g., amount > 0)"
+        placeholder={(isGoMode ?? ((edge.data as any).scriptLanguage === 'go')) ? "Go expression for arc (e.g., amount > 0)" : "Lua expression for arc (e.g., amount > 0)"}
       />
       <div className="text-xs text-neutral-500 mt-1">Lua-like arc expression. Example: <code>amount &gt; 0</code></div>
       <div className="flex items-center gap-2 mt-2">

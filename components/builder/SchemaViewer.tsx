@@ -10,8 +10,10 @@ export interface SchemaViewerProps {
   schemaName: string
   /** Schema data to edit */
   schema: JSONSchema
-  /** Called when schema is updated */
+  /** Called when schema is updated (live updates) */
   onSchemaChange?: (schema: JSONSchema) => void
+  /** Called when user clicks Save button */
+  onSave?: (schema: JSONSchema) => void
   /** Called when user wants to close the viewer */
   onClose?: () => void
 }
@@ -20,6 +22,7 @@ export const SchemaViewer: React.FC<SchemaViewerProps> = ({
   schemaName,
   schema,
   onSchemaChange,
+  onSave,
   onClose
 }) => {
   const [currentSchema, setCurrentSchema] = useState<JSONSchema>(schema)
@@ -39,7 +42,7 @@ export const SchemaViewer: React.FC<SchemaViewerProps> = ({
   }
 
   const handleSave = () => {
-    onSchemaChange?.(currentSchema)
+    onSave?.(currentSchema)
     setHasChanges(false)
   }
 

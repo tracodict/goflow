@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { BuilderStoreProvider, useBuilderStoreContext } from '@/stores/pagebuilder/editor-context'
 import { PageWorkspace } from '@/components/builder/PageWorkspace'
@@ -21,7 +21,8 @@ function PopoutContent() {
   return <PageWorkspace />
 }
 
-export default function PopoutPage() {
+// Component that uses search params - needs to be wrapped in Suspense
+function PopoutPageContent() {
   const searchParams = useSearchParams()
   const tabId = searchParams.get('tabId')
   const title = searchParams.get('title') || 'Page'
@@ -71,5 +72,17 @@ export default function PopoutPage() {
         </BuilderStoreProvider>
       </div>
     </div>
+  )
+}
+
+export default function PopoutPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-screen bg-background">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    }>
+      <PopoutPageContent />
+    </Suspense>
   )
 }

@@ -10,8 +10,8 @@ export interface ServerWorkflow {
   colorSets?: string[]
   jsonSchemas?: { name: string; schema: any }[]
   places: { id: string; name: string; colorSet?: string; position?: { x: number; y: number } }[]
-  transitions: { id: string; name: string; kind?: string; guardExpression?: string; actionExpression?: string; transitionDelay?: number; position?: { x: number; y: number }; formSchema?: string; layoutSchema?: string }[]
-  arcs: { id: string; sourceId: string; targetId: string; expression?: string }[]
+  transitions: { id: string; name: string; kind?: string; guardExpression?: string; actionExpression?: string; transitionDelay?: number; scriptLanguage?: string; position?: { x: number; y: number }; formSchema?: string; layoutSchema?: string }[]
+  arcs: { id: string; sourceId: string; targetId: string; expression?: string; scriptLanguage?: string }[]
   initialMarking?: Record<string, { value: any; timestamp: number }[]>
   endPlaces?: string[]
   // Hierarchical sub workflows: array of objects with at minimum callTransitionId & cpnId
@@ -58,6 +58,7 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
   actionFunction: (t as any).actionFunction,
   actionFunctionOutput: (t as any).actionFunctionOutput,
         transitionDelay: (t as any).transitionDelay,
+        scriptLanguage: (t as any).scriptLanguage || 'go',
         // Map LLM fields (backend may send these when kind == LLM)
         ...(tType === 'LLM' ? {
           llm: {
@@ -85,7 +86,7 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
   })
   sw.arcs.forEach(a => {
     if (nodes.find(n => n.id === a.sourceId) && nodes.find(n => n.id === a.targetId)) {
-      edges.push({ id: a.id, source: a.sourceId, target: a.targetId, type: 'labeled', data: { label: 'arc', expression: a.expression, readonly: (a as any).readonly === true || (a as any).ReadOnly === true } })
+      edges.push({ id: a.id, source: a.sourceId, target: a.targetId, type: 'labeled', data: { label: 'arc', expression: a.expression, readonly: (a as any).readonly === true || (a as any).ReadOnly === true, scriptLanguage: (a as any).scriptLanguage || 'go' } })
     }
   })
   // apply initial marking
@@ -141,6 +142,7 @@ export function graphToServer(
         guardExpression: (n.data as any).guardExpression,
         actionExpression: (n.data as any).actionExpression,
         transitionDelay: (n.data as any).transitionDelay,
+        scriptLanguage: (n.data as any).scriptLanguage || 'go',
         position: n.position,
       }
       if ((n.data as any).tType === 'Manual') {
@@ -181,6 +183,9 @@ export function graphToServer(
     const arc: any = { id: e.id, sourceId: e.source, targetId: e.target, expression: (e.data as any)?.expression || '', direction }
     if ((e.data as any)?.readonly) {
       arc.readonly = true
+    }
+    if ((e.data as any)?.scriptLanguage) {
+      arc.scriptLanguage = (e.data as any).scriptLanguage
     }
     return arc
   })
