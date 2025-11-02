@@ -18,6 +18,7 @@
     "@codemirror/lang-jinja": "^6.0.0",
     "@codemirror/lang-json": "latest",
     "@codemirror/lang-sql": "^6.5.5",
+    "@codemirror/language": "^6.11.3",
     "@codemirror/legacy-modes": "^6.5.1",
     "@codemirror/state": "6.5.2",
     "@codemirror/theme-one-dark": "6.1.3",

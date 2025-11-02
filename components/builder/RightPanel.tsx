@@ -54,25 +54,26 @@ export const RightPanel: React.FC<RightPanelProps> = ({ isOpen, onClose, onOpen,
 			return unsubscribe
 		}, [store, focusedTabId, isWorkflowEditor])
 
-		React.useEffect(() => {
-			if (!flowStore) {
-				setWorkflowSelection(null)
-				setWorkflowSidePanelProps(null)
-				return
-			}
+	React.useEffect(() => {
+		if (!flowStore) {
+			setWorkflowSelection(null)
+			setWorkflowSidePanelProps(null)
+			return
+		}
 
-			setWorkflowSelection(flowStore.getState().selectedEntity)
-			setWorkflowSidePanelProps(flowStore.getState().sidePanelDetail)
+		const initialState = flowStore.getState()
+		setWorkflowSelection(initialState.selectedEntity)
+		setWorkflowSidePanelProps(initialState.sidePanelDetail)
 
-				const unsubscribe = flowStore.subscribe((state) => {
-					setWorkflowSelection(state.selectedEntity)
-					setWorkflowSidePanelProps(state.sidePanelDetail)
-				})
+			const unsubscribe = flowStore.subscribe((state) => {
+				setWorkflowSelection(state.selectedEntity)
+				setWorkflowSidePanelProps(state.sidePanelDetail)
+			})
 
-				return unsubscribe
-		}, [flowStore])
+			return unsubscribe
+	}, [flowStore])
 
-		React.useEffect(() => {
+	React.useEffect(() => {
 			if (flowStore) return
 
 			function handler(e: Event) {

@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import ExplorerPanel from "./explorer-panel"
 import { DeclarationsPanel, type DeclarationsValue } from "./declarations-panel"
+import { GoScriptEditor } from "./go-script-editor"
 // Built-in color sets (not persisted) reused for declarations info UI
 const DEFAULT_COLOR_SETS = ['INT','REAL','STRING','BOOL','UNIT']
 import { Label } from "@/components/ui/label"
@@ -185,8 +186,8 @@ export function SidePanel({
   onAddArc?: () => void
   onDeleteArc?: (id: string) => void
   onColorSetsChange?: (next: string[]) => void
-  onSelectEntity?: (kind: 'place'|'transition'|'arc'|'declarations', id: string) => void
-  selectedEntity?: { kind: 'place'|'transition'|'arc'|'declarations'; id: string } | null
+  onSelectEntity?: (kind: 'place'|'transition'|'arc'|'declarations'|'go-script', id: string) => void
+  selectedEntity?: { kind: 'place'|'transition'|'arc'|'declarations'|'go-script'; id: string } | null
   onRefreshWorkflows?: () => void
   onDeclarationsApply?: (next: DeclarationsValue) => void
 }) {
@@ -233,6 +234,10 @@ export function SidePanel({
         {/* Property section */}
         <div ref={contentRef} className="flex-1 overflow-y-auto overflow-x-visible p-3" style={{ width: '100%' }}>
           {(() => {
+            // If go-script entity selected, render the Go script editor
+            if (selectedEntity?.kind === 'go-script' && selectedEntity.id) {
+              return <GoScriptEditor workflowId={selectedEntity.id} />
+            }
             // If colorSets pseudo-entity selected, render its editor immediately
             if (selectedEntity?.kind === 'declarations' && activeWorkflowId) {
               const meta: any = (workflowMeta as any)?.[activeWorkflowId]

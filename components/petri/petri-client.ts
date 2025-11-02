@@ -156,7 +156,8 @@ export async function fetchWorkflowList(flowServiceUrl: string) {
 }
 
 export async function fetchWorkflow(flowServiceUrl: string, id: string) {
-  const resp = await authFetch(`${flowServiceUrl}/api/cpn/get?id=${encodeURIComponent(id)}`);
+  const baseId = id.replace(/\.cpn$/, '')
+  const resp = await authFetch(`${flowServiceUrl.replace('/flow', '')}/file?path=Workflows/${encodeURIComponent(baseId)}.cpn`);
   if (!resp.ok) throw new Error(`Failed to fetch workflow: ${resp.status}`);
   return resp.json();
 }
@@ -169,6 +170,10 @@ export async function saveWorkflow(flowServiceUrl: string, workflowData: any) {
     console.debug('[petri-client] saveWorkflow called', { flowServiceUrl, base, stack: (new Error()).stack })
   } catch (e) {
     // ignore
+  }
+  // Ensure workflow id is set to the full filename
+  if (workflowData && typeof workflowData.id === 'string') {
+    workflowData.id = workflowData.id.replace(/\.cpn$/, '') + '.cpn'
   }
   // Strip CDN-backed jsonSchema bodies to keep payload lean. Retain only { name } for schemas
   // whose $id (or inferred path) matches the configured dictionaryUrl. Allow opt-out with _local flag.
@@ -585,5 +590,37 @@ export async function fireTokenTransition(flowServiceUrl: string, body: { caseId
 export async function fetchColorsList(flowServiceUrl: string) {
   const resp = await authFetch(`${flowServiceUrl}/api/colors/list`)
   if (!resp.ok) throw new Error(`Failed to fetch colors list: ${resp.status}`)
+  return resp.json()
+}
+
+// ---- Go Script Operations ----
+
+// Generate Go script from CPN network definition
+// POST /api/cpn/scripts/go/{workflowId}/generate
+export async function generateGoScript(flowServiceUrl: string, workflowId: string) {
+  const resp = await authFetch(`${flowServiceUrl}/api/cpn/scripts/go/${encodeURIComponent(workflowId)}/generate`, {
+    method: 'POST',
+  })
+  if (!resp.ok) throw new Error(`Failed to generate Go script: ${resp.status}`)
+  return resp.json()
+}
+
+// Get Go script content
+// GET /api/cpn/scripts/go/{workflowId}
+export async function getGoScript(flowServiceUrl: string, workflowId: string) {
+  const resp = await authFetch(`${flowServiceUrl}/api/cpn/scripts/go/${encodeURIComponent(workflowId)}`)
+  if (!resp.ok) throw new Error(`Failed to fetch Go script: ${resp.status}`)
+  return resp.json()
+}
+
+// Update Go script content
+// POST /api/cpn/scripts/go/{workflowId}
+export async function updateGoScript(flowServiceUrl: string, workflowId: string, script: string) {
+  const resp = await authFetch(`${flowServiceUrl}/api/cpn/scripts/go/${encodeURIComponent(workflowId)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ script }),
+  })
+  if (!resp.ok) throw new Error(`Failed to update Go script: ${resp.status}`)
   return resp.json()
 }

@@ -8,6 +8,7 @@ export type FlowWorkspaceEntity =
   | { kind: "transition"; id: string }
   | { kind: "arc"; id: string }
   | { kind: "declarations"; id: string }
+  | { kind: "go-script"; id: string }
   | null
 
 type FlowWorkspaceState = {

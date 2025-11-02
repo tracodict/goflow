@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { FolderPlus, Trash2, Folder, ChevronRight, ChevronDown, Plus, X, RefreshCw, FileUp } from 'lucide-react';
+import { FolderPlus, Trash2, Folder, ChevronRight, ChevronDown, Plus, X, RefreshCw, FileUp, ScrollText } from 'lucide-react';
 import { saveWorkflow } from '@/components/petri/petri-client';
 import { useSystemSettings } from '@/components/petri/system-settings-context';
 
@@ -61,8 +61,8 @@ interface ExplorerPanelProps {
   onRenameTransition?: (id: string, name: string) => void
   onDeleteTransition?: (id: string) => void
   onDeleteArc?: (id: string) => void
-  onSelectEntity?: (kind: 'place'|'transition'|'arc'|'declarations', id: string) => void
-  selectedEntity?: { kind: 'place'|'transition'|'arc'|'declarations'; id: string } | null
+  onSelectEntity?: (kind: 'place'|'transition'|'arc'|'declarations'|'go-script', id: string) => void
+  selectedEntity?: { kind: 'place'|'transition'|'arc'|'declarations'|'go-script'; id: string } | null
   onRefreshWorkflows?: () => void
 }
 
@@ -267,6 +267,29 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
                       </ul>
                     )}
                   </div>
+                  {/* Go Script - only show if any transition uses scriptLanguage='go' */}
+                  {(() => {
+                    const hasGoTransitions = wfTransitions.some((t: any) => {
+                      const scriptLang = t.data?.scriptLanguage || t.scriptLanguage
+                      return scriptLang === 'go'
+                    })
+                    if (!hasGoTransitions) return null
+                    
+                    const sel = selectedEntity?.kind==='go-script' && selectedEntity.id===w.id
+                    return (
+                      <div>
+                        <div
+                          style={{ display:'flex', alignItems:'center', gap:6, padding:'2px 4px', cursor:'pointer', borderRadius:4, background: sel ? '#e3f2fd':'transparent' }}
+                          onClick={() => onSelectEntity?.('go-script', w.id)}
+                          onMouseEnter={() => setHoverId('go-script-'+w.id)}
+                          onMouseLeave={() => setHoverId(h => h==='go-script-'+w.id? null : h)}
+                        >
+                          <ScrollText  className="h-3.5 w-3.5 text-blue-600" />
+                          <span style={{ fontWeight:500 }}>Go</span>
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
             </div>

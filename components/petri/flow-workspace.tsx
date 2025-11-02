@@ -322,8 +322,12 @@ function CanvasInner() {
     }
   }, [activeSim?.enabledTransitions, openManualSimForm, fireSim])
   
-  // Explorer-only selection (for non-canvas pseudo entities like declarations)
-  const [explorerSelection, setExplorerSelection] = useState<{ kind: 'declarations'; id: string } | null>(null)
+  // Explorer-only selection (for non-canvas pseudo entities like declarations and go-script)
+  const [explorerSelection, setExplorerSelection] = useState<{ kind: 'declarations' | 'go-script'; id: string } | null>(null)
+  // Sync explorerSelection to the store for maximized panel
+  useEffect(() => {
+    flowStore.setState({ selectedEntity: explorerSelection })
+  }, [explorerSelection, flowStore])
 
   // Fetch workflow list from server
   const fetchServerWorkflowList = useCallback(async () => {
@@ -516,6 +520,12 @@ function CanvasInner() {
       } else if (kind === 'declarations') {
         setSelectedRef(null)
         setExplorerSelection({ kind: 'declarations', id })
+        setNodes(nds => nds.map(n => ({ ...n, selected: false })))
+        setEdges(eds => eds.map(e => ({ ...e, selected: false })))
+        setLeftTab('property')
+      } else if (kind === 'go-script') {
+        setSelectedRef(null)
+        setExplorerSelection({ kind: 'go-script', id })
         setNodes(nds => nds.map(n => ({ ...n, selected: false })))
         setEdges(eds => eds.map(e => ({ ...e, selected: false })))
         setLeftTab('property')
@@ -1498,7 +1508,7 @@ function CanvasInner() {
         }))
         setEditedMap((m) => ({ ...m, [activeWorkflowId]: true }))
       },
-      onSelectEntity: (kind: 'place' | 'transition' | 'arc' | 'declarations', id: string) => {
+      onSelectEntity: (kind: 'place' | 'transition' | 'arc' | 'declarations' | 'go-script', id: string) => {
         if (kind === 'place' || kind === 'transition') {
           setExplorerSelection(null)
           setSelectedRef({ type: 'node', id })
@@ -1514,6 +1524,12 @@ function CanvasInner() {
         } else if (kind === 'declarations') {
           setSelectedRef(null)
           setExplorerSelection({ kind: 'declarations', id })
+          setNodes((nds) => nds.map((n) => ({ ...n, selected: false })))
+          setEdges((eds) => eds.map((e) => ({ ...e, selected: false })))
+          setLeftTab('property')
+        } else if (kind === 'go-script') {
+          setSelectedRef(null)
+          setExplorerSelection({ kind: 'go-script', id })
           setNodes((nds) => nds.map((n) => ({ ...n, selected: false })))
           setEdges((eds) => eds.map((e) => ({ ...e, selected: false })))
           setLeftTab('property')

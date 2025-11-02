@@ -191,7 +191,67 @@ export const Builder: React.FC = () => {
         </div>
       )}
       <div className="flex-1 flex overflow-hidden relative">
-        {isLeftPanelMaximized ? (
+        {!isPreviewMode && !isLeftPanelMaximized && (
+          <div style={{ width: isLeftPanelOpen ? leftPanelWidth : 48, minWidth: 48, maxWidth: 600, position: 'relative' }}>
+            <LeftPanel
+              isOpen={isLeftPanelOpen}
+              onClose={() => {
+                setLeftPanelOpen(false)
+                setLeftPanelMaximized(false)
+              }}
+              onOpen={() => setLeftPanelOpen(true)}
+              activeTab={activeTab}
+              setActiveTab={handleSetActiveTab}
+              onSchemaSelect={handleSchemaSelect}
+              isMaximized={false}
+              onToggleMaximize={() => {
+                setLeftPanelOpen(true)
+                setLeftPanelMaximized(true)
+                setRightPanelMaximized(false)
+              }}
+              activeEditorType={activeEditorType}
+            />
+            {isLeftPanelOpen && (
+              <ResizeHandle direction="left" onResize={(delta) => setLeftPanelWidth(leftPanelWidth + delta)} />
+            )}
+          </div>
+        )}
+
+        <MainPanel
+          activeTab={activeTab}
+          selectedSchema={selectedSchema}
+          onSchemaChange={handleSchemaChange}
+          onSchemaClose={handleSchemaClose}
+          leftPanelWidth={leftPanelWidth}
+          rightPanelWidth={rightPanelWidth}
+          isLeftPanelOpen={isLeftPanelOpen}
+          isRightPanelOpen={isRightPanelOpen}
+          onFocusedTabChange={handleFocusedTabChange}
+        />
+
+        {!isPreviewMode && isRightPanelOpen && !isRightPanelMaximized && (
+          <div style={{ width: rightPanelWidth, minWidth: 200, maxWidth: 600, position: 'relative' }}>
+            <ResizeHandle direction="right" onResize={(delta) => setRightPanelWidth(rightPanelWidth + delta)} />
+            <RightPanel
+              isOpen={isRightPanelOpen}
+              onClose={() => {
+                setRightPanelOpen(false)
+                setRightPanelMaximized(false)
+              }}
+              onOpen={() => setRightPanelOpen(true)}
+              activeTab={activeTab}
+              activeEditorType={activeEditorType}
+              isMaximized={false}
+              onToggleMaximize={() => {
+                setRightPanelOpen(true)
+                setRightPanelMaximized(true)
+                setLeftPanelMaximized(false)
+              }}
+            />
+          </div>
+        )}
+
+        {isLeftPanelMaximized && (
           <div className="absolute inset-0 z-40 bg-background">
             <LeftPanel
               isOpen
@@ -211,7 +271,9 @@ export const Builder: React.FC = () => {
               activeEditorType={activeEditorType}
             />
           </div>
-        ) : isRightPanelMaximized ? (
+        )}
+
+        {isRightPanelMaximized && (
           <div className="absolute inset-0 z-40 bg-background">
             <RightPanel
               isOpen
@@ -229,70 +291,6 @@ export const Builder: React.FC = () => {
               }}
             />
           </div>
-        ) : (
-          <>
-            {!isPreviewMode && (
-              <div style={{ width: isLeftPanelOpen ? leftPanelWidth : 48, minWidth: 48, maxWidth: 600, position: 'relative' }}>
-                <LeftPanel
-                  isOpen={isLeftPanelOpen}
-                  onClose={() => {
-                    setLeftPanelOpen(false)
-                    setLeftPanelMaximized(false)
-                  }}
-                  onOpen={() => setLeftPanelOpen(true)}
-                  activeTab={activeTab}
-                  setActiveTab={handleSetActiveTab}
-                  onSchemaSelect={handleSchemaSelect}
-                  isMaximized={false}
-                  onToggleMaximize={() => {
-                    setLeftPanelOpen(true)
-                    setLeftPanelMaximized(true)
-                    setRightPanelMaximized(false)
-                  }}
-                  activeEditorType={activeEditorType}
-                />
-                {isLeftPanelOpen && (
-                  <ResizeHandle direction="left" onResize={(delta) => setLeftPanelWidth(leftPanelWidth + delta)} />
-                )}
-              </div>
-            )}
-
-            <MainPanel
-              activeTab={activeTab}
-              selectedSchema={selectedSchema}
-              onSchemaChange={handleSchemaChange}
-              onSchemaClose={handleSchemaClose}
-              leftPanelWidth={leftPanelWidth}
-              rightPanelWidth={rightPanelWidth}
-              isLeftPanelOpen={isLeftPanelOpen}
-              isRightPanelOpen={isRightPanelOpen}
-              onFocusedTabChange={handleFocusedTabChange}
-            />
-
-            {!isPreviewMode && isRightPanelOpen && (
-              <div style={{ width: rightPanelWidth, minWidth: 200, maxWidth: 600, position: 'relative' }}>
-                {isRightPanelOpen && (
-                  <ResizeHandle direction="right" onResize={(delta) => setRightPanelWidth(rightPanelWidth + delta)} />
-                )}
-                <RightPanel
-                  isOpen={isRightPanelOpen}
-                  onClose={() => {
-                    setRightPanelOpen(false)
-                    setRightPanelMaximized(false)
-                  }}
-                  onOpen={() => setRightPanelOpen(true)}
-                  activeTab={activeTab}
-                  activeEditorType={activeEditorType}
-                  isMaximized={false}
-                  onToggleMaximize={() => {
-                    setRightPanelOpen(true)
-                    setRightPanelMaximized(true)
-                    setLeftPanelMaximized(false)
-                  }}
-                />
-              </div>
-            )}
-          </>
         )}
       </div>
       </div>
