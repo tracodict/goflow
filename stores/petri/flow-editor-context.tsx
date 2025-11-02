@@ -26,7 +26,7 @@ const createFlowWorkspaceStore = () =>
     setSidePanelDetail: (detail) => set({ sidePanelDetail: detail }),
   }))
 
-type FlowWorkspaceStore = UseBoundStore<StoreApi<FlowWorkspaceState>>
+export type FlowWorkspaceStore = UseBoundStore<StoreApi<FlowWorkspaceState>>
 
 const FlowWorkspaceStoreContext = createContext<FlowWorkspaceStore | null>(null)
 

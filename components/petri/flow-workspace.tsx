@@ -1,7 +1,7 @@
 "use client"
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-// @ts-ignore dynamic form shared component (run mode)
+// @ts-ignore dynamic
 import { DynamicForm } from '@/components/run/forms/dynamic-form'
 import "@xyflow/react/dist/style.css"
 import {
@@ -1570,18 +1570,17 @@ function CanvasInner() {
 
   useEffect(() => {
     const storeState = flowStore.getState()
-    if (storeState.sidePanelDetail !== sidePanelDetail) {
-      storeState.setSidePanelDetail(sidePanelDetail)
+    if (storeState.selectedEntity !== selectedEntity) {
+      flowStore.setState({ selectedEntity })
     }
-    window.dispatchEvent(new CustomEvent('goflow-sidepanel-props', { detail: sidePanelDetail }))
-  }, [flowStore, sidePanelDetail])
+  }, [flowStore, selectedEntity])
 
   useEffect(() => {
     const storeState = flowStore.getState()
-    if (storeState.selectedEntity !== selectedEntity) {
-      storeState.setSelectedEntity(selectedEntity)
+    if (storeState.sidePanelDetail !== sidePanelDetail) {
+      flowStore.setState({ sidePanelDetail })
     }
-  }, [flowStore, selectedEntity])
+  }, [flowStore, sidePanelDetail])
 
   return (
     <div ref={containerRef} className="flex h-full w-full gap-4">

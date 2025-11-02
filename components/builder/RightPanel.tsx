@@ -6,104 +6,73 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs"
 import { StylesTab } from "./tabs/StylesTab"
 import { PropertiesTab } from "./tabs/PropertiesTab"
 import { SidePanel } from "../petri/side-panel"
-import { useFocusedTabStore, useFocusedTabId } from "../../stores/pagebuilder/editor-context"
-import { getFlowWorkspaceStore, type FlowWorkspaceEntity } from "../../stores/petri/flow-editor-context"
-import { X, GripVertical, Maximize2, Minimize2 } from "lucide-react"
-import { Button } from "../ui/button"
-import type { EditorType } from "./MainPanel"
+import { useStore } from "zustand";
+import { useFocusedTabStore, useFocusedTabId } from "../../stores/pagebuilder/editor-context";
+import { getFlowWorkspaceStore, type FlowWorkspaceEntity, type FlowWorkspaceStore } from "../../stores/petri/flow-editor-context";
+import { X, GripVertical, Maximize2, Minimize2 } from "lucide-react";
+import { Button } from "../ui/button";
+import type { EditorType } from "./MainPanel";
 
 type RightPanelProps = {
-	isOpen: boolean
-	onClose: () => void
-	onOpen: () => void
-	activeTab?: string
-	activeEditorType?: EditorType | null
-  isMaximized: boolean
-  onToggleMaximize: () => void
-}
+	isOpen: boolean;
+	onClose: () => void;
+	onOpen: () => void;
+	activeTab?: string;
+	activeEditorType?: EditorType | null;
+  isMaximized: boolean;
+  onToggleMaximize: () => void;
+};
 
+// This hook subscribes to the flow store and returns the relevant state.
+// It handles the case where the store might not exist for the current tab.
+const useFlowSelection = (store: FlowWorkspaceStore | null): { selectedEntity: FlowWorkspaceEntity | null, sidePanelDetail: any | null } => {
+  const [selection, setSelection] = React.useState<{ selectedEntity: FlowWorkspaceEntity | null, sidePanelDetail: any | null }>({ selectedEntity: null, sidePanelDetail: null });
+
+  React.useEffect(() => {
+    if (!store) {
+      setSelection({ selectedEntity: null, sidePanelDetail: null });
+      return;
+    }
+
+    // Set initial state from the store
+    const initialState = store.getState();
+    setSelection({
+      selectedEntity: initialState.selectedEntity,
+      sidePanelDetail: initialState.sidePanelDetail,
+    });
+
+    // Subscribe to future changes
+    const unsubscribe = store.subscribe((state) => {
+      setSelection({
+        selectedEntity: state.selectedEntity,
+        sidePanelDetail: state.sidePanelDetail,
+      });
+    });
+
+    return unsubscribe;
+  }, [store]);
+
+  return selection;
+};
 
 export const RightPanel: React.FC<RightPanelProps> = ({ isOpen, onClose, onOpen, activeTab, activeEditorType, isMaximized, onToggleMaximize }) => {
-		const [workflowSidePanelProps, setWorkflowSidePanelProps] = React.useState<any | null>(null)
-		const [selectedElementId, setSelectedElementId] = React.useState<string | null>(null)
-		const [workflowSelection, setWorkflowSelection] = React.useState<FlowWorkspaceEntity>(null)
-		const focusedTabId = useFocusedTabId()
-		const store = useFocusedTabStore()
-		const flowStore = focusedTabId ? getFlowWorkspaceStore(focusedTabId) ?? null : null
-		const isWorkflowEditor = activeEditorType === 'workflow'
-	
-	// Subscribe to selectedElementId changes from the focused tab's store
-	React.useEffect(() => {
-			if (isWorkflowEditor) {
-				setSelectedElementId(null)
-				return
-			}
+		const focusedTabId = useFocusedTabId();
+		const pageStore = useFocusedTabStore();
+		const flowStore = focusedTabId ? getFlowWorkspaceStore(focusedTabId) ?? null : null;
+		const isWorkflowEditor = activeEditorType === 'workflow';
 
-			const initialValue = store.getState().selectedElementId
-			setSelectedElementId(initialValue)
+		const selectedElementId = useStore(pageStore, (state) => state.selectedElementId);
+		const { selectedEntity: workflowSelection, sidePanelDetail: workflowSidePanelProps } = useFlowSelection(isWorkflowEditor ? flowStore : null);
 
-			let previousValue = initialValue
-			const unsubscribe = store.subscribe(() => {
-				const currentValue = store.getState().selectedElementId
-				if (currentValue !== previousValue) {
-					previousValue = currentValue
-					setSelectedElementId(currentValue)
-				}
-			})
-
-			return unsubscribe
-		}, [store, focusedTabId, isWorkflowEditor])
-
-	React.useEffect(() => {
-		if (!flowStore) {
-			setWorkflowSelection(null)
-			setWorkflowSidePanelProps(null)
-			return
-		}
-
-		const initialState = flowStore.getState()
-		setWorkflowSelection(initialState.selectedEntity)
-		setWorkflowSidePanelProps(initialState.sidePanelDetail)
-
-			const unsubscribe = flowStore.subscribe((state) => {
-				setWorkflowSelection(state.selectedEntity)
-				setWorkflowSidePanelProps(state.sidePanelDetail)
-			})
-
-			return unsubscribe
-	}, [flowStore])
-
-	React.useEffect(() => {
-			if (flowStore) return
-
-			function handler(e: Event) {
-				const ev = e as CustomEvent
-				const detail = ev.detail ?? null
-				if (typeof queueMicrotask === 'function') {
-					queueMicrotask(() => {
-						setWorkflowSidePanelProps(detail)
-						setWorkflowSelection(detail?.selectedEntity ?? null)
-					})
-				} else {
-					setTimeout(() => {
-						setWorkflowSidePanelProps(detail)
-						setWorkflowSelection(detail?.selectedEntity ?? null)
-					}, 0)
-				}
-			}
-
-			window.addEventListener('goflow-sidepanel-props', handler as EventListener)
-			return () => window.removeEventListener('goflow-sidepanel-props', handler as EventListener)
-		}, [flowStore])
-	if (!isOpen) return null
+	if (!isOpen) return null;
 
 	const headerLabel = isWorkflowEditor
-			? (workflowSidePanelProps || workflowSelection ? 'Workflow' : 'No Selection')
-		: (selectedElementId ? "Element" : "No Selection")
+			? (workflowSelection ? 'Workflow' : 'No Selection')
+		: (selectedElementId ? "Element" : "No Selection");
   const containerClasses = [
     "bg-background border-l border-border h-full flex flex-col relative",
     isMaximized ? "w-full max-w-none" : "min-w-[200px] max-w-[600px]"
-  ].join(' ')
+  ].join(' ');
 
 	return (
 		<div className={containerClasses}>
@@ -159,5 +128,5 @@ export const RightPanel: React.FC<RightPanelProps> = ({ isOpen, onClose, onOpen,
 				</div>
 			)}
 		</div>
-	)
-}
+	);
+};
