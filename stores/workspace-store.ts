@@ -267,7 +267,15 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     try {
       const res = await fetch(`${basePath}/tree`)
       if (!res.ok) {
-        throw new Error('Failed to load file tree')
+        let errorMessage = 'Failed to load file tree'
+        try {
+          const errorData = await res.json()
+          errorMessage = errorData.error || errorMessage
+        } catch {
+          // If we can't parse the error response, use the status text
+          errorMessage = res.statusText || errorMessage
+        }
+        throw new Error(errorMessage)
       }
 
       const tree = await res.json()
@@ -279,6 +287,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       })
     } catch (error: any) {
       console.error('Workspace restore failed:', error)
+      
+      let errorMessage = 'Failed to load file tree'
+      if (error?.message) {
+        errorMessage = error.message
+      }
+      
       clearWorkspaceStorage()
       set({
         workspaceId: null,
@@ -289,6 +303,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         files: new Map(),
         tree: [],
         isRestoring: false
+      })
+
+      toast({
+        title: 'Failed to restore workspace',
+        description: errorMessage,
+        variant: 'destructive'
       })
     }
   },

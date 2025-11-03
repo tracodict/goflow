@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react"
 import { FlowWorkspace } from "../petri/flow-workspace"
 import { useWorkspace } from "@/stores/workspace-store"
 import { getTabState, setTabState } from "@/stores/pagebuilder/tab-state-cache"
-import { FlowWorkspaceStoreProvider, clearFlowWorkspaceStore } from "@/stores/petri/flow-editor-context"
+import { disposeFlowWorkspaceStore } from "@/stores/petri/flow-editor-context"
 
 interface FlowWorkspaceLoaderProps {
   tabId: string
@@ -97,25 +97,23 @@ export const FlowWorkspaceLoader: React.FC<FlowWorkspaceLoaderProps> = ({ tabId,
 
   useEffect(() => {
     return () => {
-      clearFlowWorkspaceStore(tabId)
+      disposeFlowWorkspaceStore(tabId)
     }
   }, [tabId])
 
   return (
-    <FlowWorkspaceStoreProvider tabId={tabId}>
-      <div className="relative h-full">
-        <FlowWorkspace />
-        {loading ? (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/80 text-sm text-muted-foreground">
-            Loading workflow…
-          </div>
-        ) : null}
-        {error ? (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-destructive/10 text-sm text-destructive">
-            {error}
-          </div>
-        ) : null}
-      </div>
-    </FlowWorkspaceStoreProvider>
+    <div className="relative h-full">
+      <FlowWorkspace />
+      {loading ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/80 text-sm text-muted-foreground">
+          Loading workflow…
+        </div>
+      ) : null}
+      {error ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-destructive/10 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
+    </div>
   )
 }

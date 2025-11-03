@@ -624,3 +624,30 @@ export async function updateGoScript(flowServiceUrl: string, workflowId: string,
   if (!resp.ok) throw new Error(`Failed to update Go script: ${resp.status}`)
   return resp.json()
 }
+
+export async function syncGoScript(baseUrl: string, workflowId: string) {
+  const response = await fetch(`${baseUrl}/api/cpn/scripts/go/${workflowId}/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+export async function getCpn(baseUrl: string, workflowId: string) {
+  const response = await fetch(`${baseUrl}/api/cpn/${workflowId}`, {
+    method: 'GET',
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
+  }
+
+  return response.json()
+}

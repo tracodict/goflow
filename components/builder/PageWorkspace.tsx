@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useEffect } from "react"
-import { useBuilderStoreContext } from "../../stores/pagebuilder/editor-context"
+import { getTabStore } from "../../stores/pagebuilder/editor-context"
 import { PageElement } from "./PageElement"
 import { VerticalToolbar } from "./VerticalToolbar"
 
@@ -19,7 +19,10 @@ export const PageWorkspace: React.FC<WorkspaceProps> = ({
 	tabId,
 	onActivate
 }) => {
-	const store = useBuilderStoreContext()
+	const store = tabId ? getTabStore(tabId) : null
+	if (!store) {
+		return <div className="flex items-center justify-center h-full text-muted-foreground">Loading workspace...</div>
+	}
 	const { selectElement, setHoveredElement, isPreviewMode, selectedElementId, removeElement } = store()
 
 	useEffect(() => {

@@ -54,8 +54,20 @@ export async function GET(_: NextRequest, context: RouteParams) {
     return NextResponse.json(hierarchical)
   } catch (error: any) {
     console.error('GitHub tree error:', error)
+    
+    let errorMessage = 'Failed to load file tree'
+    if (error?.status === 404) {
+      errorMessage = `Repository or branch not found: ${owner}/${repo}@${branch}`
+    } else if (error?.status === 403) {
+      errorMessage = `Access denied to repository: ${owner}/${repo}. Check your permissions.`
+    } else if (error?.status === 401) {
+      errorMessage = 'GitHub authentication failed. Please re-authenticate.'
+    } else if (error?.message) {
+      errorMessage = error.message
+    }
+    
     return NextResponse.json(
-      { error: error?.message || 'Failed to load file tree' },
+      { error: errorMessage },
       { status: 500 }
     )
   }

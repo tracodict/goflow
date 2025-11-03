@@ -123,8 +123,10 @@ type LeftPanelProps = {
 				setSelectedWorkflowId(null)
 				return
 			}
-			setLoadingWorkflow(true)
-			setWorkflowError(null)
+			setTimeout(() => {
+				setLoadingWorkflow(true)
+				setWorkflowError(null)
+			}, 0)
 			try {
 				const res = await fetchWorkflow(flowServiceUrl, id)
 				const swf = res?.data ?? res

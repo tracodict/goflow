@@ -24,3 +24,7 @@ export async function PUT(_request: NextRequest, _context: RouteParams) {
 export async function POST(_request: NextRequest, _context: RouteParams) {
   return notImplemented()
 }
+
+export async function DELETE(_request: NextRequest, _context: RouteParams) {
+  return notImplemented()
+}

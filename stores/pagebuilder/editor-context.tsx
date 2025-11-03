@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useRef, useMemo, useEffect } from 'react'
 import { create, StoreApi, UseBoundStore } from 'zustand'
+import { getTabState } from './tab-state-cache'
 import type { BuilderState } from './editor'
 import { useBuilderStore } from './editor'
 
@@ -242,7 +243,27 @@ export const useFocusedTabStore = (): BuilderStoreType => {
   if (!focusedTabId) {
     return useBuilderStore
   }
-  return getTabStore(focusedTabId) || useBuilderStore
+  // Ensure store exists for this tab
+  if (!storeCache.has(focusedTabId)) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[PageStore] Creating store for tab ${focusedTabId}`);
+    }
+    // Load initial elements from cache if this is a file tab
+    let initialElements: Record<string, any> | undefined
+    if (focusedTabId.startsWith('file:')) {
+      const filePath = focusedTabId.substring(5) // Remove 'file:' prefix
+      const cachedState = getTabState(filePath)
+      if (cachedState) {
+        initialElements = cachedState
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`[PageStore] Loaded cached elements for ${filePath}:`, Object.keys(initialElements).length, 'elements');
+        }
+      }
+    }
+    const newStore = createBuilderStore(initialElements)
+    storeCache.set(focusedTabId, newStore)
+  }
+  return storeCache.get(focusedTabId)!
 }
 
 // Hook to safely get store state with a selector; defaults are fallback only before hydration

@@ -1272,11 +1272,8 @@ const PageWorkspaceLoader: React.FC<PageWorkspaceLoaderProps> = ({ tabId, filePa
   // Wrap PageWorkspace in BuilderStoreProvider to give each tab its own store
   // Pass tabId and initialElements to create isolated store instance
   return (
-    <BuilderStoreProvider 
-      tabId={tabId}
-      initialElements={localElements || undefined}
-    >
-      <PageWorkspace 
+    <BuilderStoreProvider tabId={tabId} initialElements={localElements || undefined}>
+      <PageWorkspace
         panelId={panelId}
         tabId={tabId}
         onActivate={onActivate}

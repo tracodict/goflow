@@ -30,54 +30,24 @@ export type FlowWorkspaceStore = UseBoundStore<StoreApi<FlowWorkspaceState>>
 
 const FlowWorkspaceStoreContext = createContext<FlowWorkspaceStore | null>(null)
 
-const flowStoreCache = new Map<string, FlowWorkspaceStore>()
+// Global map to hold flow stores by tab ID
+const flowStores = new Map<string, FlowWorkspaceStore>();
 
-interface FlowWorkspaceStoreProviderProps {
-  tabId: string
-  children: React.ReactNode
-}
-
-export const FlowWorkspaceStoreProvider: React.FC<FlowWorkspaceStoreProviderProps> = ({
-  tabId,
-  children,
-}) => {
-  const store = useMemo(() => {
-    if (flowStoreCache.has(tabId)) {
-      return flowStoreCache.get(tabId)!
+export function getFlowWorkspaceStore(tabId: string): FlowWorkspaceStore {
+  if (!flowStores.has(tabId)) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[FlowStore] Creating store for tab ${tabId}`);
     }
-    const nextStore = createFlowWorkspaceStore()
-    flowStoreCache.set(tabId, nextStore)
-    return nextStore
-  }, [tabId])
-
-  useEffect(() => {
-    return () => {
-      const cached = flowStoreCache.get(tabId)
-      if (cached === store) {
-        flowStoreCache.delete(tabId)
-      }
-    }
-  }, [store, tabId])
-
-  return (
-    <FlowWorkspaceStoreContext.Provider value={store}>
-      {children}
-    </FlowWorkspaceStoreContext.Provider>
-  )
-}
-
-export const useFlowWorkspaceStoreContext = (): FlowWorkspaceStore => {
-  const store = useContext(FlowWorkspaceStoreContext)
-  if (!store) {
-    throw new Error("useFlowWorkspaceStoreContext must be used within FlowWorkspaceStoreProvider")
+    flowStores.set(tabId, createFlowWorkspaceStore());
   }
-  return store
+  return flowStores.get(tabId)!;
 }
 
-export const getFlowWorkspaceStore = (tabId: string): FlowWorkspaceStore | undefined => {
-  return flowStoreCache.get(tabId)
-}
-
-export const clearFlowWorkspaceStore = (tabId: string) => {
-  flowStoreCache.delete(tabId)
+export function disposeFlowWorkspaceStore(tabId: string) {
+  if (flowStores.has(tabId)) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[FlowStore] Disposing store for tab ${tabId}`);
+    }
+    flowStores.delete(tabId);
+  }
 }

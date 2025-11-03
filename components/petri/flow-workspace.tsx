@@ -60,8 +60,9 @@ import { Button as UIButton } from '@/components/ui/button'
 import { useFlowServiceUrl } from '@/hooks/use-flow-service-url'
 import CodeMirror from '@uiw/react-codemirror'
 import { useWorkspace } from '@/stores/workspace-store'
-import { useFlowWorkspaceStoreContext } from '@/stores/petri/flow-editor-context'
+import { getFlowWorkspaceStore } from '@/stores/petri/flow-editor-context'
 import { setTabState } from '@/stores/pagebuilder/tab-state-cache'
+import { useFocusedTabId } from '@/stores/pagebuilder/editor-context'
 
 const nodeTypes = { place: PlaceNode, transition: TransitionNode } as any
 const edgeTypes = { labeled: LabeledEdge } as any
@@ -120,7 +121,8 @@ function CanvasInner() {
     y: 0,
     nodeId: null,
   })
-  const flowStore = useFlowWorkspaceStoreContext()
+  const focusedTabId = useFocusedTabId()
+  const flowStore = focusedTabId ? getFlowWorkspaceStore(focusedTabId) : null
   const [showSystem, setShowSystem] = useState<boolean>(false)
   const [systemTab, setSystemTab] = useState<'simulation' | 'settings' | 'mcp'>('simulation')
   // Removed workflow picker state (direct simulation start only)
@@ -326,7 +328,9 @@ function CanvasInner() {
   const [explorerSelection, setExplorerSelection] = useState<{ kind: 'declarations' | 'go-script'; id: string } | null>(null)
   // Sync explorerSelection to the store for maximized panel
   useEffect(() => {
-    flowStore.setState({ selectedEntity: explorerSelection })
+    if (flowStore) {
+      flowStore.setState({ selectedEntity: explorerSelection })
+    }
   }, [explorerSelection, flowStore])
 
   // Fetch workflow list from server
@@ -1569,16 +1573,20 @@ function CanvasInner() {
   ])
 
   useEffect(() => {
-    const storeState = flowStore.getState()
-    if (storeState.selectedEntity !== selectedEntity) {
-      flowStore.setState({ selectedEntity })
+    if (flowStore) {
+      const storeState = flowStore.getState()
+      if (storeState.selectedEntity !== selectedEntity) {
+        flowStore.setState({ selectedEntity })
+      }
     }
   }, [flowStore, selectedEntity])
 
   useEffect(() => {
-    const storeState = flowStore.getState()
-    if (storeState.sidePanelDetail !== sidePanelDetail) {
-      flowStore.setState({ sidePanelDetail })
+    if (flowStore) {
+      const storeState = flowStore.getState()
+      if (storeState.sidePanelDetail !== sidePanelDetail) {
+        flowStore.setState({ sidePanelDetail })
+      }
     }
   }, [flowStore, sidePanelDetail])
 

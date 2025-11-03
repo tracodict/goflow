@@ -3,13 +3,20 @@
 import React, { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Play, RefreshCw, Save, FileCode } from "lucide-react"
-import { generateGoScript, getGoScript, updateGoScript } from "./petri-client"
+import {
+  generateGoScript,
+  getGoScript,
+  updateGoScript,
+  syncGoScript,
+  getCpn,
+} from "./petri-client";
 import { useFlowServiceUrl } from '@/hooks/use-flow-service-url'
 import { toast } from '@/hooks/use-toast'
 import { EditorView, basicSetup } from "codemirror"
 import { EditorState, type Extension } from "@codemirror/state"
 import { StreamLanguage } from "@codemirror/language"
 import { go } from "@codemirror/legacy-modes/mode/go"
+import { useWorkspace } from "@/stores/workspace-store";
 
 interface GoScriptEditorProps {
   workflowId: string
@@ -18,6 +25,7 @@ interface GoScriptEditorProps {
 
 export function GoScriptEditor({ workflowId, onClose }: GoScriptEditorProps) {
   const flowServiceUrl = useFlowServiceUrl({ includeDefault: false })
+  const { saveFile } = useWorkspace();
   const [script, setScript] = useState<string>("")
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
@@ -125,26 +133,46 @@ export function GoScriptEditor({ workflowId, onClose }: GoScriptEditorProps) {
   }, [flowServiceUrl, workflowId])
 
   const handleSave = useCallback(async () => {
-    if (!flowServiceUrl || !workflowId) return
-    
-    setSaving(true)
+    if (!flowServiceUrl || !workflowId) return;
+
+    setSaving(true);
     try {
-      await updateGoScript(flowServiceUrl, workflowId, script)
-      setHasChanges(false)
+      // 1. Update script
+      await updateGoScript(flowServiceUrl, workflowId, script);
       toast({
         title: "Script saved",
-        description: "Go script has been updated successfully",
-      })
+        description: "Go script has been updated successfully.",
+      });
+
+      // 2. Sync script to CPN
+      await syncGoScript(flowServiceUrl, workflowId);
+      toast({
+        title: "Script synced",
+        description: "Changes have been synced to the CPN model.",
+      });
+
+      // 3. Get updated CPN and sync to store
+      const updatedCpn = await getCpn(flowServiceUrl, workflowId);
+      if (updatedCpn.data) {
+        const filePath = `Workflows/${workflowId}.cpn`;
+        await saveFile(filePath, JSON.stringify(updatedCpn.data, null, 2));
+        toast({
+          title: "Workflow updated",
+          description: `Saved updated CPN model to ${filePath}.`,
+        });
+      }
+
+      setHasChanges(false);
     } catch (error: any) {
       toast({
-        title: "Save failed",
-        description: error?.message || "Failed to save Go script",
+        title: "An error occurred",
+        description: error?.message || "One or more steps failed.",
         variant: "destructive",
-      })
+      });
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }, [flowServiceUrl, workflowId, script])
+  }, [flowServiceUrl, workflowId, script, saveFile]);
 
   const handleRefresh = useCallback(async () => {
     if (!flowServiceUrl || !workflowId) return

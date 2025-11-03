@@ -58,11 +58,35 @@ const useFlowSelection = (store: FlowWorkspaceStore | null): { selectedEntity: F
 export const RightPanel: React.FC<RightPanelProps> = ({ isOpen, onClose, onOpen, activeTab, activeEditorType, isMaximized, onToggleMaximize }) => {
 		const focusedTabId = useFocusedTabId();
 		const pageStore = useFocusedTabStore();
-		const flowStore = focusedTabId ? getFlowWorkspaceStore(focusedTabId) ?? null : null;
 		const isWorkflowEditor = activeEditorType === 'workflow';
+	const [flowStoreVersion, bumpFlowStoreVersion] = React.useState(0);
+	const lastFlowStoreRef = React.useRef<FlowWorkspaceStore | null>(null);
+
+	React.useEffect(() => {
+		if (!isWorkflowEditor || !focusedTabId) {
+			if (lastFlowStoreRef.current !== null) {
+				lastFlowStoreRef.current = null;
+				bumpFlowStoreVersion((v) => v + 1);
+			}
+			return;
+		}
+
+		const currentStore = getFlowWorkspaceStore(focusedTabId) ?? null;
+		if (currentStore !== lastFlowStoreRef.current) {
+			lastFlowStoreRef.current = currentStore;
+			bumpFlowStoreVersion((v) => v + 1);
+			if (process.env.NODE_ENV !== 'production') {
+				console.debug('[RightPanel] flow store change detected', { tabId: focusedTabId, hasStore: !!currentStore });
+			}
+		}
+	}, [isWorkflowEditor, focusedTabId]);
 
 		const selectedElementId = useStore(pageStore, (state) => state.selectedElementId);
-		const { selectedEntity: workflowSelection, sidePanelDetail: workflowSidePanelProps } = useFlowSelection(isWorkflowEditor ? flowStore : null);
+	const focusedFlowStore = React.useMemo<FlowWorkspaceStore | null>(() => {
+		if (!isWorkflowEditor || !focusedTabId) return null;
+		return getFlowWorkspaceStore(focusedTabId) ?? null;
+	}, [isWorkflowEditor, focusedTabId, flowStoreVersion]);
+		const { selectedEntity: workflowSelection, sidePanelDetail: workflowSidePanelProps } = useFlowSelection(isWorkflowEditor ? focusedFlowStore : null);
 
 	if (!isOpen) return null;
 

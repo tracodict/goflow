@@ -19,7 +19,8 @@ export async function POST(_: NextRequest, { params }: RouteParams) {
   }
 
   const octokit = new Octokit({ auth: token })
-  const { owner, repo, branch } = parseGitHubWorkspaceId(params.workspaceId)
+  const { workspaceId } = await params
+  const { owner, repo, branch } = parseGitHubWorkspaceId(workspaceId)
 
   try {
     for (const folder of WORKSPACE_FOLDERS) {
