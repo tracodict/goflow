@@ -78,13 +78,12 @@ export function useSimulation({ flowServiceUrl, workflowId }: UseSimulationOptio
     return () => { if (refreshTimerRef.current) clearInterval(refreshTimerRef.current) }
   }, [activeSimId, refreshActive])
 
-  const start = useCallback(async (opts?: { name?: string; description?: string; variables?: any; cpnName?: string }) => {
+  const start = useCallback(async (opts?: { name?: string; description?: string; variables?: any }) => {
     if (!flowServiceUrl || !workflowId) return
     setLoading(true); setError(null)
     try {
       const body = {
         cpnId: workflowId,
-        ...(opts?.cpnName ? { cpnName: opts.cpnName } : {}),
         ...(opts?.name ? { name: opts.name } : {}),
         ...(opts?.description ? { description: opts.description } : {}),
         ...(opts?.variables ? { variables: opts.variables } : {}),

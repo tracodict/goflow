@@ -269,12 +269,13 @@ function ImportFileDialog({ open, onOpenChange }: ImportFileDialogProps) {
   const [loading, setLoading] = useState(false)
   const [dragging, setDragging] = useState(false)
 
-  const { workspaceId, tree, loadFileTree, openFile, saveWorkspace } = useWorkspace((state) => ({
+  const { workspaceId, tree, loadFileTree, openFile, saveWorkspace, reopenWorkspace } = useWorkspace((state) => ({
     workspaceId: state.workspaceId,
     tree: state.tree,
     loadFileTree: state.loadFileTree,
     openFile: state.openFile,
     saveWorkspace: state.saveWorkspace,
+    reopenWorkspace: state.reopenWorkspace,
   }))
 
   useEffect(() => {
@@ -389,8 +390,10 @@ function ImportFileDialog({ open, onOpenChange }: ImportFileDialogProps) {
         description: targetPath,
       })
 
+      let committed = false
       try {
         await saveWorkspace(`Import ${finalName}`)
+        committed = true
       } catch (err: any) {
         console.error('Auto-commit failed after import:', err)
         toast({
@@ -398,6 +401,20 @@ function ImportFileDialog({ open, onOpenChange }: ImportFileDialogProps) {
           description: 'Imported file, but automatic GitHub commit failed. Please save the workspace manually.',
           variant: 'destructive',
         })
+      }
+
+      if (committed) {
+        try {
+          await reopenWorkspace()
+          await openFile(targetPath)
+        } catch (err: any) {
+          console.error('Workspace refresh failed after import:', err)
+          toast({
+            title: 'Workspace refresh failed',
+            description: 'Imported file was committed, but the draft workspace could not be reopened automatically. Please open the workspace manually to continue.',
+            variant: 'destructive',
+          })
+        }
       }
 
       onOpenChange(false)

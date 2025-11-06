@@ -716,77 +716,71 @@ function TransitionEditor({
         />
       </div>
 
-      {tType !== 'Tools' && (
-        <div ref={inscRef} className="space-y-2">
-            <Label className="text-sm">Guard Expression</Label>
-            <div className="flex items-center gap-2 mb-2">
-              <label className="inline-flex items-center gap-2 text-sm">
-                <span className="text-sm">Language:</span>
-                <select
-                  value={scriptLanguage}
-                  onChange={(e) => {
-                    const newLang = e.target.value as 'go' | 'lua'
-                    onUpdate(node.id, { scriptLanguage: newLang } as any)
-                    // Also update connected edges immediately
-                    if (explorerEdges) {
-                      const connectedEdges = explorerEdges.filter(edge => edge.source === node.id || edge.target === node.id)
-                      connectedEdges.forEach(edge => {
-                        onUpdateEdge(edge.id, { scriptLanguage: newLang } as any)
-                      })
-                    }
-                  }}
-                  className="border rounded px-2 py-1 text-sm"
-                >
-                  <option value="go">Go</option>
-                  <option value="lua">Lua</option>
-                </select>
-              </label>
-              <div className="text-xs text-neutral-500">(controls guard, action and arc editors)</div>
-            </div>
-            <ResizableCodeMirror
-              value={guardText}
-              initialHeight={160}
-              extensions={[(EditorView.lineWrapping), StreamLanguage.define(isGoMode ? goMode : lua) as any]}
-              onChange={(val: string) => setGuardText(val)}
-              storageKey="side-panel-guard-expression"
-              placeholder={isGoMode ? "Go guard expression..." : "Lua guard expression..."}
-            />
-            <p className="text-xs text-neutral-500">
-              {isGoMode ? (
-                <>
-                  Go guard expression. Example: <code>{'if amount > 1000 { return "review" } else { return "auto" }'}</code>
-                </>
-              ) : (
-                <>Lua-like guard expression. Example: <code>if amount &gt; 1000 then return "review" else return "auto" end</code></>
-              )}
-            </p>
-          </div>
-      )}
+      <div ref={inscRef} className="space-y-2">
+        <Label className="text-sm">Guard Expression</Label>
+        <div className="flex items-center gap-2 mb-2">
+          <label className="inline-flex items-center gap-2 text-sm">
+            <span className="text-sm">Language:</span>
+            <select
+              value={scriptLanguage}
+              onChange={(e) => {
+                const newLang = e.target.value as 'go' | 'lua'
+                onUpdate(node.id, { scriptLanguage: newLang } as any)
+                // Also update connected edges immediately
+                if (explorerEdges) {
+                  const connectedEdges = explorerEdges.filter(edge => edge.source === node.id || edge.target === node.id)
+                  connectedEdges.forEach(edge => {
+                    onUpdateEdge(edge.id, { scriptLanguage: newLang } as any)
+                  })
+                }
+              }}
+              className="border rounded px-2 py-1 text-sm"
+            >
+              <option value="go">Go</option>
+              <option value="lua">Lua</option>
+            </select>
+          </label>
+          <div className="text-xs text-neutral-500">(controls guard, action and arc editors)</div>
+        </div>
+        <ResizableCodeMirror
+          value={guardText}
+          initialHeight={160}
+          extensions={[(EditorView.lineWrapping), StreamLanguage.define(isGoMode ? goMode : lua) as any]}
+          onChange={(val: string) => handleGuardChange(val)}
+          storageKey="side-panel-guard-expression"
+          placeholder={isGoMode ? "Go guard expression..." : "Lua guard expression..."}
+        />
+        <p className="text-xs text-neutral-500">
+          {isGoMode ? (
+            <>
+              Go guard expression. Example: <code>{'if amount > 1000 { return "review" } else { return "auto" }'}</code>
+            </>
+          ) : (
+            <>Lua-like guard expression. Example: <code>if amount &gt; 1000 then return "review" else return "auto" end</code></>
+          )}
+        </p>
+      </div>
 
       <div className="rounded border bg-neutral-50 px-2 py-1 text-xs text-neutral-600">
         Type: <span className="font-medium capitalize">{tType}</span> (right-click the node to change)
       </div>
 
   <TypeSpecificEditor node={node} tType={tType} onUpdate={onUpdate} />
-  {tType !== 'Tools' && (
-    <>
-      <SubPageSection node={node} onUpdate={onUpdate} />
-      <ActionFunctionEditor node={node} onUpdate={onUpdate} isGoMode={isGoMode} />
-      <ActionOutputsEditor node={node} onUpdate={onUpdate} />
-      <div className="mt-6 space-y-2">
-        <Label htmlFor="t-delay" className="text-sm">Transition Delay</Label>
-        <Input
-          id="t-delay"
-          type="number"
-          min={0}
-          value={(node.data as any).transitionDelay ?? 0}
-          onChange={(e) => onUpdate(node.id, { transitionDelay: Math.max(0, Number(e.target.value || 0)) } as any)}
-          placeholder="0"
-        />
-        <p className="text-xs text-neutral-500">Delay advances global clock when this transition fires (timed nets).</p>
-      </div>
-    </>
-  )}
+  <SubPageSection node={node} onUpdate={onUpdate} />
+  <ActionFunctionEditor node={node} onUpdate={onUpdate} isGoMode={isGoMode} />
+  <ActionOutputsEditor node={node} onUpdate={onUpdate} />
+  <div className="mt-6 space-y-2">
+    <Label htmlFor="t-delay" className="text-sm">Transition Delay</Label>
+    <Input
+      id="t-delay"
+      type="number"
+      min={0}
+      value={(node.data as any).transitionDelay ?? 0}
+      onChange={(e) => onUpdate(node.id, { transitionDelay: Math.max(0, Number(e.target.value || 0)) } as any)}
+      placeholder="0"
+    />
+    <p className="text-xs text-neutral-500">Delay advances global clock when this transition fires (timed nets).</p>
+  </div>
     </div>
   )
 }

@@ -171,9 +171,9 @@ export async function saveWorkflow(flowServiceUrl: string, workflowData: any) {
   } catch (e) {
     // ignore
   }
-  // Ensure workflow id is set to the full filename
+  // Ensure workflow id is set to the base name without file extension
   if (workflowData && typeof workflowData.id === 'string') {
-    workflowData.id = workflowData.id.replace(/\.cpn$/, '') + '.cpn'
+    workflowData.id = workflowData.id.replace(/\.cpn$/, '')
   }
   // Strip CDN-backed jsonSchema bodies to keep payload lean. Retain only { name } for schemas
   // whose $id (or inferred path) matches the configured dictionaryUrl. Allow opt-out with _local flag.

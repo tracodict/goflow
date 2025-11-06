@@ -43,7 +43,7 @@ import { useSystemSettings } from "./system-settings-context"
 import { type PetriEdgeData, type PetriNodeData, type TransitionType } from "@/lib/petri-types"
 import { serverToGraph, graphToServer, type ServerWorkflow } from "@/lib/workflow-conversion"
 // consolidated petri client import
-import { fetchWorkflow, fetchTransitionsStatus, fetchMarking, fireTransition as fireTransitionApi, simulationStep, saveWorkflow, deleteWorkflowApi, resetWorkflow, withApiErrorToast, listMcpTools, listRegisteredMcpServers, registerMcpServer, deregisterMcpServer } from "./petri-client"
+import { fetchWorkflow, fetchTransitionsStatus, fetchMarking, fireTransition as fireTransitionApi, simulationStep, saveWorkflow, deleteWorkflowApi, resetWorkflow, withApiErrorToast, listMcpTools, listRegisteredMcpServers, registerMcpServer, deregisterMcpServer, syncGoScript } from "./petri-client"
 import { toast } from '@/hooks/use-toast'
 import { MonitorPanel } from './monitor-panel'
 import { useSimulation } from '@/hooks/use-simulation'
@@ -591,9 +591,38 @@ function CanvasInner() {
       if (after && after.dirty === false) {
         setServerWorkflowCache(prev => ({ ...prev, [workflowId]: payload }))
         setEditedMap(prev => ({ ...prev, [workflowId]: false }))
-        return 'workspace'
+      } else {
+        return null
       }
-      return null
+    }
+
+    // Also sync to flow service if available
+    if (flowServiceUrl) {
+      try {
+        await withApiErrorToast(saveWorkflow(flowServiceUrl, payload), toast, 'Sync')
+        // Sync Go script cache after saving workflow
+        await withApiErrorToast(syncGoScript(flowServiceUrl, workflowId), toast, 'Sync Go Script')
+        setServerWorkflowCache(prev => ({ ...prev, [workflowId]: payload }))
+        setEditedMap(prev => ({ ...prev, [workflowId]: false }))
+        if (workspacePath) {
+          toast({ title: 'Saved', description: 'Workflow saved to workspace and synced to flow service' })
+          return 'workspace-and-flow-service'
+        } else {
+          toast({ title: 'Saved', description: 'Workflow saved successfully' })
+          return 'flow-service'
+        }
+      } catch (err) {
+        // If flow service sync fails but workspace save succeeded, still return success for workspace
+        if (workspacePath) {
+          toast({ title: 'Saved', description: 'Workflow saved to workspace (flow service sync failed)' })
+          return 'workspace'
+        }
+        return null
+      }
+    }
+
+    if (workspacePath) {
+      return 'workspace'
     }
 
     if (!flowServiceUrl) {
@@ -602,16 +631,6 @@ function CanvasInner() {
         description: 'No Flow service is configured for saving this workflow.',
         variant: 'destructive'
       })
-      return null
-    }
-
-    try {
-      await withApiErrorToast(saveWorkflow(flowServiceUrl, payload), toast, 'Save')
-      setServerWorkflowCache(prev => ({ ...prev, [workflowId]: payload }))
-      setEditedMap(prev => ({ ...prev, [workflowId]: false }))
-      toast({ title: 'Saved', description: 'Workflow saved successfully' })
-      return 'flow-service'
-    } catch (err) {
       return null
     }
   }, [workflowMeta, serverWorkflowCache, saveWorkspaceFile, flowServiceUrl, toast])
@@ -1612,14 +1631,20 @@ function CanvasInner() {
                   <button
                     className="h-6 px-2 rounded bg-emerald-600 text-white text-[11px]"
                     disabled={simLoading}
-                    onClick={() => {
+                    onClick={async () => {
                       if (!activeWorkflowId) { toast({ title: 'Open a workflow first', description: 'Select or load a workflow before starting a simulation', variant: 'destructive' }); return }
                       const wfId = activeWorkflowId
                       if (!wfId) return
-                      const cpnPath = workspacePathByIdRef.current[wfId]
-                      const cpnFile = typeof cpnPath === 'string' ? cpnPath.split('/').pop() : undefined
-                      const cpnName = cpnFile ? cpnFile.replace(/\.(cpn\.json|cpn)$/i, '') : wfId
-                      startSim({ cpnName })
+
+                      // First sync the latest workflow contents to the server
+                      const saveResult = await persistWorkflow(wfId)
+                      if (!saveResult) {
+                        toast({ title: 'Failed to sync workflow', description: 'Please save your workflow changes before starting a simulation', variant: 'destructive' })
+                        return
+                      }
+
+                      // Then start the simulation
+                      startSim()
                     }}
                     title="Start new simulation for current workflow"
                   >+ Sim</button>
@@ -1663,10 +1688,7 @@ function CanvasInner() {
                         setTimeout(() => {
                           const wfId = activeWorkflowId
                           if (!wfId) return
-                          const cpnPath = workspacePathByIdRef.current[wfId]
-                          const cpnFile = typeof cpnPath === 'string' ? cpnPath.split('/').pop() : undefined
-                          const cpnName = cpnFile ? cpnFile.replace(/\.(cpn\.json|cpn)$/i, '') : wfId
-                          startSim({ cpnName })
+                          startSim()
                         }, 50)
                       }}
                     />

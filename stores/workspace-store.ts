@@ -36,6 +36,7 @@ interface WorkspaceState {
   isRestoring: boolean
   
   openWorkspace: (params: { owner: string; repo: string }) => Promise<void>
+  reopenWorkspace: () => Promise<void>
   closeWorkspace: () => void
   restoreWorkspace: () => Promise<void>
   loadFileTree: () => Promise<void>
@@ -210,6 +211,19 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         variant: 'destructive'
       })
       throw error
+    }
+  },
+
+  reopenWorkspace: async () => {
+    const { owner, repo } = get()
+    if (!owner || !repo) {
+      console.warn('reopenWorkspace called without an active workspace')
+      return
+    }
+    try {
+      await get().openWorkspace({ owner, repo })
+    } catch (error) {
+      console.error('Workspace reopen failed:', error)
     }
   },
 

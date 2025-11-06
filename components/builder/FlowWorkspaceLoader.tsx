@@ -6,6 +6,16 @@ import { useWorkspace } from "@/stores/workspace-store"
 import { getTabState, setTabState } from "@/stores/pagebuilder/tab-state-cache"
 import { disposeFlowWorkspaceStore } from "@/stores/petri/flow-editor-context"
 
+function normalizeWorkflowPayload(input: any) {
+  let current = input
+  let depth = 0
+  while (current && typeof current === "object" && "success" in current && "data" in current && depth < 3) {
+    current = (current as any).data
+    depth += 1
+  }
+  return current
+}
+
 interface FlowWorkspaceLoaderProps {
   tabId: string
   filePath?: string
@@ -88,10 +98,22 @@ export const FlowWorkspaceLoader: React.FC<FlowWorkspaceLoaderProps> = ({ tabId,
       }
     }
 
-    setTabState(filePath, { workflow: parsed })
+    const workflowPayload = normalizeWorkflowPayload(parsed)
+    if (
+      !workflowPayload ||
+      typeof workflowPayload !== "object" ||
+      !Array.isArray((workflowPayload as any).places) ||
+      !Array.isArray((workflowPayload as any).transitions) ||
+      !Array.isArray((workflowPayload as any).arcs)
+    ) {
+      console.warn("Workflow payload missing expected structure", { filePath, workflowPayload })
+      setError("Workflow file is missing workflow data")
+      return
+    }
+    setTabState(filePath, { workflow: workflowPayload })
     lastSignatureRef.current = signature
     window.dispatchEvent(
-      new CustomEvent("goflow-open-workflow", { detail: { path: filePath, data: parsed } })
+      new CustomEvent("goflow-open-workflow", { detail: { path: filePath, data: workflowPayload } })
     )
   }, [filePath, files, openFile])
 
