@@ -5,12 +5,11 @@ import type { PetriNodeData, PetriEdgeData } from './petri-types'
 // Server schema (minimal fields used by client)
 export interface ServerWorkflow {
   id: string
-  name: string
   description?: string
   colorSets?: string[]
   jsonSchemas?: { name: string; schema: any }[]
-  places: { id: string; name: string; colorSet?: string; position?: { x: number; y: number } }[]
-  transitions: { id: string; name: string; kind?: string; guardExpression?: string; actionExpression?: string; transitionDelay?: number; scriptLanguage?: string; position?: { x: number; y: number }; formSchema?: string; layoutSchema?: string }[]
+  places: { id: string; colorSet?: string; position?: { x: number; y: number } }[]
+  transitions: { id: string; kind?: string; guardExpression?: string; actionExpression?: string; transitionDelay?: number; scriptLanguage?: string; position?: { x: number; y: number }; formSchema?: string; layoutSchema?: string }[]
   arcs: { id: string; sourceId: string; targetId: string; expression?: string; scriptLanguage?: string }[]
   initialMarking?: Record<string, { value: any; timestamp: number }[]>
   endPlaces?: string[]
@@ -31,13 +30,13 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
   const edges: Edge<PetriEdgeData>[] = []
   const endSet = new Set(sw.endPlaces || [])
   sw.places.forEach(p => {
-    // Prefer ID matching; fallback to name match for backward compatibility with older saved workflows.
-    const isEnd = endSet.has(p.id) || endSet.has(p.name)
+    // Use ID only - backward compatibility no longer needed
+    const isEnd = endSet.has(p.id)
     nodes.push({
       id: p.id,
       type: 'place',
       position: p.position || { x: 80 + Math.random()*400, y: 120 + Math.random()*160 },
-      data: { kind: 'place', name: p.name, colorSet: p.colorSet || '', tokens: 0, tokenList: [], isEnd }
+      data: { kind: 'place', name: p.id, colorSet: p.colorSet || '', tokens: 0, tokenList: [], isEnd }
     })
   })
   const allowed: any[] = ['Manual','Auto','Message','LLM','Tools','Retriever']
@@ -51,7 +50,7 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
       position: t.position || { x: 80 + Math.random()*400, y: 360 + Math.random()*160 },
       data: {
         kind: 'transition',
-        name: t.name,
+        name: t.id,
         tType,
         guardExpression: t.guardExpression,
   actionExpression: (t as any).actionExpression,
@@ -86,14 +85,14 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
   })
   sw.arcs.forEach(a => {
     if (nodes.find(n => n.id === a.sourceId) && nodes.find(n => n.id === a.targetId)) {
-      edges.push({ id: a.id, source: a.sourceId, target: a.targetId, type: 'labeled', data: { label: 'arc', expression: a.expression, readonly: (a as any).readonly === true || (a as any).ReadOnly === true, scriptLanguage: (a as any).scriptLanguage || 'go' } })
+      edges.push({ id: a.id, source: a.sourceId, target: a.targetId, type: 'labeled', data: { expression: a.expression, readonly: (a as any).readonly === true || (a as any).ReadOnly === true, scriptLanguage: (a as any).scriptLanguage || 'go' } })
     }
   })
   // apply initial marking
   const marking = sw.initialMarking || {}
-  Object.entries(marking).forEach(([placeName, tokens]) => {
-    // Accept either place name or exact id (server initialMarking keys may use either)
-    const placeNode = nodes.find(n => n.type === 'place' && (n.id === placeName || (n.data as any).name === placeName))
+  Object.entries(marking).forEach(([placeId, tokens]) => {
+    // Use ID only
+    const placeNode = nodes.find(n => n.type === 'place' && n.id === placeId)
     if (placeNode) {
       const list = tokens.map(t => ({ id: `tok-${Math.random().toString(36).slice(2,8)}`, data: t.value, createdAt: typeof t.timestamp === 'number' ? t.timestamp : 0 }))
       ;(placeNode.data as any).tokenList = list
@@ -125,19 +124,17 @@ export function serverToGraph(sw: ServerWorkflow): GraphWorkflow {
 export function graphToServer(
   current: ServerWorkflow | undefined,
   id: string,
-  name: string,
   graph: { nodes: Node<PetriNodeData>[]; edges: Edge<PetriEdgeData>[] },
   colorSets: string[],
   description?: string,
   declarations?: { batchOrdering?: string[]; globref?: string[]; color?: string[]; var?: string[]; lua?: string[] }
 ): ServerWorkflow {
-  const places = graph.nodes.filter(n => n.type === 'place').map(n => ({ id: n.id, name: (n.data as any).name || n.id, colorSet: (n.data as any).colorSet || '', position: n.position }))
+  const places = graph.nodes.filter(n => n.type === 'place').map(n => ({ id: n.id, colorSet: (n.data as any).colorSet || '', position: n.position }))
   const transitions = graph.nodes
     .filter(n => n.type === 'transition')
     .map(n => {
       const base: any = {
         id: n.id,
-        name: (n.data as any).name || n.id,
         kind: (n.data as any).tType,
         guardExpression: (n.data as any).guardExpression,
         actionExpression: (n.data as any).actionExpression,
@@ -189,16 +186,16 @@ export function graphToServer(
     }
     return arc
   })
-  // derive marking using first occurrence per place name (avoid merging duplicates with same name)
+  // derive marking using place ID (no name field)
   const initialMarking: Record<string, { value: any; timestamp: number }[]> = {}
-  const seenPlaceName = new Set<string>()
+  const seenPlaceId = new Set<string>()
   graph.nodes.filter(n => n.type === 'place').forEach(n => {
-    const placeName = (n.data as any).name || n.id
-    if (seenPlaceName.has(placeName)) return
-    seenPlaceName.add(placeName)
+    const placeId = n.id
+    if (seenPlaceId.has(placeId)) return
+    seenPlaceId.add(placeId)
     const list = (n.data as any).tokenList || []
     if (list.length > 0) {
-      initialMarking[placeName] = list.map((tok: any) => ({ value: tok.data, timestamp: typeof tok.createdAt === 'number' ? tok.createdAt : 0 }))
+      initialMarking[placeId] = list.map((tok: any) => ({ value: tok.data, timestamp: typeof tok.createdAt === 'number' ? tok.createdAt : 0 }))
     }
   })
   // Derive endPlaces from graph (places marked isEnd true) using place IDs.
@@ -249,7 +246,6 @@ export function graphToServer(
     })
   return {
     id,
-    name,
     description: description || current?.description || '',
     colorSets: mergedColorSets,
     jsonSchemas: (declarations as any)?.jsonSchemas || current?.jsonSchemas || [],

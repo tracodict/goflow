@@ -254,7 +254,7 @@ function CanvasInner() {
   const [serverWorkflowsFetched, setServerWorkflowsFetched] = useState(false);
   const [serverWorkflowCache, setServerWorkflowCache] = useState<Record<string, ServerWorkflow>>({});
   const [workflowGraphCache, setWorkflowGraphCache] = useState<Record<string, { nodes: Node<PetriNodeData>[]; edges: Edge<PetriEdgeData>[] }>>({})
-  const [workflowMeta, setWorkflowMeta] = useState<Record<string, { name: string; description?: string; colorSets: string[]; declarations?: { batchOrdering?: string[]; globref?: string[]; color?: string[]; var?: string[]; lua?: string[] } }>>({})
+  const [workflowMeta, setWorkflowMeta] = useState<Record<string, { description?: string; colorSets: string[]; declarations?: { batchOrdering?: string[]; globref?: string[]; color?: string[]; var?: string[]; lua?: string[] } }>>({})
   // Simulation manual transition dynamic form state (reinserted after workflowMeta for ordering)
   const [simFormOpen, setSimFormOpen] = useState(false)
   const [simFormSchema, setSimFormSchema] = useState<any>(null)
@@ -382,11 +382,9 @@ function CanvasInner() {
       setServerWorkflows(prev => {
         const existingIndex = prev.findIndex(w => w.id === workflowId)
         if (existingIndex >= 0) {
-          const next = [...prev]
-          next[existingIndex] = { ...next[existingIndex], name: swf!.name || next[existingIndex].name }
-          return next
+          return prev
         }
-        return [...prev, { id: workflowId, name: swf!.name || workflowId }]
+        return [...prev, { id: workflowId }]
       })
 
       if (!options?.data) {
@@ -431,7 +429,7 @@ function CanvasInner() {
       }
       const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
       const colorSetNames = allServerColorSetLines.map(l => { const m = l.match(nameRegex); return m? m[1]: '' }).filter(Boolean)
-      setWorkflowMeta(prev => ({ ...prev, [workflowId]: { name: swf!.name, description: swf!.description, colorSets: colorSetNames, declarations: decls } }))
+      setWorkflowMeta(prev => ({ ...prev, [workflowId]: { description: swf!.description, colorSets: colorSetNames, declarations: decls } }))
 
       historyRef.current = { past: [], present: { nodes: graph.nodes.map(n => ({ ...n })), edges: graph.edges.map(e => ({ ...e })) }, future: [] }
       isLoadingWorkflowRef.current = true
@@ -477,7 +475,7 @@ function CanvasInner() {
         workspaceIdByPathRef.current[trimmedPath] = normalizedId
       }
 
-      const workflowData: ServerWorkflow = { ...incoming, id: normalizedId, name: incoming.name || normalizedId }
+      const workflowData: ServerWorkflow = { ...incoming, id: normalizedId }
       if (!Array.isArray(workflowData.places) || !Array.isArray(workflowData.transitions) || !Array.isArray(workflowData.arcs)) {
         console.warn('goflow-open-workflow missing required workflow structure', detail?.path)
         return
@@ -559,12 +557,10 @@ function CanvasInner() {
       ? workspacePath.split('/').pop()?.replace(/\.(cpn\.json|cpn)$/i, '')?.trim()
       : undefined
     const resolvedId = fileDerivedId && fileDerivedId.length ? fileDerivedId : workflowId
-    const resolvedName = meta?.name && meta.name.trim().length ? meta.name : resolvedId
 
     const payload = graphToServer(
       serverBase,
       resolvedId,
-      resolvedName,
       { nodes: currentNodes, edges: currentEdges },
       meta?.colorSets ?? [],
       meta?.description,
@@ -883,7 +879,7 @@ function CanvasInner() {
       setWorkflowMeta(meta => {
         // Sanitize inputs to only valid identifiers
         const cleaned = next.filter(n => typeof n === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(n))
-        const updated = { ...meta, [activeWorkflowId]: { ...(meta[activeWorkflowId]||{ name: activeWorkflowId, description:'', colorSets: [] }), colorSets: cleaned } }
+        const updated = { ...meta, [activeWorkflowId]: { ...(meta[activeWorkflowId]||{ description:'', colorSets: [] }), colorSets: cleaned } }
         broadcastMergedColors(updated, activeWorkflowId)
         return updated
       })
@@ -894,7 +890,7 @@ function CanvasInner() {
       if (!activeWorkflowId) return
       const next = ce.detail?.next || {}
       setWorkflowMeta(meta => {
-  const prevMeta = meta[activeWorkflowId] || { name: activeWorkflowId, description:'', colorSets: [] }
+  const prevMeta = meta[activeWorkflowId] || { description:'', colorSets: [] }
   // Extract color declarations and merge into colorSets (avoid duplicates)
   const colorLines: string[] = Array.isArray(next.color) ? next.color.filter((l: any) => typeof l === 'string' && l.trim().length) : []
   const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
@@ -1285,7 +1281,7 @@ function CanvasInner() {
   const onDeclarationsApply = useCallback((next: any) => {
     if (!activeWorkflowId) return
     setWorkflowMeta(meta => {
-      const prevMeta = meta[activeWorkflowId] || { name: activeWorkflowId, description:'', colorSets: [] }
+      const prevMeta = meta[activeWorkflowId] || { description:'', colorSets: [] }
       const colorLines: string[] = Array.isArray(next.color) ? next.color.filter((l: any) => typeof l === 'string' && l.trim().length) : []
       const nameRegex = /^\s*colset\s+([A-Za-z_]\w*)/i
       const colorNames = colorLines.map(l => { const m = l.match(nameRegex); return m? m[1]: '' }).filter(Boolean)
@@ -1431,13 +1427,12 @@ function CanvasInner() {
         if (!flowServiceUrl) return
         try {
           const newId = `wf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-          const name = `Workflow ${newId.slice(-4)}`
-          const empty = { id: newId, name, description: '', colorSets: [], places: [], transitions: [], arcs: [], initialMarking: {}, declarations: {} }
+          const empty = { id: newId, description: '', colorSets: [], places: [], transitions: [], arcs: [], initialMarking: {}, declarations: {} }
           await withApiErrorToast(saveWorkflow(flowServiceUrl, empty), toast, 'Create workflow')
-          setServerWorkflows((wfs) => ([...(Array.isArray(wfs) ? wfs : []), { id: newId, name }]))
-          setWorkflowMeta((meta) => ({ ...meta, [newId]: { name, description: '', colorSets: [] } }))
+          setServerWorkflows((wfs) => ([...(Array.isArray(wfs) ? wfs : []), { id: newId }]))
+          setWorkflowMeta((meta) => ({ ...meta, [newId]: { description: '', colorSets: [] } }))
           onExplorerSelect(newId)
-          toast({ title: 'Created', description: name })
+          toast({ title: 'Created', description: newId })
         } catch (e: any) {
           /* already toasted */
         }
@@ -1458,10 +1453,10 @@ function CanvasInner() {
           /* toasted */
         }
       },
-      onRenameWorkflow: (id: string, name: string) => {
-        setWorkflowMeta((prev) => ({ ...prev, [id]: { ...(prev[id] || { colorSets: [] }), name } }))
-        setEditedMap((prev) => ({ ...prev, [id]: true }))
-        setServerWorkflows((list) => list.map((w) => (w.id === id ? { ...w, name } : w)))
+      onRenameWorkflow: (id: string, newId: string) => {
+        // Renaming workflow ID requires more complex refactoring; simplified for now
+        // In practice, workflow ID should remain immutable or require full migration
+        console.warn('Workflow rename not fully supported; use id as identifier')
       },
       workflowMeta,
       activeWorkflowId,
@@ -1525,7 +1520,7 @@ function CanvasInner() {
         setWorkflowMeta((meta) => ({
           ...meta,
           [activeWorkflowId]: {
-            ...(meta[activeWorkflowId] || { name: activeWorkflowId, description: '', colorSets: [] }),
+            ...(meta[activeWorkflowId] || { description: '', colorSets: [] }),
             colorSets: next,
           },
         }))

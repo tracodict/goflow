@@ -15,7 +15,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import type { Edge, Node } from "@xyflow/react"
 import type { PetriEdgeData, PetriNodeData, TransitionType, Token, PlaceData } from "@/lib/petri-types"
-import { GripVertical, Minimize2, Maximize2, PanelRightOpen, ChevronsUpDown, Check, Plus, Trash2 } from "lucide-react"
+import { GripVertical, Minimize2, Maximize2, PanelRightOpen, ChevronsUpDown, Check, Plus, Trash2, Info } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { cn } from "@/lib/utils"
 // Removed static FORM_SCHEMAS; dynamic list comes from workflow declarations jsonSchemas
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { ResizableCodeMirror } from '@/components/ui/resizable-codemirror'
@@ -173,7 +175,7 @@ export function SidePanel({
   onCreateWorkflow?: () => void
   onDeleteWorkflow?: (id: string) => void
   onRenameWorkflow?: (id: string, name: string) => void
-  workflowMeta?: Record<string, { name: string; description?: string; colorSets: string[]; declarations?: DeclarationsValue & { jsonSchemas?: { name: string; schema: any }[] } }>
+  workflowMeta?: Record<string, { description?: string; colorSets: string[]; declarations?: DeclarationsValue & { jsonSchemas?: { name: string; schema: any }[] } }>
   activeWorkflowId?: string | null
   explorerNodes?: any[]
   explorerEdges?: any[]
@@ -262,7 +264,7 @@ export function SidePanel({
               if (node.type === 'place') {
                 return <PlaceEditor node={node} onUpdate={onUpdateNode} onRenameId={onRenamePlaceId} forceOpenTokens={tokensOpenForPlaceId === node.id} scrollContainerRef={contentRef} />
               }
-              return <TransitionEditor node={node} onUpdate={onUpdateNode} onUpdateEdge={onUpdateEdge} explorerEdges={explorerEdges} onRenameId={onRenameTransitionId} focusGuard={guardOpenForTransitionId === node.id} scrollContainerRef={contentRef} />
+              return <TransitionEditor node={node} onUpdate={onUpdateNode} onUpdateEdge={onUpdateEdge} explorerEdges={explorerEdges} onRenameId={onRenameTransitionId} focusGuard={guardOpenForTransitionId === node.id} scrollContainerRef={contentRef} explorerWorkflows={explorerWorkflows} />
             }
             return <EdgeEditor edge={effectiveSelected.edge} onUpdate={onUpdateEdge} onRenameId={onRenameEdgeId} isGoMode={(() => {
               // Determine if this edge is connected to a transition with Go mode
@@ -604,6 +606,7 @@ function TransitionEditor({
   onRenameId,
   focusGuard,
   scrollContainerRef,
+  explorerWorkflows,
 }: {
   node: Node<PetriNodeData>
   onUpdate: (id: string, patch: Partial<PetriNodeData>) => void
@@ -612,6 +615,7 @@ function TransitionEditor({
   onRenameId?: (oldId: string, nextId: string) => { ok: boolean; reason?: string }
   focusGuard?: boolean
   scrollContainerRef: React.RefObject<HTMLElement | null>
+  explorerWorkflows?: any[]
 }) {
   const tType = ((node.data as any).tType || "manual") as TransitionType
   const inscRef = useRef<HTMLDivElement | null>(null)
@@ -766,7 +770,7 @@ function TransitionEditor({
       </div>
 
   <TypeSpecificEditor node={node} tType={tType} onUpdate={onUpdate} />
-  <SubPageSection node={node} onUpdate={onUpdate} />
+  <SubPageSection node={node} onUpdate={onUpdate} explorerWorkflows={explorerWorkflows} />
   <ActionFunctionEditor node={node} onUpdate={onUpdate} isGoMode={isGoMode} />
   <ActionOutputsEditor node={node} onUpdate={onUpdate} />
   <div className="mt-6 space-y-2">
@@ -1300,12 +1304,13 @@ function MessageEditor({
 }
 
 // Generic subpage (hierarchical call) section now independent of transition type.
-function SubPageSection({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void }) {
+function SubPageSection({ node, onUpdate, explorerWorkflows }: { node: Node<PetriNodeData>; onUpdate: (id: string, patch: Partial<PetriNodeData>) => void; explorerWorkflows?: any[] }) {
   const cfg = ((node.data as any).subPage || {}) as any
   const enabled = !!cfg.enabled
   const [expanded, setExpanded] = useState<boolean>(enabled)
   const [inputMap, setInputMap] = useState(() => JSON.stringify(cfg.inputMapping || {}, null, 2))
   const [outputMap, setOutputMap] = useState(() => JSON.stringify(cfg.outputMapping || {}, null, 2))
+  const [cpnOpen, setCpnOpen] = useState(false)
   const safeParse = (txt: string) => { try { const o = JSON.parse(txt); return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {} } catch { return {} } }
   const toggle = (checked: boolean) => {
     onUpdate(node.id, { subPage: { ...cfg, enabled: checked } as any })
@@ -1332,25 +1337,79 @@ function SubPageSection({ node, onUpdate }: { node: Node<PetriNodeData>; onUpdat
         <span className="text-xs text-neutral-500">{expanded ? 'Collapse' : 'Expand'}</span>
       </button>
       {expanded && enabled && (
+        <TooltipProvider>
         <div className="space-y-3 border-t px-3 py-3">
           <div className="grid gap-1">
             <Label htmlFor="subpage-cpn">Child Workflow ID</Label>
-            <Input id="subpage-cpn" value={cfg.cpnId || ''} placeholder="child-cpn-1" onChange={e => onUpdate(node.id, { subPage: { ...cfg, cpnId: e.target.value } as any })} />
+            <Popover open={cpnOpen} onOpenChange={setCpnOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" role="combobox" aria-expanded={cpnOpen} className="w-full justify-between">
+                  {cfg.cpnId || "Select workflow..."}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-full p-0">
+                <Command>
+                  <CommandInput placeholder="Search workflows..." />
+                  <CommandEmpty>No workflow found.</CommandEmpty>
+                  <CommandGroup>
+                    {explorerWorkflows?.map((workflow) => (
+                      <CommandItem
+                        key={workflow.id}
+                        value={workflow.id}
+                        onSelect={(currentValue) => {
+                          onUpdate(node.id, { subPage: { ...cfg, cpnId: currentValue } as any })
+                          setCpnOpen(false)
+                        }}
+                      >
+                        <Check className={cn("mr-2 h-4 w-4", cfg.cpnId === workflow.id ? "opacity-100" : "opacity-0")} />
+                        {workflow.id}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
           <div className="flex flex-wrap items-center gap-4 text-xs">
             <label className="inline-flex items-center gap-1"><input type="checkbox" checked={!!cfg.autoStart} onChange={e => onUpdate(node.id, { subPage: { ...cfg, autoStart: e.target.checked } as any })} /> Auto Start</label>
             <label className="inline-flex items-center gap-1"><input type="checkbox" checked={!!cfg.propagateOnComplete} onChange={e => onUpdate(node.id, { subPage: { ...cfg, propagateOnComplete: e.target.checked } as any })} /> Propagate On Complete</label>
           </div>
           <div className="grid gap-1">
-            <Label htmlFor="subpage-input-map">Input Mapping JSON</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="subpage-input-map">Input Mapping JSON</Label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-4 w-4 p-0">
+                    <Info className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Define how parent workflow variables are mapped to child workflow inputs. Use JSON object with parent variable names as keys and child input names as values.</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <Textarea id="subpage-input-map" rows={4} value={inputMap} onChange={e => setInputMap(e.target.value)} onBlur={() => onUpdate(node.id, { subPage: { ...cfg, inputMapping: safeParse(inputMap) } as any })} />
           </div>
             <div className="grid gap-1">
-            <Label htmlFor="subpage-output-map">Output Mapping JSON</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="subpage-output-map">Output Mapping JSON</Label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-4 w-4 p-0">
+                    <Info className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Define how child workflow outputs are mapped back to parent workflow variables. Use a JSON object where child variable names are the keys and parent variable names are the values. Child variables can be action function outputs, place tokens, or other variables from the child workflow.</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <Textarea id="subpage-output-map" rows={4} value={outputMap} onChange={e => setOutputMap(e.target.value)} onBlur={() => onUpdate(node.id, { subPage: { ...cfg, outputMapping: safeParse(outputMap) } as any })} />
           </div>
           <p className="text-[11px] text-neutral-500">Hierarchical call: maps parent variables to child variables (input) and child back to parent (output).</p>
         </div>
+        </TooltipProvider>
       )}
     </div>
   )
@@ -1456,13 +1515,6 @@ function EdgeEditor({
         if (!res?.ok) { setIdError(res?.reason || 'Rename failed'); setIdDraft(edge.id) }
       }} />
       {idError ? <div className="text-xs text-red-600">{idError}</div> : null}
-      <Label htmlFor="e-label">Arc Label</Label>
-      <Input
-        id="e-label"
-        value={(edge.data as any)?.label || ""}
-        onChange={(e) => onUpdate(edge.id, { label: e.target.value })}
-        placeholder="e.g., guard or weight"
-      />
       <Label className="text-sm mt-2">Arc Expression</Label>
       <ResizableCodeMirror
         value={expr}

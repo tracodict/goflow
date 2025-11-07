@@ -43,8 +43,8 @@ function RenameableText({ label, onRename, className, inputStyle, onAfterRename 
 }
 
 interface ExplorerPanelProps {
-  workflows?: { id: string; name: string }[]
-  workflowMeta?: Record<string, { name: string; description?: string; colorSets: string[] }>
+  workflows?: { id: string }[]
+  workflowMeta?: Record<string, { description?: string; colorSets: string[] }>
   // nodes/edges kept for backward compatibility; prefer workflowGraphs for per-workflow data
   nodes?: any[]
   edges?: any[]
@@ -121,8 +121,8 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
                 </button>
                 <Folder className="h-4 w-4 text-neutral-600" />
                 {onRenameWorkflow ? (
-                  <RenameableText label={w.name} onRename={(next) => onRenameWorkflow(w.id, next)} className="truncate" />
-                ) : <span className="truncate">{w.name}</span>}
+                  <RenameableText label={w.id} onRename={(next) => onRenameWorkflow(w.id, next)} className="truncate" />
+                ) : <span className="truncate">{w.id}</span>}
                 <div style={{ display:'flex', alignItems:'center', gap:4, marginLeft:'auto', opacity: hoverId===w.id ? 1 : 0, transition:'opacity 120ms' }}>
                 {onDeleteWorkflow && (
                   <button title="Delete workflow" onClick={(e) => { e.stopPropagation(); onDeleteWorkflow(w.id) }} style={{ display:'flex', alignItems:'center' }}>

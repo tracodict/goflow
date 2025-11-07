@@ -252,7 +252,7 @@ export async function saveWorkflow(flowServiceUrl: string, workflowData: any) {
 }
 
 // Create a new (empty) workflow on the server
-export async function createWorkflow(flowServiceUrl: string, payload: { id?: string; name: string }) {
+export async function createWorkflow(flowServiceUrl: string, payload: { id?: string; description?: string }) {
   const base = flowServiceUrl.replace(/\/$/, '')
   const resp = await authFetch(`${flowServiceUrl}/api/cpn/create`, {
     method: 'POST',
