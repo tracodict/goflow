@@ -6,7 +6,7 @@ export async function middleware(req: NextRequest) {
   const isDev = process.env.AUTH_DISABLED === '1'
   if (isDev) return NextResponse.next()
 
-  const publicPrefixes = ['/api/health', '/public', '/_next', '/favicon', '/robots.txt']
+  const publicPrefixes = ['/api/health', '/api/mcp-cache', '/public', '/_next', '/favicon', '/robots.txt']
   if (publicPrefixes.some(p => req.nextUrl.pathname.startsWith(p))) return NextResponse.next()
 
   const sid = req.cookies.get('lz_sess')?.value

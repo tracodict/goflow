@@ -455,6 +455,57 @@ export async function listMcpTools(flowServiceUrl: string, params: { baseUrl: st
   return Array.isArray(arr) ? arr : []
 }
 
+export async function listMcpResources(flowServiceUrl: string, params: { baseUrl: string; timeoutMs?: number }) {
+  const resp = await authFetch(`${flowServiceUrl}/api/tools/list_mcp_resources`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({"endpoint": params.baseUrl, "timeoutMs": params.timeoutMs || 5000 })
+  })
+  if (!resp.ok) {
+    let text = ''
+    try { text = await resp.text() } catch {}
+    throw new ApiError('List MCP resources failed', { status: resp.status, rawBody: text, context: 'listMcpResources' })
+  }
+  const json = await resp.json().catch(() => ({}))
+  // Normalize various possible shapes to a plain array of resources
+  const arr = json?.data?.resources || json?.resources || json?.data || json
+  return Array.isArray(arr) ? arr : []
+}
+
+export async function listMcpPrompts(flowServiceUrl: string, params: { baseUrl: string; timeoutMs?: number }) {
+  const resp = await authFetch(`${flowServiceUrl}/api/tools/list_mcp_prompts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({"endpoint": params.baseUrl, "timeoutMs": params.timeoutMs || 5000 })
+  })
+  if (!resp.ok) {
+    let text = ''
+    try { text = await resp.text() } catch {}
+    throw new ApiError('List MCP prompts failed', { status: resp.status, rawBody: text, context: 'listMcpPrompts' })
+  }
+  const json = await resp.json().catch(() => ({}))
+  // Normalize various possible shapes to a plain array of prompts
+  const arr = json?.data?.prompts || json?.prompts || json?.data || json
+  return Array.isArray(arr) ? arr : []
+}
+
+export async function listMcpResourceTemplates(flowServiceUrl: string, params: { baseUrl: string; timeoutMs?: number }) {
+  const resp = await authFetch(`${flowServiceUrl}/api/tools/list_mcp_resource_templates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({"endpoint": params.baseUrl, "timeoutMs": params.timeoutMs || 5000 })
+  })
+  if (!resp.ok) {
+    let text = ''
+    try { text = await resp.text() } catch {}
+    throw new ApiError('List MCP resource templates failed', { status: resp.status, rawBody: text, context: 'listMcpResourceTemplates' })
+  }
+  const json = await resp.json().catch(() => ({}))
+  // Normalize various possible shapes to a plain array of resource templates
+  const arr = json?.data?.resourceTemplates || json?.resourceTemplates || json?.data || json
+  return Array.isArray(arr) ? arr : []
+}
+
 // List all registered MCP tools (across servers) returning structured entries.
 // Strategy: fetch registered servers, then for each server POST to list_mcp_tools endpoint (sample curl pattern)
 // Only enabled tools are returned by server when we include enabled=true in query OR we filter locally.

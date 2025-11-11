@@ -13,6 +13,8 @@ import { useSessions } from './useSessions'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { MoreVertical, Plus } from 'lucide-react'
+import { fetchAvailableModels, type ModelInfo } from './llm'
+import { useWorkspace } from '@/stores/workspace-store'
 
 const summarisePrompt = (source: string | undefined, fallback: string) => {
   const text = (source || '').trim()
@@ -36,10 +38,23 @@ function useStream(onDelta: (delta: string) => void) {
   const tokenRe = /0:"((?:[^"\\]|\\.)*)"/g
   const sseDataRe = /(^|\n)data:\s*(\{[\s\S]*?\})(?=\n|$)/g
 
-  return async (sessionId: string, messages: ChatMessage[], model: string) => {
+  return async (
+    sessionId: string, 
+    messages: ChatMessage[], 
+    model: string, 
+    workspaceId: string | null,
+    mcpPrompt?: { name: string; args: Record<string, any> }
+  ) => {
     const res = await fetch('/api/chat', {
       method: 'POST',
-      body: JSON.stringify({ sessionId, messages, model }),
+      body: JSON.stringify({ 
+        sessionId, 
+        messages, 
+        model, 
+        workspaceId,
+        mcpPromptName: mcpPrompt?.name,
+        mcpPromptArgs: mcpPrompt?.args
+      }),
       headers: { 'content-type': 'application/json' },
     })
     if (!res.body) return
@@ -110,10 +125,71 @@ export default function ChatPanel(){
   const [sessionId, setSessionId] = useState<string>('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [streaming, setStreaming] = useState(false)
-  const [model, setModel] = useState<string>('openai/gpt-oss-20b')
+  const [model, setModel] = useState<string>('')
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesBoxRef = useRef<HTMLDivElement>(null)
   const append = (msg: ChatMessage)=> setMessages(m=> [...m, msg])
+  
+  // Load available models on mount
+  useEffect(() => {
+    async function loadModels() {
+      try {
+        const models = await fetchAvailableModels()
+        setAvailableModels(models)
+        
+        // Initialize model from localStorage or use first available
+        const saved = localStorage.getItem('chat:model')
+        if (saved && models.some(m => m.name === saved)) {
+          setModel(saved)
+        } else if (models.length > 0) {
+          setModel(models[0].name)
+        }
+      } catch (err) {
+        console.error('[Chat] Failed to load models:', err)
+      }
+    }
+    loadModels()
+  }, [])
+  
+  // Get workspace ID from workspace store
+  const workspaceId = useWorkspace((state) => state.workspaceId)
+  
+  // Debug: Log workspace state
+  useEffect(() => {
+    const state = useWorkspace.getState()
+    console.log('[Chat] Workspace state:', {
+      workspaceId: state.workspaceId,
+      owner: state.owner,
+      repo: state.repo,
+      branch: state.branch
+    })
+  }, [workspaceId])
+  
+  // Load MCP cache on mount if workspace is set
+  useEffect(() => {
+    if (!workspaceId) return
+    
+    async function loadMcpCache() {
+      try {
+        console.log('[Chat] Loading MCP cache for workspace:', workspaceId)
+        const res = await fetch('/api/mcp-cache', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            workspaceId,
+            baseUrl: window.location.origin  // Pass current origin for server-to-server calls
+          })
+        })
+        const data = await res.json()
+        console.log('[Chat] MCP cache loaded:', data)
+      } catch (err) {
+        console.error('[Chat] Failed to load MCP cache:', err)
+      }
+    }
+    
+    loadMcpCache()
+  }, [workspaceId])
 
   // Session management
   // Use proper import for React hooks
@@ -147,14 +223,18 @@ export default function ChatPanel(){
     })
   })
 
-  const onSubmit = async (text: string) => {
+  const onSubmit = async (text: string, mcpPrompt?: { name: string; args: Record<string, any> }) => {
+    console.log('[Chat] Submitting message with workspaceId:', workspaceId)
+    if (mcpPrompt) {
+      console.log('[Chat] Using MCP prompt:', mcpPrompt.name, 'with args:', mcpPrompt.args)
+    }
     const userMsg: ChatMessage = { sessionId, role: 'user', content: text, createdAt: new Date().toISOString() }
     const history = [...messages, userMsg]
     setMessages(history)
     append({ sessionId, role: 'assistant', content: '', createdAt: new Date().toISOString() })
     setStreaming(true)
     try {
-      await run(sessionId, history, model)
+      await run(sessionId, history, model, workspaceId, mcpPrompt)
     } finally {
       setStreaming(false)
     }
@@ -173,20 +253,26 @@ export default function ChatPanel(){
   }
 
   useEffect(()=>{
-    // init model from localStorage
-    try {
-      const saved = localStorage.getItem('chat:model')
-      if (saved) setModel(saved)
-    } catch {}
-    // load existing messages for current session
+    // Load existing messages for current session
     ;(async()=>{
       const res = await fetch('/api/chat?sessionId='+encodeURIComponent(sessionId))
       if(res.ok){
-        const data = await res.json()
-        if(Array.isArray(data?.messages)) setMessages(data.messages)
+        const data = await res.json().catch(()=>({})) as any
+        setMessages(data?.messages || [])
       }
     })()
   },[sessionId])
+
+  // Save selected model to localStorage
+  useEffect(() => {
+    if (model) {
+      try {
+        localStorage.setItem('chat:model', model)
+      } catch (err) {
+        console.error('[Chat] Failed to save model:', err)
+      }
+    }
+  }, [model])
 
   // Restore scroll position only after messages are loaded, and only once per session
   useEffect(() => {
@@ -227,14 +313,10 @@ export default function ChatPanel(){
       // Only scroll to bottom if user is near the bottom
       const threshold = 100
       if (box.scrollHeight - box.scrollTop - box.clientHeight < threshold) {
-        messagesEndRef.current.scrollIntoView({ behavior: 'auto' })
+        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
       }
     }
   }, [messages])
-
-  useEffect(()=>{
-    try { localStorage.setItem('chat:model', model) } catch {}
-  }, [model])
 
   return (
     <div className="flex flex-col h-full gap-3 p-3">
@@ -333,10 +415,7 @@ export default function ChatPanel(){
             onUpload={onUpload}
             model={model}
             setModel={setModel}
-            models={[
-              { id: 'openai/gpt-oss-20b', label: 'Gpt OSS 20b' },
-              { id: 'openai/gpt-oss-120b', label: 'Gpt OSS 120b' }
-            ]}
+            models={availableModels}
             onCloseSession={(() => {
               const active = sessions.find((s: import('./types').ChatSession) => s.isActive)
               if (!active) return undefined

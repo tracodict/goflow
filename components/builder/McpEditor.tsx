@@ -3,17 +3,22 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { Loader2, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { toast } from "@/hooks/use-toast"
 import { useBuilderStoreContext } from "@/stores/pagebuilder/editor-context"
 import { useSystemSettings } from "@/components/petri/system-settings-context"
-import { listMcpTools, registerMcpServer, withApiErrorToast } from "@/components/petri/petri-client"
+import { listMcpTools, listMcpResources, listMcpPrompts, listMcpResourceTemplates, registerMcpServer, withApiErrorToast } from "@/components/petri/petri-client"
 import {
   McpEditorState,
   McpResourceState,
   McpToolState,
+  McpPromptState,
+  McpResourceTemplateState,
   createDefaultMcpEditorState,
   validateMcpState,
 } from "./mcp-utils"
+
+type TabType = 'tools' | 'resources' | 'prompts' | 'resourceTemplates'
 
 const cloneTool = (tool: McpToolState): McpToolState => ({
   ...tool,
@@ -25,10 +30,22 @@ const cloneResource = (resource: McpResourceState): McpResourceState => ({
   passthrough: { ...resource.passthrough },
 })
 
+const clonePrompt = (prompt: McpPromptState): McpPromptState => ({
+  ...prompt,
+  passthrough: { ...prompt.passthrough },
+})
+
+const cloneResourceTemplate = (template: McpResourceTemplateState): McpResourceTemplateState => ({
+  ...template,
+  passthrough: { ...template.passthrough },
+})
+
 const cloneState = (state: McpEditorState): McpEditorState => ({
   ...state,
   tools: state.tools.map(cloneTool),
   resources: state.resources.map(cloneResource),
+  prompts: state.prompts.map(clonePrompt),
+  resourceTemplates: state.resourceTemplates.map(cloneResourceTemplate),
   passthrough: { ...state.passthrough },
 })
 
@@ -101,6 +118,203 @@ const mergeDiscoveredTools = (existing: McpToolState[], discovered: McpToolState
   return next
 }
 
+const normalizeDiscoveryResource = (value: any): McpResourceState => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {
+      name: "",
+      type: "",
+      uri: undefined,
+      configText: "",
+      passthrough: {},
+    }
+  }
+
+  const { name, type, uri, ...rest } = value as Record<string, any>
+
+  return {
+    name: typeof name === "string" ? name : "",
+    type: typeof type === "string" ? type : "",
+    uri: typeof uri === "string" ? uri : undefined,
+    configText: "",
+    passthrough: { ...rest },
+  }
+}
+
+const mergeDiscoveredResources = (existing: McpResourceState[], discovered: McpResourceState[]): McpResourceState[] => {
+  if (discovered.length === 0) {
+    return existing.map(cloneResource)
+  }
+
+  const indexByName = new Map<string, number>()
+  existing.forEach((resource, index) => {
+    const key = resource.name.trim().toLowerCase()
+    if (key) {
+      indexByName.set(key, index)
+    }
+  })
+
+  const next = existing.map(cloneResource)
+
+  discovered.forEach((resource) => {
+    const key = resource.name.trim().toLowerCase()
+    if (!key) {
+      return
+    }
+    const match = indexByName.get(key)
+    if (match !== undefined) {
+      const current = next[match]
+      next[match] = {
+        ...current,
+        type: resource.type || current.type,
+        uri: resource.uri || current.uri,
+        passthrough: { ...resource.passthrough, ...current.passthrough },
+      }
+    } else {
+      next.push({
+        ...resource,
+        passthrough: { ...resource.passthrough },
+      })
+    }
+  })
+
+  return next
+}
+
+const normalizeDiscoveryPrompt = (value: any): McpPromptState => {
+  if (typeof value === "string") {
+    return {
+      name: value,
+      description: undefined,
+      enabled: true,
+      passthrough: {},
+    }
+  }
+
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {
+      name: "",
+      description: undefined,
+      enabled: true,
+      passthrough: {},
+    }
+  }
+
+  const { name, description, ...rest } = value as Record<string, any>
+
+  return {
+    name: typeof name === "string" ? name : "",
+    description: typeof description === "string" ? description : undefined,
+    enabled: true,
+    passthrough: { ...rest },
+  }
+}
+
+const mergeDiscoveredPrompts = (existing: McpPromptState[], discovered: McpPromptState[]): McpPromptState[] => {
+  if (discovered.length === 0) {
+    return existing.map(clonePrompt)
+  }
+
+  const indexByName = new Map<string, number>()
+  existing.forEach((prompt, index) => {
+    const key = prompt.name.trim().toLowerCase()
+    if (key) {
+      indexByName.set(key, index)
+    }
+  })
+
+  const next = existing.map(clonePrompt)
+
+  discovered.forEach((prompt) => {
+    const key = prompt.name.trim().toLowerCase()
+    if (!key) {
+      return
+    }
+    const match = indexByName.get(key)
+    if (match !== undefined) {
+      const current = next[match]
+      next[match] = {
+        ...current,
+        description: prompt.description || current.description,
+        passthrough: { ...prompt.passthrough, ...current.passthrough },
+      }
+    } else {
+      next.push({
+        ...prompt,
+        enabled: true,
+        passthrough: { ...prompt.passthrough },
+      })
+    }
+  })
+
+  return next
+}
+
+const normalizeDiscoveryResourceTemplate = (value: any): McpResourceTemplateState => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {
+      uri: "",
+      name: undefined,
+      description: undefined,
+      mimeType: undefined,
+      enabled: true,
+      passthrough: {},
+    }
+  }
+
+  const { uri, uriTemplate, name, description, mimeType, ...rest } = value as Record<string, any>
+
+  return {
+    uri: typeof uri === "string" ? uri : (typeof uriTemplate === "string" ? uriTemplate : ""),
+    name: typeof name === "string" ? name : undefined,
+    description: typeof description === "string" ? description : undefined,
+    mimeType: typeof mimeType === "string" ? mimeType : undefined,
+    enabled: true,
+    passthrough: { ...rest },
+  }
+}
+
+const mergeDiscoveredResourceTemplates = (existing: McpResourceTemplateState[], discovered: McpResourceTemplateState[]): McpResourceTemplateState[] => {
+  if (discovered.length === 0) {
+    return existing.map(cloneResourceTemplate)
+  }
+
+  const indexByUri = new Map<string, number>()
+  existing.forEach((template, index) => {
+    const key = template.uri.trim().toLowerCase()
+    if (key) {
+      indexByUri.set(key, index)
+    }
+  })
+
+  const next = existing.map(cloneResourceTemplate)
+
+  discovered.forEach((template) => {
+    const key = template.uri.trim().toLowerCase()
+    if (!key) {
+      return
+    }
+    const match = indexByUri.get(key)
+    if (match !== undefined) {
+      const current = next[match]
+      next[match] = {
+        ...current,
+        name: template.name || current.name,
+        description: template.description || current.description,
+        mimeType: template.mimeType || current.mimeType,
+        passthrough: { ...template.passthrough, ...current.passthrough },
+      }
+    } else {
+      next.push({
+        ...template,
+        enabled: true,
+        passthrough: { ...template.passthrough },
+      })
+    }
+  })
+
+  return next
+}
+
 const toTimeout = (value?: number): number | undefined => {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.max(0, Math.round(value))
@@ -127,6 +341,7 @@ export const McpEditor: React.FC = () => {
   const [mcp, setMcp] = useState<McpEditorState>(storedSnapshot)
   const [discovering, setDiscovering] = useState(false)
   const [registering, setRegistering] = useState(false)
+  const [activeTab, setActiveTab] = useState<TabType>('tools')
 
   const lastAppliedRef = useRef<string>(JSON.stringify(storedSnapshot))
   const suppressChangeRef = useRef<boolean>(true)
@@ -209,6 +424,141 @@ export const McpEditor: React.FC = () => {
       }
     } catch (error) {
       // Error surfaced by wrapper
+    } finally {
+      setDiscovering(false)
+    }
+  }
+
+  const handleDiscoverResources = async () => {
+    const baseUrl = mcp.baseUrl.trim()
+    if (!baseUrl) {
+      toast({ title: "Enter a base URL before discovering resources", variant: "destructive" })
+      return
+    }
+
+    const flowServiceUrl = settings.flowServiceUrl?.trim()
+    if (!flowServiceUrl) {
+      toast({ title: "Flow Service URL is not configured", variant: "destructive" })
+      return
+    }
+
+    setDiscovering(true)
+    try {
+      const resources = await listMcpResources(flowServiceUrl, { 
+        baseUrl, 
+        timeoutMs: toTimeout(mcp.timeoutMs) 
+      })
+
+      const normalized = Array.isArray(resources)
+        ? resources.map(normalizeDiscoveryResource).filter((r) => r.name.trim())
+        : []
+
+      setMcp((prev) => ({
+        ...prev,
+        resources: mergeDiscoveredResources(prev.resources, normalized),
+      }))
+
+      if (!normalized.length) {
+        toast({ title: "No resources reported by the MCP server", description: baseUrl })
+      } else {
+        toast({ title: `Discovered ${normalized.length} resource(s)`, description: baseUrl })
+      }
+    } catch (error: any) {
+      toast({
+        title: "Failed to discover resources",
+        description: error?.message || String(error),
+        variant: "destructive",
+      })
+    } finally {
+      setDiscovering(false)
+    }
+  }
+
+  const handleDiscoverPrompts = async () => {
+    const baseUrl = mcp.baseUrl.trim()
+    if (!baseUrl) {
+      toast({ title: "Enter a base URL before discovering prompts", variant: "destructive" })
+      return
+    }
+
+    const flowServiceUrl = settings.flowServiceUrl?.trim()
+    if (!flowServiceUrl) {
+      toast({ title: "Flow Service URL is not configured", variant: "destructive" })
+      return
+    }
+
+    setDiscovering(true)
+    try {
+      const prompts = await listMcpPrompts(flowServiceUrl, { 
+        baseUrl, 
+        timeoutMs: toTimeout(mcp.timeoutMs) 
+      })
+
+      const normalized = Array.isArray(prompts)
+        ? prompts.map(normalizeDiscoveryPrompt).filter((p) => p.name.trim())
+        : []
+
+      setMcp((prev) => ({
+        ...prev,
+        prompts: mergeDiscoveredPrompts(prev.prompts, normalized),
+      }))
+
+      if (!normalized.length) {
+        toast({ title: "No prompts reported by the MCP server", description: baseUrl })
+      } else {
+        toast({ title: `Discovered ${normalized.length} prompt(s)`, description: baseUrl })
+      }
+    } catch (error: any) {
+      toast({
+        title: "Failed to discover prompts",
+        description: error?.message || String(error),
+        variant: "destructive",
+      })
+    } finally {
+      setDiscovering(false)
+    }
+  }
+
+  const handleDiscoverResourceTemplates = async () => {
+    const baseUrl = mcp.baseUrl.trim()
+    if (!baseUrl) {
+      toast({ title: "Enter a base URL before discovering resource templates", variant: "destructive" })
+      return
+    }
+
+    const flowServiceUrl = settings.flowServiceUrl?.trim()
+    if (!flowServiceUrl) {
+      toast({ title: "Flow Service URL is not configured", variant: "destructive" })
+      return
+    }
+
+    setDiscovering(true)
+    try {
+      const templates = await listMcpResourceTemplates(flowServiceUrl, { 
+        baseUrl, 
+        timeoutMs: toTimeout(mcp.timeoutMs) 
+      })
+
+      const normalized = Array.isArray(templates)
+        ? templates.map(normalizeDiscoveryResourceTemplate).filter((t) => t.uri.trim())
+        : []
+
+      setMcp((prev) => ({
+        ...prev,
+        resourceTemplates: mergeDiscoveredResourceTemplates(prev.resourceTemplates, normalized),
+      }))
+
+      if (!normalized.length) {
+        toast({ title: "No resource templates reported by the MCP server", description: baseUrl })
+      } else {
+        toast({ title: `Discovered ${normalized.length} resource template(s)`, description: baseUrl })
+      }
+    } catch (error: any) {
+      toast({
+        title: "Failed to discover resource templates",
+        description: error?.message || String(error),
+        variant: "destructive",
+      })
     } finally {
       setDiscovering(false)
     }
@@ -359,6 +709,88 @@ export const McpEditor: React.FC = () => {
     }))
   }
 
+  const addPrompt = () => {
+    setMcp((prev) => ({
+      ...prev,
+      prompts: [
+        ...prev.prompts,
+        {
+          name: "",
+          description: undefined,
+          enabled: true,
+          passthrough: {},
+        },
+      ],
+    }))
+  }
+
+  const updatePrompt = (index: number, updates: Partial<Omit<McpPromptState, "passthrough">>) => {
+    setMcp((prev) => {
+      if (index < 0 || index >= prev.prompts.length) {
+        return prev
+      }
+      const prompts = prev.prompts.map((prompt, idx) =>
+        idx === index
+          ? {
+              ...prompt,
+              ...updates,
+              passthrough: { ...prompt.passthrough },
+            }
+          : prompt
+      )
+      return { ...prev, prompts }
+    })
+  }
+
+  const removePrompt = (index: number) => {
+    setMcp((prev) => ({
+      ...prev,
+      prompts: prev.prompts.filter((_, idx) => idx !== index),
+    }))
+  }
+
+  const addResourceTemplate = () => {
+    setMcp((prev) => ({
+      ...prev,
+      resourceTemplates: [
+        ...prev.resourceTemplates,
+        {
+          uri: "",
+          name: undefined,
+          description: undefined,
+          mimeType: undefined,
+          enabled: true,
+          passthrough: {},
+        },
+      ],
+    }))
+  }
+
+  const updateResourceTemplate = (index: number, updates: Partial<Omit<McpResourceTemplateState, "passthrough">>) => {
+    setMcp((prev) => {
+      if (index < 0 || index >= prev.resourceTemplates.length) {
+        return prev
+      }
+      const resourceTemplates = prev.resourceTemplates.map((template, idx) =>
+        idx === index
+          ? {
+              ...template,
+              ...updates,
+              passthrough: { ...template.passthrough },
+            }
+          : template
+      )
+      return { ...prev, resourceTemplates }
+    })
+  }
+
+  const removeResourceTemplate = (index: number) => {
+    setMcp((prev) => ({
+      ...prev,
+      resourceTemplates: prev.resourceTemplates.filter((_, idx) => idx !== index),
+    }))
+  }
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex-1 space-y-6 overflow-auto p-6">
@@ -428,14 +860,46 @@ export const McpEditor: React.FC = () => {
             Actions
           </h2>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button size="sm" onClick={handleDiscover} disabled={discovering}>
-              {discovering ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-2 h-4 w-4" />
-              )}
-              Discover tools
-            </Button>
+            {activeTab === 'tools' && (
+              <Button size="sm" onClick={handleDiscover} disabled={discovering}>
+                {discovering ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Discover tools
+              </Button>
+            )}
+            {activeTab === 'resources' && (
+              <Button size="sm" onClick={handleDiscoverResources} disabled={discovering}>
+                {discovering ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Discover resources
+              </Button>
+            )}
+            {activeTab === 'prompts' && (
+              <Button size="sm" onClick={handleDiscoverPrompts} disabled={discovering}>
+                {discovering ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Discover prompts
+              </Button>
+            )}
+            {activeTab === 'resourceTemplates' && (
+              <Button size="sm" onClick={handleDiscoverResourceTemplates} disabled={discovering}>
+                {discovering ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Discover resource templates
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -448,147 +912,314 @@ export const McpEditor: React.FC = () => {
           </div>
         </section>
 
-        <section>
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Tools
-            </h2>
-            <Button size="sm" variant="outline" onClick={addTool}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add tool
-            </Button>
-          </div>
-          {mcp.tools.length === 0 ? (
-            <div className="mt-3 rounded border border-dashed border-muted-foreground/30 bg-muted/20 p-6 text-sm text-muted-foreground">
-              Discover from the MCP server or add entries manually.
-            </div>
-          ) : (
-            <div className="mt-3 space-y-3">
-              {mcp.tools.map((tool, index) => (
-                <div key={index} className="rounded border bg-card p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div className="flex-1 space-y-2">
-                      <label className="flex flex-col gap-1 text-sm">
-                        <span className="text-xs font-medium text-muted-foreground">Name</span>
-                        <input
-                          className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
-                          value={tool.name}
-                          onChange={(event) => updateTool(index, { name: event.target.value })}
-                          placeholder="tool-name"
-                        />
-                      </label>
-                      <label className="flex flex-col gap-1 text-sm">
-                        <span className="text-xs font-medium text-muted-foreground">Description</span>
-                        <input
-                          className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
-                          value={tool.description ?? ""}
-                          onChange={(event) => updateTool(index, { description: event.target.value })}
-                          placeholder="Optional description"
-                        />
-                      </label>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <label className="flex items-center gap-2 text-sm font-medium">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4"
-                          checked={tool.enabled !== false}
-                          onChange={(event) => updateTool(index, { enabled: event.target.checked })}
-                        />
-                        Enabled
-                      </label>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => removeTool(index)}
-                        title="Remove tool"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabType)} className="flex flex-col">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="tools">Tools</TabsTrigger>
+            <TabsTrigger value="resources">Resources</TabsTrigger>
+            <TabsTrigger value="prompts">Prompts</TabsTrigger>
+            <TabsTrigger value="resourceTemplates">Templates</TabsTrigger>
+          </TabsList>
 
-        <section>
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Resources
-            </h2>
-            <Button size="sm" variant="outline" onClick={addResource}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add resource
-            </Button>
-          </div>
-          {mcp.resources.length === 0 ? (
-            <div className="mt-3 rounded border border-dashed border-muted-foreground/30 bg-muted/20 p-6 text-sm text-muted-foreground">
-              Define optional MCP resources (files, APIs, datasets) referenced by the server.
-            </div>
-          ) : (
-            <div className="mt-3 space-y-3">
-              {mcp.resources.map((resource, index) => (
-                <div key={index} className="rounded border bg-card p-4 space-y-3">
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <label className="flex flex-col gap-1 text-sm">
-                      <span className="text-xs font-medium text-muted-foreground">Name</span>
-                      <input
-                        className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
-                        value={resource.name}
-                        onChange={(event) => updateResource(index, { name: event.target.value })}
-                        placeholder="resource-name"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 text-sm">
-                      <span className="text-xs font-medium text-muted-foreground">Type</span>
-                      <input
-                        className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
-                        value={resource.type}
-                        onChange={(event) => updateResource(index, { type: event.target.value })}
-                        placeholder="file | api | dataset"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 text-sm">
-                      <span className="text-xs font-medium text-muted-foreground">URI</span>
-                      <input
-                        className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
-                        value={resource.uri ?? ""}
-                        onChange={(event) => updateResource(index, { uri: event.target.value })}
-                        placeholder="Optional uri"
-                      />
-                    </label>
-                  </div>
-                  <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-xs font-medium text-muted-foreground">Config (JSON)</span>
-                    <textarea
-                      className="min-h-[120px] w-full rounded border border-input bg-background px-3 py-2 text-sm font-mono"
-                      value={resource.configText}
-                      onChange={(event) => updateResource(index, { configText: event.target.value })}
-                      placeholder={`{
+          <TabsContent value="tools" className="mt-6">
+            <section>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Tools
+                </h2>
+                <Button size="sm" variant="outline" onClick={addTool}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add tool
+                </Button>
+              </div>
+              {mcp.tools.length === 0 ? (
+                <div className="mt-3 rounded border border-dashed border-muted-foreground/30 bg-muted/20 p-6 text-sm text-muted-foreground">
+                  Discover from the MCP server or add entries manually.
+                </div>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  {mcp.tools.map((tool, index) => (
+                    <div key={index} className="rounded border bg-card p-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div className="flex-1 space-y-2">
+                          <label className="flex flex-col gap-1 text-sm">
+                            <span className="text-xs font-medium text-muted-foreground">Name</span>
+                            <input
+                              className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                              value={tool.name}
+                              onChange={(event) => updateTool(index, { name: event.target.value })}
+                              placeholder="tool-name"
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-sm">
+                            <span className="text-xs font-medium text-muted-foreground">Description</span>
+                            <input
+                              className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                              value={tool.description ?? ""}
+                              onChange={(event) => updateTool(index, { description: event.target.value })}
+                              placeholder="Optional description"
+                            />
+                          </label>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-2 text-sm font-medium">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4"
+                              checked={tool.enabled !== false}
+                              onChange={(event) => updateTool(index, { enabled: event.target.checked })}
+                            />
+                            Enabled
+                          </label>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => removeTool(index)}
+                            title="Remove tool"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </TabsContent>
+
+          <TabsContent value="resources" className="mt-6">
+            <section>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Resources
+                </h2>
+                <Button size="sm" variant="outline" onClick={addResource}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add resource
+                </Button>
+              </div>
+              {mcp.resources.length === 0 ? (
+                <div className="mt-3 rounded border border-dashed border-muted-foreground/30 bg-muted/20 p-6 text-sm text-muted-foreground">
+                  Define optional MCP resources (files, APIs, datasets) referenced by the server.
+                </div>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  {mcp.resources.map((resource, index) => (
+                    <div key={index} className="rounded border bg-card p-4 space-y-3">
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="text-xs font-medium text-muted-foreground">Name</span>
+                          <input
+                            className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                            value={resource.name}
+                            onChange={(event) => updateResource(index, { name: event.target.value })}
+                            placeholder="resource-name"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="text-xs font-medium text-muted-foreground">Type</span>
+                          <input
+                            className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                            value={resource.type}
+                            onChange={(event) => updateResource(index, { type: event.target.value })}
+                            placeholder="file | api | dataset"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="text-xs font-medium text-muted-foreground">URI</span>
+                          <input
+                            className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                            value={resource.uri ?? ""}
+                            onChange={(event) => updateResource(index, { uri: event.target.value })}
+                            placeholder="Optional uri"
+                          />
+                        </label>
+                      </div>
+                      <label className="flex flex-col gap-1 text-sm">
+                        <span className="text-xs font-medium text-muted-foreground">Config (JSON)</span>
+                        <textarea
+                          className="min-h-[120px] w-full rounded border border-input bg-background px-3 py-2 text-sm font-mono"
+                          value={resource.configText}
+                          onChange={(event) => updateResource(index, { configText: event.target.value })}
+                          placeholder={`{
   "key": "value"
 }`}
-                    />
-                    {resourceErrors[index] && (
-                      <span className="text-xs text-destructive">{resourceErrors[index]}</span>
-                    )}
-                  </label>
-                  <div className="flex justify-end">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => removeResource(index)}
-                      title="Remove resource"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+                        />
+                        {resourceErrors[index] && (
+                          <span className="text-xs text-destructive">{resourceErrors[index]}</span>
+                        )}
+                      </label>
+                      <div className="flex justify-end">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => removeResource(index)}
+                          title="Remove resource"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-        </section>
+              )}
+            </section>
+          </TabsContent>
+
+          <TabsContent value="prompts" className="mt-6">
+            <section>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Prompts
+                </h2>
+                <Button size="sm" variant="outline" onClick={addPrompt}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add prompt
+                </Button>
+              </div>
+              {mcp.prompts.length === 0 ? (
+                <div className="mt-3 rounded border border-dashed border-muted-foreground/30 bg-muted/20 p-6 text-sm text-muted-foreground">
+                  Discover from the MCP server or add entries manually.
+                </div>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  {mcp.prompts.map((prompt, index) => (
+                    <div key={index} className="rounded border bg-card p-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div className="flex-1 space-y-2">
+                          <label className="flex flex-col gap-1 text-sm">
+                            <span className="text-xs font-medium text-muted-foreground">Name</span>
+                            <input
+                              className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                              value={prompt.name}
+                              onChange={(event) => updatePrompt(index, { name: event.target.value })}
+                              placeholder="prompt-name"
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-sm">
+                            <span className="text-xs font-medium text-muted-foreground">Description</span>
+                            <input
+                              className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                              value={prompt.description ?? ""}
+                              onChange={(event) => updatePrompt(index, { description: event.target.value })}
+                              placeholder="Optional description"
+                            />
+                          </label>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-2 text-sm font-medium">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4"
+                              checked={prompt.enabled !== false}
+                              onChange={(event) => updatePrompt(index, { enabled: event.target.checked })}
+                            />
+                            Enabled
+                          </label>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => removePrompt(index)}
+                            title="Remove prompt"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </TabsContent>
+
+          <TabsContent value="resourceTemplates" className="mt-6">
+            <section>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Resource Templates
+                </h2>
+                <Button size="sm" variant="outline" onClick={addResourceTemplate}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add template
+                </Button>
+              </div>
+              {mcp.resourceTemplates.length === 0 ? (
+                <div className="mt-3 rounded border border-dashed border-muted-foreground/30 bg-muted/20 p-6 text-sm text-muted-foreground">
+                  Discover from the MCP server or add entries manually.
+                </div>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  {mcp.resourceTemplates.map((template, index) => (
+                    <div key={index} className="rounded border bg-card p-4">
+                      <div className="flex flex-col gap-3">
+                        <div className="space-y-2">
+                          <label className="flex flex-col gap-1 text-sm">
+                            <span className="text-xs font-medium text-muted-foreground">URI *</span>
+                            <input
+                              className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                              value={template.uri}
+                              onChange={(event) => updateResourceTemplate(index, { uri: event.target.value })}
+                              placeholder="file://path/to/template or http://..."
+                            />
+                          </label>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <label className="flex flex-col gap-1 text-sm">
+                              <span className="text-xs font-medium text-muted-foreground">Name</span>
+                              <input
+                                className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                                value={template.name ?? ""}
+                                onChange={(event) => updateResourceTemplate(index, { name: event.target.value })}
+                                placeholder="Optional name"
+                              />
+                            </label>
+                            <label className="flex flex-col gap-1 text-sm">
+                              <span className="text-xs font-medium text-muted-foreground">MIME Type</span>
+                              <input
+                                className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                                value={template.mimeType ?? ""}
+                                onChange={(event) => updateResourceTemplate(index, { mimeType: event.target.value })}
+                                placeholder="text/plain, application/json, etc."
+                              />
+                            </label>
+                          </div>
+                          <label className="flex flex-col gap-1 text-sm">
+                            <span className="text-xs font-medium text-muted-foreground">Description</span>
+                            <input
+                              className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                              value={template.description ?? ""}
+                              onChange={(event) => updateResourceTemplate(index, { description: event.target.value })}
+                              placeholder="Optional description"
+                            />
+                          </label>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <label className="flex items-center gap-2 text-sm font-medium">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4"
+                              checked={template.enabled !== false}
+                              onChange={(event) => updateResourceTemplate(index, { enabled: event.target.checked })}
+                            />
+                            Enabled
+                          </label>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => removeResourceTemplate(index)}
+                            title="Remove template"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   )

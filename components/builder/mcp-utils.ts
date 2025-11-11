@@ -13,6 +13,22 @@ export interface McpResourceState {
   passthrough: Record<string, any>
 }
 
+export interface McpPromptState {
+  name: string
+  description?: string
+  enabled: boolean
+  passthrough: Record<string, any>
+}
+
+export interface McpResourceTemplateState {
+  uri: string
+  name?: string
+  description?: string
+  mimeType?: string
+  enabled: boolean
+  passthrough: Record<string, any>
+}
+
 export interface McpEditorState {
   id: string
   name: string
@@ -20,6 +36,8 @@ export interface McpEditorState {
   timeoutMs?: number
   tools: McpToolState[]
   resources: McpResourceState[]
+  prompts: McpPromptState[]
+  resourceTemplates: McpResourceTemplateState[]
   passthrough: Record<string, any>
 }
 
@@ -30,6 +48,8 @@ export interface McpFile {
   timeoutMs?: number
   tools?: Array<Record<string, any>>
   resources?: Array<Record<string, any>>
+  prompts?: Array<Record<string, any>>
+  resourceTemplates?: Array<Record<string, any>>
   [key: string]: any
 }
 
@@ -110,6 +130,59 @@ const normalizeResource = (value: any): McpResourceState => {
   }
 }
 
+const normalizePrompt = (value: any): McpPromptState => {
+  if (typeof value === "string") {
+    return {
+      name: value,
+      description: undefined,
+      enabled: true,
+      passthrough: {},
+    }
+  }
+
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {
+      name: "",
+      description: undefined,
+      enabled: true,
+      passthrough: {},
+    }
+  }
+
+  const { name, description, enabled, ...rest } = value as Record<string, any>
+
+  return {
+    name: typeof name === "string" ? name : "",
+    description: typeof description === "string" ? description : undefined,
+    enabled: enabled !== false,
+    passthrough: { ...rest },
+  }
+}
+
+const normalizeResourceTemplate = (value: any): McpResourceTemplateState => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {
+      uri: "",
+      name: undefined,
+      description: undefined,
+      mimeType: undefined,
+      enabled: true,
+      passthrough: {},
+    }
+  }
+
+  const { uri, name, description, mimeType, enabled, ...rest } = value as Record<string, any>
+
+  return {
+    uri: typeof uri === "string" ? uri : "",
+    name: typeof name === "string" ? name : undefined,
+    description: typeof description === "string" ? description : undefined,
+    mimeType: typeof mimeType === "string" ? mimeType : undefined,
+    enabled: enabled !== false,
+    passthrough: { ...rest },
+  }
+}
+
 export const createDefaultMcpEditorState = (fileId: string): McpEditorState => ({
   id: fileId,
   name: fileId,
@@ -117,6 +190,8 @@ export const createDefaultMcpEditorState = (fileId: string): McpEditorState => (
   timeoutMs: 8000,
   tools: [],
   resources: [],
+  prompts: [],
+  resourceTemplates: [],
   passthrough: {},
 })
 
@@ -136,6 +211,8 @@ export const normalizeMcpFile = (input: any, filePath?: string): McpEditorState 
   timeout,
     tools,
     resources,
+    prompts,
+    resourceTemplates,
     ...rest
   } = input as Record<string, any>
 
@@ -153,6 +230,8 @@ export const normalizeMcpFile = (input: any, filePath?: string): McpEditorState 
   timeoutMs: resolvedTimeout ?? 8000,
     tools: Array.isArray(tools) ? tools.map(normalizeTool) : [],
     resources: Array.isArray(resources) ? resources.map(normalizeResource) : [],
+    prompts: Array.isArray(prompts) ? prompts.map(normalizePrompt) : [],
+    resourceTemplates: Array.isArray(resourceTemplates) ? resourceTemplates.map(normalizeResourceTemplate) : [],
     passthrough: { ...rest },
   }
 }
@@ -203,6 +282,20 @@ export const validateMcpState = (state: McpEditorState): string[] => {
       parseResourceConfig(resource, index)
     } catch (error: any) {
       errors.push(typeof error?.message === "string" ? error.message : String(error))
+    }
+  })
+
+  state.prompts.forEach((prompt, index) => {
+    const name = prompt.name?.trim() || ""
+    if (!name) {
+      errors.push(`Prompt #${index + 1} is missing a name.`)
+    }
+  })
+
+  state.resourceTemplates.forEach((template, index) => {
+    const uri = template.uri?.trim() || ""
+    if (!uri) {
+      errors.push(`Resource Template #${index + 1} is missing a URI.`)
     }
   })
 
@@ -266,6 +359,44 @@ export const serializeMcpState = (state: McpEditorState, filePath: string): McpF
     })
     .filter((resource): resource is Record<string, any> => resource !== null)
 
+  const prompts = state.prompts
+    .map((prompt) => {
+      const name = prompt.name?.trim() || ""
+      if (!name) {
+        return null
+      }
+      const payload: Record<string, any> = { ...prompt.passthrough }
+      payload.name = name
+      if (prompt.description?.trim()) {
+        payload.description = prompt.description.trim()
+      }
+      payload.enabled = prompt.enabled !== false
+      return payload
+    })
+    .filter((prompt): prompt is Record<string, any> => prompt !== null)
+
+  const resourceTemplates = state.resourceTemplates
+    .map((template) => {
+      const uri = template.uri?.trim() || ""
+      if (!uri) {
+        return null
+      }
+      const payload: Record<string, any> = { ...template.passthrough }
+      payload.uri = uri
+      if (template.name?.trim()) {
+        payload.name = template.name.trim()
+      }
+      if (template.description?.trim()) {
+        payload.description = template.description.trim()
+      }
+      if (template.mimeType?.trim()) {
+        payload.mimeType = template.mimeType.trim()
+      }
+      payload.enabled = template.enabled !== false
+      return payload
+    })
+    .filter((template): template is Record<string, any> => template !== null)
+
   const result: McpFile = {
     ...state.passthrough,
     id: state.id?.trim() || fileId,
@@ -283,6 +414,14 @@ export const serializeMcpState = (state: McpEditorState, filePath: string): McpF
 
   if (resources.length > 0) {
     result.resources = resources
+  }
+
+  if (prompts.length > 0) {
+    result.prompts = prompts
+  }
+
+  if (resourceTemplates.length > 0) {
+    result.resourceTemplates = resourceTemplates
   }
 
   return result
