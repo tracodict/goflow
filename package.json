@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ai-sdk/mcp": "^0.0.8",
     "@ai-sdk/openai": "^0.0.43",
     "@aws-sdk/client-s3": "^3.896.0",
     "@babel/runtime": "latest",
@@ -28,6 +29,7 @@
     "@jsonforms/core": "latest",
     "@jsonforms/react": "latest",
     "@jsonforms/vanilla-renderers": "latest",
+    "@modelcontextprotocol/sdk": "^1.21.1",
     "@octokit/rest": "^22.0.0",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-alert-dialog": "1.1.4",

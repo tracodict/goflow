@@ -33,6 +33,7 @@ export interface McpEditorState {
   id: string
   name: string
   baseUrl: string
+  type?: 'STDIO' | 'SSE' | 'HTTP'
   timeoutMs?: number
   tools: McpToolState[]
   resources: McpResourceState[]
@@ -45,6 +46,7 @@ export interface McpFile {
   id?: string
   name?: string
   baseUrl?: string
+  type?: 'STDIO' | 'SSE' | 'HTTP'
   timeoutMs?: number
   tools?: Array<Record<string, any>>
   resources?: Array<Record<string, any>>
@@ -206,9 +208,10 @@ export const normalizeMcpFile = (input: any, filePath?: string): McpEditorState 
     id,
     name,
     baseUrl,
-  timeoutMs,
-  timeout_ms,
-  timeout,
+    type,
+    timeoutMs,
+    timeout_ms,
+    timeout,
     tools,
     resources,
     prompts,
@@ -217,6 +220,7 @@ export const normalizeMcpFile = (input: any, filePath?: string): McpEditorState 
   } = input as Record<string, any>
 
   const resolvedTimeout = sanitizeNumber(timeoutMs ?? timeout_ms ?? timeout)
+  const resolvedType = (type === 'STDIO' || type === 'SSE' || type === 'HTTP') ? type : undefined
 
   return {
     id: typeof id === "string" && id.trim() ? id : fileId,
@@ -226,8 +230,9 @@ export const normalizeMcpFile = (input: any, filePath?: string): McpEditorState 
         : typeof id === "string" && id.trim()
         ? id
         : fileId,
-  baseUrl: typeof baseUrl === "string" ? baseUrl : "",
-  timeoutMs: resolvedTimeout ?? 8000,
+    baseUrl: typeof baseUrl === "string" ? baseUrl : "",
+    type: resolvedType,
+    timeoutMs: resolvedTimeout ?? 8000,
     tools: Array.isArray(tools) ? tools.map(normalizeTool) : [],
     resources: Array.isArray(resources) ? resources.map(normalizeResource) : [],
     prompts: Array.isArray(prompts) ? prompts.map(normalizePrompt) : [],
@@ -402,6 +407,10 @@ export const serializeMcpState = (state: McpEditorState, filePath: string): McpF
     id: state.id?.trim() || fileId,
     name: state.name?.trim() || state.id?.trim() || fileId,
     baseUrl: base,
+  }
+
+  if (state.type) {
+    result.type = state.type
   }
 
   if (timeout !== undefined) {

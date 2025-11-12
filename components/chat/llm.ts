@@ -176,9 +176,12 @@ export function resolveModel(modelName?: string) {
   let modelId: string
   
   if (modelName.includes('/')) {
-    const parts = modelName.split('/', 2)
-    providerName = parts[0]
-    modelId = parts[1]
+    // Find the first slash and keep the remainder as modelId so
+    // multi-segment model ids like `openai/gpt-oss-120b` are preserved
+    const firstSlash = modelName.indexOf('/')
+    providerName = modelName.slice(0, firstSlash)
+    modelId = modelName.slice(firstSlash + 1)
+    console.log(`[llm] Parsed provider=${providerName}, modelId=${modelId}`)
   } else {
     // No provider prefix - use first provider
     providerName = providers[0].name
@@ -186,11 +189,19 @@ export function resolveModel(modelName?: string) {
     console.log(`[llm] No provider prefix, using ${providerName}/${modelId}`)
   }
   
+  // Strip label suffix if present (format: "id:label")
+  if (modelId.includes(':') && !modelId.includes('/')) {
+    const [id] = modelId.split(':', 2)
+    modelId = id
+    console.log(`[llm] Stripped label suffix, using model ID: ${modelId}`)
+  }
+  
   const client = getProviderClient(providerName)
   if (!client) {
     throw new Error(`[llm] Provider ${providerName} not available`)
   }
   
+  console.log(`[llm] Resolved model: ${providerName}/${modelId}`)
   return client(modelId)
 }
 

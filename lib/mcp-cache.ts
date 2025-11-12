@@ -11,6 +11,8 @@ export interface McpTool {
   description?: string
   inputSchema?: any
   baseUrl: string
+  type?: 'STDIO' | 'SSE' | 'HTTP'
+  timeoutMs?: number
   serverName?: string
 }
 
@@ -18,6 +20,8 @@ export interface McpPrompt {
   name: string
   description?: string
   baseUrl: string
+  type?: 'STDIO' | 'SSE' | 'HTTP'
+  timeoutMs?: number
   serverName?: string
   arguments?: Array<{
     name: string
@@ -96,6 +100,8 @@ class McpCache {
           description: tool.description,
           inputSchema: (tool as any).inputSchema,
           baseUrl: entry.config.baseUrl,
+          type: entry.config.type,
+          timeoutMs: entry.config.timeoutMs,
           serverName: entry.config.name || entry.fileName
         })
       }
@@ -117,6 +123,8 @@ class McpCache {
           name: prompt.name,
           description: prompt.description,
           baseUrl: entry.config.baseUrl,
+          type: entry.config.type,
+          timeoutMs: entry.config.timeoutMs,
           serverName: entry.config.name || entry.fileName,
           arguments: (prompt as any).arguments || []
         })

@@ -141,10 +141,17 @@ export async function POST(req: NextRequest) {
         }
         
         const fileData = await fileRes.json()
-        const content = fileData.data || ''
+        // fileData.data contains the actual MCP config object
+        const content = fileData.data || {}
+        
+        // Validate it's an object with required fields
+        if (typeof content !== 'object' || !content.baseUrl) {
+          console.warn('[mcp-cache] Invalid MCP config in', fileName, '- missing baseUrl')
+          continue
+        }
         
         mcpConfigs[fileName] = content
-        console.log('[mcp-cache] Loaded config from', fileName, '- tools:', content.tools?.length || 0)
+        console.log('[mcp-cache] Loaded config from', fileName, '- id:', content.id, 'tools:', content.tools?.length || 0)
       } catch (fetchError) {
         console.error('[mcp-cache] Failed to fetch', fileName, fetchError)
       }

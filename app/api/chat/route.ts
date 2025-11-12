@@ -137,11 +137,18 @@ export async function POST(req: NextRequest) {
       const promptConfig = mcpCache.findPrompt(body.mcpPromptName)
       
       if (promptConfig) {
-        const promptData = await getPrompt(FLOW_SERVICE_URL, {
-          endpoint: promptConfig.baseUrl,
-          name: body.mcpPromptName,
-          arguments: body.mcpPromptArgs || {}
-        })
+        const promptData = await getPrompt(
+          {
+            baseUrl: promptConfig.baseUrl,
+            type: promptConfig.type,
+            timeoutMs: promptConfig.timeoutMs
+          },
+          {
+            endpoint: promptConfig.baseUrl,
+            name: body.mcpPromptName,
+            arguments: body.mcpPromptArgs || {}
+          }
+        )
         
         if (promptData.success) {
           mcpPromptContent = extractPromptText(promptData)
@@ -209,38 +216,55 @@ export async function POST(req: NextRequest) {
   const selectedModel = body.model || cookieModel
   const model = resolveModel(selectedModel)
 
-  // Build simple system prompt for Step 1 (no tools)
+  // Get available tools to inform Step 1 decision
+  const allEnabledTools = mcpCache.getEnabledTools()
+  console.log('[chat] Found', allEnabledTools.length, 'enabled tools for decision')
+  
+  // Build tools list for prompt awareness
+  const toolsList = allEnabledTools.length > 0 
+    ? allEnabledTools.map(t => `- ${t.name}: ${t.description || 'no description'}`).join('\n')
+    : ''
+  
+  // Build system prompt for Step 1 that's aware of available tools
   const systemPromptContent = `You are a careful and honest assistant.${mcpPromptContent ? `\n\n## Agent Instructions\n${mcpPromptContent}` : ''}
 
-If you do not have enough information or knowledge to answer a question, you MUST reply exactly with 'NEED_EXTERNAL_KB' and do NOT attempt to guess or make assumptions.
-Do NOT fabricate or infer answers outside your training data or knowledge scope.
-If the question is about a specific financial product of DBS (e.g., DBS FCN) or GoFlow related question, always reply with 'NEED_EXTERNAL_KB'.
-Never answer with information you are not certain about.`
+${toolsList ? `## Available Tools\nYou have access to these tools:\n${toolsList}\n\n` : ''}## Decision Guidelines
+- If the user asks you to perform an ACTION (get data, place order, execute command, check status, etc.), you MUST reply with 'NEED_TOOLS' to use the available tools
+- If the user asks about specific financial products (DBS FCN, etc.) or GoFlow-related questions, reply with 'NEED_EXTERNAL_KB' for knowledge retrieval
+- If you need to call any of the available tools to answer the question, reply with 'NEED_TOOLS'
+- Only answer directly if the question is general knowledge that doesn't require tools or external knowledge
+- Do NOT attempt to guess or fabricate information
+- Do NOT pretend to execute actions - always use 'NEED_TOOLS' if action is needed`
 
-  // Step 1: Quick check if we need external knowledge (no tools, just decide)
+  // Step 1: Quick check if we need tools or external knowledge
   const systemPrompt: CoreMessage = {
     role: 'system',
     content: systemPromptContent
   }
   const llmMessages: CoreMessage[] = [systemPrompt, ...messages]
   
-  // No tools in Step 1 - just decide if we need RAG
+  // Decide if we need tools or RAG
   const result1 = await streamText({ 
     model, 
     messages: llmMessages
   })
   let llmReply = ''
   let needExternalKB = false
+  let needTools = false
   for await (const textPart of result1.textStream) {
     llmReply += textPart
     if (llmReply.includes('NEED_EXTERNAL_KB')) {
       needExternalKB = true
       break
     }
+    if (llmReply.includes('NEED_TOOLS')) {
+      needTools = true
+      break
+    }
   }
 
-  // If LLM can answer, respond directly
-  if (!needExternalKB) {
+  // If LLM can answer directly without tools or KB, respond
+  if (!needExternalKB && !needTools) {
     // persist assistant message
     try {
       const db = await getDb()
@@ -249,50 +273,51 @@ Never answer with information you are not certain about.`
     return new Response(llmReply, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
   }
 
-  // Step 2: Retrieve from Dify
-  const userQuery = messages.slice(-1)[0]?.content || ''
+  // Step 2: Retrieve from Dify (only if need external KB)
   let difyContext = ''
-  try {
-    const difyRes = await fetch(`${DIFY_ENDPOINT}/datasets/${DIFY_DATASET_ID}/retrieve`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${DIFY_DATASET_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        query: userQuery,
-        retrieval_model: {
-          search_method: 'hybrid_search',
-          reranking_enable: false,
-          reranking_mode: null,
-          reranking_model: {
-            reranking_provider_name: '',
-            reranking_model_name: ''
-          },
-          weights: null,
-          top_k: 3,
-          score_threshold_enabled: true,
-          score_threshold: 0.5
-        }
+  if (needExternalKB) {
+    const userQuery = messages.slice(-1)[0]?.content || ''
+    try {
+      const difyRes = await fetch(`${DIFY_ENDPOINT}/datasets/${DIFY_DATASET_ID}/retrieve`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${DIFY_DATASET_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          query: userQuery,
+          retrieval_model: {
+            search_method: 'hybrid_search',
+            reranking_enable: false,
+            reranking_mode: null,
+            reranking_model: {
+              reranking_provider_name: '',
+              reranking_model_name: ''
+            },
+            weights: null,
+            top_k: 3,
+            score_threshold_enabled: true,
+            score_threshold: 0.5
+          }
+        })
       })
-    })
-    const difyData = await difyRes.json()
-    if (Array.isArray(difyData.records)) {
-      difyContext = difyData.records.map((item: any) => {
-        const seg = item.segment;
-        const docName = seg?.document?.name || '';
-        const content = seg?.content || '';
-        return `【${docName}】\n${content}`;
-      }).join('\n\n');
+      const difyData = await difyRes.json()
+      if (Array.isArray(difyData.records)) {
+        difyContext = difyData.records.map((item: any) => {
+          const seg = item.segment;
+          const docName = seg?.document?.name || '';
+          const content = seg?.content || '';
+          return `【${docName}】\n${content}`;
+        }).join('\n\n');
+      }
+    } catch (e) {
+      console.error('[chat] Dify retrieval error', e)
     }
-  } catch (e) {
-    console.error('[chat] Dify retrieval error', e)
   }
 
-  // Step 3: Build tools and add Dify context for final answer
-  // Build tools dictionary from cache (MUST be done here to ensure cache is loaded)
+  // Step 3: Build tools and add context for final answer
+  // Build tools dictionary from cache
   const tools: Record<string, CoreTool> = {}
-  const allEnabledTools = mcpCache.getEnabledTools()
   
   console.log('[chat] Building tools for Step 3, found', allEnabledTools.length, 'enabled tools')
   
@@ -307,11 +332,18 @@ Never answer with information you are not certain about.`
       parameters,
       execute: async (args: any) => {
         try {
-          const result = await callTool(FLOW_SERVICE_URL, {
-            endpoint: tool.baseUrl,
-            name: tool.name,
-            arguments: args
-          })
+          const result = await callTool(
+            {
+              baseUrl: tool.baseUrl,
+              type: tool.type,
+              timeoutMs: tool.timeoutMs
+            },
+            {
+              endpoint: tool.baseUrl,
+              name: tool.name,
+              arguments: args
+            }
+          )
           
           if (result.success) {
             return extractToolText(result)
@@ -325,14 +357,16 @@ Never answer with information you are not certain about.`
     }
   }
   
-  // Build system prompt with tool descriptions
-  const toolsList = allEnabledTools.length > 0 
+  // Build system prompt with tool descriptions for Step 3
+  const toolsListForStep3 = allEnabledTools.length > 0 
     ? `\n\nYou have access to the following tools: ${allEnabledTools.map(t => `${t.name} (${t.description || 'no description'})`).join(', ')}. Use them when appropriate to help the user.`
     : ''
   
-  const systemPromptWithTools = `You are a careful and honest assistant.${mcpPromptContent ? `\n\n## Agent Instructions\n${mcpPromptContent}` : ''}${toolsList}
+  const systemPromptWithTools = `You are a careful and honest assistant.${mcpPromptContent ? `\n\n## Agent Instructions\n${mcpPromptContent}` : ''}${toolsListForStep3}
 
-Use the provided tools when appropriate to help answer the user's question.`
+Use the provided tools when appropriate to help answer the user's question.
+When you use a tool, explain what you're doing and show the results clearly.
+If a tool call fails, try to understand why and explain the issue to the user.`
 
   const contextPrompt: CoreMessage = { 
     role: 'system', 

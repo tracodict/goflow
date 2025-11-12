@@ -618,7 +618,7 @@ export const McpEditor: React.FC = () => {
     }
   }
 
-  const updateField = (updates: Partial<Pick<McpEditorState, "id" | "name" | "baseUrl" | "timeoutMs">>) => {
+  const updateField = (updates: Partial<Pick<McpEditorState, "id" | "name" | "baseUrl" | "type" | "timeoutMs">>) => {
     setMcp((prev) => ({
       ...prev,
       ...updates,
@@ -836,6 +836,18 @@ export const McpEditor: React.FC = () => {
                 onChange={(event) => updateField({ baseUrl: event.target.value })}
                 placeholder="https://example.com/api/mcp"
               />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-xs font-medium text-muted-foreground">Transport Type</span>
+              <select
+                className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                value={mcp.type || 'HTTP'}
+                onChange={(event) => updateField({ type: event.target.value as 'STDIO' | 'SSE' | 'HTTP' })}
+              >
+                <option value="HTTP">HTTP</option>
+                <option value="SSE">SSE (Server-Sent Events)</option>
+                <option value="STDIO">STDIO</option>
+              </select>
             </label>
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-xs font-medium text-muted-foreground">Timeout (ms)</span>
